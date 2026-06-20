@@ -281,16 +281,25 @@ def embed_topup_complete_summary(
     actual_min: float,
     implied_rate_w: float,
     config_rate_w: float,
+    avg_rate_w: float | None = None,
+    reading_count: int = 1,
 ) -> dict:
     from growatt_guard.growatt_api import format_duration_minutes
     rate_str = f"{implied_rate_w:.0f} W"
-    if config_rate_w > 0:
-        diff_pct = (implied_rate_w - config_rate_w) / config_rate_w * 100
-        if abs(diff_pct) >= 10:
-            rate_str += f" (configured {config_rate_w:g} W — consider updating)"
     fields = [
         _f("SOC", f"{start_soc:.0f}% → {end_soc:.0f}% (+{end_soc - start_soc:.0f}%)"),
         _f("Duration", format_duration_minutes(actual_min)),
         _f("Implied charge rate", rate_str),
     ]
+    if avg_rate_w is not None and reading_count >= 2:
+        tip = f"{avg_rate_w:.0f} W ({reading_count} readings)"
+        if config_rate_w > 0:
+            diff_pct = (avg_rate_w - config_rate_w) / config_rate_w * 100
+            if abs(diff_pct) >= 10:
+                tip += f" — consider updating BATTERY_CHARGE_RATE_W={avg_rate_w:.0f}"
+        fields.append(_f("Avg charge rate", tip, inline=False))
+    elif config_rate_w > 0:
+        diff_pct = (implied_rate_w - config_rate_w) / config_rate_w * 100
+        if abs(diff_pct) >= 10:
+            fields.append(_f("Tip", f"Consider BATTERY_CHARGE_RATE_W={implied_rate_w:.0f} (configured {config_rate_w:g} W)", inline=False))
     return _embed("✅ Auto-topup complete", _COLOR_OK, fields)

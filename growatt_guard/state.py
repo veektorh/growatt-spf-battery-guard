@@ -233,6 +233,28 @@ def topup_is_active(now: dt.datetime | None = None) -> bool:
         return False
 
 
+CHARGE_RATE_HISTORY_FILE = STATE_DIR / "charge_rate_history.json"
+_CHARGE_RATE_MAX_READINGS = 10
+
+
+def read_charge_rate_history() -> list[dict]:
+    state = read_json_state(CHARGE_RATE_HISTORY_FILE, "charge rate history")
+    if not state:
+        return []
+    readings = state.get("readings")
+    if not isinstance(readings, list):
+        return []
+    return readings
+
+
+def append_charge_rate_reading(rate_w: float) -> list[dict]:
+    readings = read_charge_rate_history()
+    readings.append({"rate_w": round(rate_w), "recorded_at": utc_now().isoformat()})
+    readings = readings[-_CHARGE_RATE_MAX_READINGS:]
+    write_json_state(CHARGE_RATE_HISTORY_FILE, {"readings": readings})
+    return readings
+
+
 RUNTIME_ALERT_FILE = STATE_DIR / "runtime_alert.json"
 
 

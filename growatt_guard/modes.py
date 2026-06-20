@@ -54,6 +54,7 @@ from growatt_guard.schedule import (
     validate_schedule_overrides,
 )
 from growatt_guard.state import (
+    append_charge_rate_reading,
     clear_battery_alert_state,
     clear_runtime_alert_state,
     clear_topup_state,
@@ -818,17 +819,28 @@ def command_topup_complete_check(config: Config) -> int:
         if soc_gain > 0:
             energy_wh = soc_gain / 100.0 * config.battery_capacity_wh + start_load_w * (actual_min / 60.0)
             implied_rate_w = energy_wh / (actual_min / 60.0)
+
+            history = append_charge_rate_reading(implied_rate_w)
+            rates = [r["rate_w"] for r in history if isinstance(r.get("rate_w"), (int, float))]
+            avg_rate_w = sum(rates) / len(rates) if len(rates) >= 2 else None
+
             print(
                 f"Topup complete: {actual_min:.0f}min, {start_soc:.0f}% → {end_soc:.0f}% (+{soc_gain:.0f}%)\n"
                 f"Implied charge rate: {implied_rate_w:.0f} W (configured: {config.battery_charge_rate_w:g} W)"
             )
+            if avg_rate_w is not None:
+                print(f"  Avg charge rate ({len(rates)} readings): {avg_rate_w:.0f} W")
+                ref_rate = avg_rate_w
+            else:
+                ref_rate = implied_rate_w
             if config.battery_charge_rate_w > 0:
-                diff_pct = abs(implied_rate_w - config.battery_charge_rate_w) / config.battery_charge_rate_w * 100
+                diff_pct = abs(ref_rate - config.battery_charge_rate_w) / config.battery_charge_rate_w * 100
                 if diff_pct >= 10:
-                    print(f"  Tip: consider updating BATTERY_CHARGE_RATE_W={implied_rate_w:.0f}")
+                    print(f"  Tip: consider updating BATTERY_CHARGE_RATE_W={ref_rate:.0f}")
             if config.discord_notify_success and not config.dry_run:
                 send_discord_embed(config, embed_topup_complete_summary(
                     start_soc, end_soc, actual_min, implied_rate_w, config.battery_charge_rate_w,
+                    avg_rate_w=avg_rate_w, reading_count=len(rates),
                 ))
         else:
             print(f"Topup complete: {start_soc:.0f}% → {end_soc:.0f}% (no SOC gain detected).")

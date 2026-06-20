@@ -563,6 +563,43 @@ class TopupForSunriseTests(unittest.TestCase):
         self.assertGreater(result, 0.0)
 
 
+class ChargeRateHistoryTests(unittest.TestCase):
+    def test_append_and_read_single_reading(self):
+        from growatt_guard import state as state_mod
+        with TemporaryDirectory() as tmpdir:
+            with patch.object(state_mod, "CHARGE_RATE_HISTORY_FILE", Path(tmpdir) / "cr.json"):
+                readings = state_mod.append_charge_rate_reading(2800.0)
+        self.assertEqual(len(readings), 1)
+        self.assertEqual(readings[0]["rate_w"], 2800)
+
+    def test_trims_to_max_readings(self):
+        from growatt_guard import state as state_mod
+        with TemporaryDirectory() as tmpdir:
+            with patch.object(state_mod, "CHARGE_RATE_HISTORY_FILE", Path(tmpdir) / "cr.json"):
+                for i in range(12):
+                    readings = state_mod.append_charge_rate_reading(float(2000 + i * 100))
+        self.assertEqual(len(readings), state_mod._CHARGE_RATE_MAX_READINGS)
+        self.assertEqual(readings[-1]["rate_w"], 3100)
+
+    def test_read_returns_empty_list_when_missing(self):
+        from growatt_guard import state as state_mod
+        with TemporaryDirectory() as tmpdir:
+            with patch.object(state_mod, "CHARGE_RATE_HISTORY_FILE", Path(tmpdir) / "cr.json"):
+                result = state_mod.read_charge_rate_history()
+        self.assertEqual(result, [])
+
+    def test_accumulates_across_calls(self):
+        from growatt_guard import state as state_mod
+        with TemporaryDirectory() as tmpdir:
+            with patch.object(state_mod, "CHARGE_RATE_HISTORY_FILE", Path(tmpdir) / "cr.json"):
+                state_mod.append_charge_rate_reading(2800.0)
+                state_mod.append_charge_rate_reading(3000.0)
+                readings = state_mod.read_charge_rate_history()
+        self.assertEqual(len(readings), 2)
+        self.assertEqual(readings[0]["rate_w"], 2800)
+        self.assertEqual(readings[1]["rate_w"], 3000)
+
+
 class TopupCompleteFeedbackTests(unittest.TestCase):
     """Tests for command_topup_complete_check charge-rate feedback."""
 
@@ -590,6 +627,43 @@ class TopupCompleteFeedbackTests(unittest.TestCase):
             "start_load_w": load_w,
         }
 
+    def test_topup_complete_prints_avg_rate_after_multiple_topups(self):
+        from growatt_guard.modes import command_topup_complete_check
+        from growatt_guard import state as state_mod
+
+        state = self._make_topup_state(started_minutes_ago=100, start_soc=48.0, load_w=1000.0, minutes=100)
+        end_status = self._make_status(soc=74.0)
+
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            cfg = make_config(
+                battery_capacity_wh=30000.0,
+                battery_charge_rate_w=3000.0,
+                dry_run=True,
+            )
+            # Seed one prior reading so avg kicks in after this topup
+            with patch.object(state_mod, "CHARGE_RATE_HISTORY_FILE", tmp / "cr.json"):
+                state_mod.append_charge_rate_reading(2900.0)
+
+            buf = StringIO()
+            with (
+                patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "topup_active.json"),
+                patch.object(state_mod, "PAUSE_FILE", tmp / "pause.json"),
+                patch.object(state_mod, "CHARGE_RATE_HISTORY_FILE", tmp / "cr.json"),
+                patch("growatt_guard.modes.read_topup_state", return_value=state),
+                patch("growatt_guard.modes.topup_is_active", return_value=False),
+                patch("growatt_guard.modes.load_context", return_value=(None, None, end_status)),
+                patch("growatt_guard.modes.command_resume", return_value=0),
+                patch("growatt_guard.modes.clear_topup_state"),
+                patch("growatt_guard.modes.command_return_sbu", return_value=0),
+                redirect_stdout(buf),
+            ):
+                command_topup_complete_check(cfg)
+
+        output = buf.getvalue()
+        self.assertIn("Avg charge rate", output)
+        self.assertIn("2 readings", output)
+
     def test_topup_complete_prints_implied_rate(self):
         from growatt_guard.modes import command_topup_complete_check
         from growatt_guard import state as state_mod
@@ -608,6 +682,7 @@ class TopupCompleteFeedbackTests(unittest.TestCase):
             with (
                 patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "topup_active.json"),
                 patch.object(state_mod, "PAUSE_FILE", tmp / "pause.json"),
+                patch.object(state_mod, "CHARGE_RATE_HISTORY_FILE", tmp / "cr.json"),
                 patch("growatt_guard.modes.read_topup_state", return_value=state),
                 patch("growatt_guard.modes.topup_is_active", return_value=False),
                 patch("growatt_guard.modes.load_context", return_value=(None, None, end_status)),
@@ -641,6 +716,7 @@ class TopupCompleteFeedbackTests(unittest.TestCase):
             with (
                 patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "topup_active.json"),
                 patch.object(state_mod, "PAUSE_FILE", tmp / "pause.json"),
+                patch.object(state_mod, "CHARGE_RATE_HISTORY_FILE", tmp / "cr.json"),
                 patch("growatt_guard.modes.read_topup_state", return_value=state),
                 patch("growatt_guard.modes.topup_is_active", return_value=False),
                 patch("growatt_guard.modes.load_context", return_value=(None, None, self._make_status(74.0))),
