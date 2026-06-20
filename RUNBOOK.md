@@ -151,6 +151,7 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py battery-alert
 .venv/bin/python growatt_power_guard.py weekly-summary
 .venv/bin/python growatt_power_guard.py dashboard
+.venv/bin/python growatt_power_guard.py dashboard-refresh --once
 ```
 
 Update the VPS from GitHub, reinstall cron, and run health check:
@@ -159,6 +160,27 @@ Update the VPS from GitHub, reinstall cron, and run health check:
 cd ~/automation
 ./update_server.sh
 ```
+
+Install safe dashboard services:
+
+```bash
+cd ~/automation
+./install_dashboard_service.sh
+```
+
+View from your laptop:
+
+```bash
+ssh -L 8080:localhost:8080 ubuntu@YOUR_VPS_IP
+```
+
+Open:
+
+```text
+http://localhost:8080/dashboard.html
+```
+
+The server serves a static file. Growatt is only called by the refresh service every 10 minutes by default.
 
 ## Weather Thresholds
 

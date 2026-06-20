@@ -63,5 +63,6 @@ schedule_overrides.example.json
 install_cloud_cron.sh
 install_growatt_schedule.ps1
 update_server.sh
+install_dashboard_service.sh
 tests/
 ```

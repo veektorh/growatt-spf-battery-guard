@@ -186,6 +186,8 @@ python .\growatt_power_guard.py health-check
 python .\growatt_power_guard.py health-check --notify
 python .\growatt_power_guard.py battery-alert
 python .\growatt_power_guard.py dashboard
+python .\growatt_power_guard.py dashboard-refresh --once
+python .\growatt_power_guard.py serve-dashboard
 python .\growatt_power_guard.py pause --hours 6 --reason "maintenance"
 python .\growatt_power_guard.py pause-status
 python .\growatt_power_guard.py resume
@@ -275,6 +277,7 @@ Test it:
 .venv/bin/python growatt_power_guard.py health-check --notify
 .venv/bin/python growatt_power_guard.py battery-alert
 .venv/bin/python growatt_power_guard.py dashboard
+.venv/bin/python growatt_power_guard.py dashboard-refresh --once
 ```
 
 ## Pause Or Resume Automation
@@ -359,15 +362,54 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py weekly-summary
 ```
 
-Generate the dashboard:
+Generate the dashboard once:
 
 ```bash
 cd ~/automation
 .venv/bin/python growatt_power_guard.py dashboard
-python3 -m http.server 8080
 ```
 
-Then open `http://your-vps-ip:8080/dashboard.html` if your firewall allows that port.
+Install the safe dashboard services:
+
+```bash
+cd ~/automation
+./install_dashboard_service.sh
+```
+
+This installs:
+
+```text
+growatt-dashboard-refresh.service  refreshes dashboard.html every 10 minutes
+growatt-dashboard-server.service   serves the static file on 127.0.0.1:8080
+```
+
+Browser refreshes do not call Growatt. Only the refresh service calls Growatt, and only on the configured interval.
+
+To use a 30-minute refresh interval instead:
+
+```bash
+cd ~/automation
+DASHBOARD_REFRESH_MINUTES=30 ./install_dashboard_service.sh
+```
+
+View the dashboard from your laptop through an SSH tunnel:
+
+```bash
+ssh -L 8080:localhost:8080 ubuntu@YOUR_VPS_IP
+```
+
+Then open:
+
+```text
+http://localhost:8080/dashboard.html
+```
+
+Check service status:
+
+```bash
+sudo systemctl status growatt-dashboard-refresh.service
+sudo systemctl status growatt-dashboard-server.service
+```
 
 ## Schedule Overrides
 
@@ -453,6 +495,7 @@ schedule.json
 install_cloud_cron.sh
 install_growatt_schedule.ps1
 update_server.sh
+install_dashboard_service.sh
 schedule_overrides.example.json
 tests/
 .gitignore

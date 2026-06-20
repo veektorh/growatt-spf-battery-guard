@@ -4,12 +4,15 @@ import argparse
 import csv
 import datetime as dt
 import html
+import http.server
 import json
 import logging
 import os
 import re
+import socketserver
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -32,6 +35,7 @@ LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "growatt_power_guard.log"
 MODE_AUDIT_FILE = LOG_DIR / "mode_decisions.csv"
 DASHBOARD_FILE = BASE_DIR / "dashboard.html"
+MIN_DASHBOARD_REFRESH_MINUTES = 5
 SCHEDULE_FILE = BASE_DIR / "schedule.json"
 SCHEDULE_OVERRIDES_FILE = BASE_DIR / "schedule_overrides.json"
 STATE_DIR = BASE_DIR / "state"
@@ -1566,16 +1570,95 @@ def build_dashboard_html(
 """
 
 
-def command_dashboard(config: Config, output: str) -> int:
+def resolve_dashboard_output(output: str) -> Path:
+    output_path = Path(output)
+    if not output_path.is_absolute():
+        output_path = BASE_DIR / output_path
+    return output_path
+
+
+def write_dashboard(config: Config, output: str) -> Path:
     _, _, status = load_context(config)
     schedule = validate_schedule()
     overrides = validate_schedule_overrides(schedule)
     threshold_decision = choose_preserve_threshold(config)
-    output_path = Path(output)
-    if not output_path.is_absolute():
-        output_path = BASE_DIR / output_path
+    output_path = resolve_dashboard_output(output)
     output_path.write_text(build_dashboard_html(status, schedule, overrides, threshold_decision), encoding="utf-8")
+    return output_path
+
+
+def command_dashboard(config: Config, output: str) -> int:
+    output_path = write_dashboard(config, output)
     print(f"Wrote dashboard to {output_path}")
+    return 0
+
+
+def command_dashboard_refresh(config: Config, output: str, interval_minutes: float, once: bool = False) -> int:
+    if not once and interval_minutes < MIN_DASHBOARD_REFRESH_MINUTES:
+        raise GrowattGuardError(
+            f"--interval-minutes must be at least {MIN_DASHBOARD_REFRESH_MINUTES} to avoid Growatt API overuse."
+        )
+
+    while True:
+        try:
+            output_path = write_dashboard(config, output)
+        except Exception as exc:  # noqa: BLE001 - keep refresh service alive after transient failures
+            logging.exception("Dashboard refresh failed")
+            if config.discord_notify_failure:
+                send_discord_message(config, f"Growatt dashboard refresh failed.\n{exc}")
+            if once:
+                raise
+        else:
+            message = f"Dashboard refreshed: {output_path}"
+            logging.info(message)
+            print(message, flush=True)
+            if once:
+                return 0
+        time.sleep(interval_minutes * 60)
+
+
+def make_dashboard_handler(output_path: Path):
+    class DashboardHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+            if self.path not in {"/", "/dashboard.html"}:
+                self.send_error(404)
+                return
+            if not output_path.exists():
+                body = (
+                    "<!doctype html><html><body><h1>Growatt Dashboard</h1>"
+                    "<p>Dashboard has not been generated yet.</p></body></html>"
+                ).encode("utf-8")
+                self.send_response(503)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            body = output_path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - BaseHTTPRequestHandler API
+            logging.info("Dashboard server: " + format, *args)
+
+    return DashboardHandler
+
+
+def command_serve_dashboard(config: Config, host: str, port: int, output: str) -> int:
+    _ = config
+    output_path = resolve_dashboard_output(output)
+    handler = make_dashboard_handler(output_path)
+
+    class ReusableThreadingTCPServer(socketserver.ThreadingTCPServer):
+        allow_reuse_address = True
+
+    with ReusableThreadingTCPServer((host, port), handler) as server:
+        print(f"Serving {output_path} at http://{host}:{port}/dashboard.html", flush=True)
+        server.serve_forever()
     return 0
 
 
@@ -2130,6 +2213,19 @@ def build_parser() -> argparse.ArgumentParser:
     health_parser.add_argument("--notify", action="store_true", help="Post the health report to Discord.")
     dashboard_parser = subparsers.add_parser("dashboard", help="Generate a small local HTML dashboard.")
     dashboard_parser.add_argument("--output", default=str(DASHBOARD_FILE), help="Dashboard HTML output path.")
+    refresh_parser = subparsers.add_parser("dashboard-refresh", help="Regenerate dashboard.html on a safe interval.")
+    refresh_parser.add_argument("--output", default=str(DASHBOARD_FILE), help="Dashboard HTML output path.")
+    refresh_parser.add_argument(
+        "--interval-minutes",
+        type=float,
+        default=10,
+        help=f"Refresh interval. Minimum {MIN_DASHBOARD_REFRESH_MINUTES} minutes unless --once is used.",
+    )
+    refresh_parser.add_argument("--once", action="store_true", help="Refresh once, then exit.")
+    serve_parser = subparsers.add_parser("serve-dashboard", help="Serve dashboard.html without calling Growatt.")
+    serve_parser.add_argument("--host", default="127.0.0.1", help="Bind host. Use 127.0.0.1 for SSH tunnel access.")
+    serve_parser.add_argument("--port", type=int, default=8080, help="Bind port.")
+    serve_parser.add_argument("--output", default=str(DASHBOARD_FILE), help="Dashboard HTML file to serve.")
     pause_parser = subparsers.add_parser("pause", help="Pause scheduled mode-changing automation.")
     pause_parser.add_argument("--hours", type=float, required=True, help="How long to pause automation for.")
     pause_parser.add_argument("--reason", default="", help="Optional reason stored in pause state and Discord alert.")
@@ -2176,6 +2272,10 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return command_health_check(config, args.notify)
         if command == "dashboard":
             return command_dashboard(config, args.output)
+        if command == "dashboard-refresh":
+            return command_dashboard_refresh(config, args.output, args.interval_minutes, args.once)
+        if command == "serve-dashboard":
+            return command_serve_dashboard(config, args.host, args.port, args.output)
         if command == "run-scheduled":
             return command_run_scheduled(config, args.job_id)
         if command == "pause":

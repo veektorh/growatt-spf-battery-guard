@@ -24,6 +24,7 @@ from growatt_power_guard import (
     check_cron_schedule,
     command_battery_alert,
     command_dashboard,
+    command_dashboard_refresh,
     command_health_check,
     command_run_scheduled,
     command_watchdog_sbu,
@@ -208,6 +209,20 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(args.command, "dashboard")
         self.assertEqual(args.output, "dash.html")
+
+    def test_dashboard_refresh_command_is_available(self):
+        args = build_parser().parse_args(["dashboard-refresh", "--interval-minutes", "10", "--once"])
+
+        self.assertEqual(args.command, "dashboard-refresh")
+        self.assertEqual(args.interval_minutes, 10)
+        self.assertTrue(args.once)
+
+    def test_serve_dashboard_command_is_available(self):
+        args = build_parser().parse_args(["serve-dashboard", "--host", "127.0.0.1", "--port", "8080"])
+
+        self.assertEqual(args.command, "serve-dashboard")
+        self.assertEqual(args.host, "127.0.0.1")
+        self.assertEqual(args.port, 8080)
 
     def test_truncate_discord_message_keeps_short_messages(self):
         self.assertEqual(truncate_discord_message("hello"), "hello")
@@ -559,6 +574,23 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertIn("Growatt Dashboard", html)
         self.assertIn("50%", html)
         self.assertIn("SBU priority", html)
+
+    def test_dashboard_refresh_once_writes_and_exits(self):
+        config = make_config()
+
+        with patch("growatt_power_guard.write_dashboard", return_value=Path("dashboard.html")) as write_mock, redirect_stdout(
+            StringIO()
+        ) as stdout:
+            self.assertEqual(command_dashboard_refresh(config, "dashboard.html", 1, once=True), 0)
+
+        write_mock.assert_called_once_with(config, "dashboard.html")
+        self.assertIn("Dashboard refreshed", stdout.getvalue())
+
+    def test_dashboard_refresh_rejects_too_fast_loop(self):
+        config = make_config()
+
+        with self.assertRaises(GrowattGuardError):
+            command_dashboard_refresh(config, "dashboard.html", 1, once=False)
 
     def test_command_lock_skips_when_busy(self):
         config = make_config(discord_notify_skip=False)
