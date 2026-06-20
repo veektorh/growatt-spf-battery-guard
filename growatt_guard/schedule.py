@@ -30,6 +30,9 @@ SCHEDULE_COMMANDS = {
     "dashboard-stale-alert",
     "pvoutput-upload",
     "observability-refresh",
+    "auto-topup-check",
+    "topup-complete-check",
+    "runtime-alert",
 }
 SCHEDULE_COMMAND_ARGS = {
     "health-check": {"--notify"},
