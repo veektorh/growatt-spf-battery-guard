@@ -29,6 +29,7 @@ LOG_DIR = BASE_DIR / "logs"
 SOC_KEYS = (
     "SOC",
     "soc",
+    "bmsSoc",
     "capacity",
     "batteryCapacity",
     "batterySoc",
@@ -209,7 +210,7 @@ def extract_soc(data: dict[str, Any]) -> tuple[float, str] | None:
     for path, value in flat:
         if "soc" in path.lower() or "capacity" in path.lower():
             parsed = parse_number(value)
-            if parsed is not None and 0 <= parsed <= 100:
+            if parsed is not None and 0 < parsed <= 100:
                 return parsed, path
     return None
 
