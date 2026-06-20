@@ -465,6 +465,36 @@ class ExtractMetricsTests(unittest.TestCase):
         self.assertIn("load_pct=28", result)
         self.assertIn("bat_w=1736", result)
 
+    def test_summarize_status_includes_vbat(self):
+        status = {
+            "plant_id": "p1",
+            "device_sn": "SN1",
+            "device_type": "storage",
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {
+                    "bmsSoc": 62,
+                    "vBat": 52.3,
+                    "pDischarge": 0,
+                    "pCharge": 0,
+                },
+            },
+        }
+        result = summarize_status(status)
+        self.assertIn("vbat=52.3", result)
+
+    def test_summarize_status_no_vbat_when_absent(self):
+        status = {
+            "plant_id": "p1",
+            "device_sn": "SN1",
+            "device_type": "storage",
+            "storage_params": {
+                "storageDetailBean": {"bmsSoc": 62},
+            },
+        }
+        result = summarize_status(status)
+        self.assertNotIn("vbat=", result)
+
 
 if __name__ == "__main__":
     unittest.main()

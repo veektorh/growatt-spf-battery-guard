@@ -124,6 +124,7 @@ def build_dashboard_embed(discord_module: Any, status_output: str, return_code: 
     bat_w_raw = _extract(r"bat_w=(-?[^,]+)")
     runtime_min_raw = _extract(r"runtime_min=(\d+)")
     charge_min_raw = _extract(r"charge_min=(\d+)")
+    vbat_raw = _extract(r"vbat=([^,]+)")
 
     color = _COLOR_FAIL
     if return_code == 0:
@@ -133,8 +134,12 @@ def build_dashboard_embed(discord_module: Any, status_output: str, return_code: 
         except ValueError:
             color = _COLOR_WARN
 
+    soc_display = soc_clean or "unknown"
+    if vbat_raw != "unknown":
+        soc_display += f" · {vbat_raw}V"
+
     embed = discord_module.Embed(title="Growatt Dashboard", color=color)
-    embed.add_field(name="Battery SOC", value=soc_clean or "unknown", inline=True)
+    embed.add_field(name="Battery SOC", value=soc_display, inline=True)
     embed.add_field(name="Output Mode", value=output_clean or "unknown", inline=True)
     embed.add_field(name="​", value="​", inline=True)
 
@@ -407,10 +412,55 @@ def command_serve_discord_bot(config: Config) -> int:
         )
 
     @tree.command(name="growatt_topup", description="Top up on Utility, then return to SBU.", **command_scope)
-    @app_commands.describe(minutes="Top-up duration in minutes")
-    async def growatt_topup(interaction: discord.Interaction, minutes: int) -> None:
+    @app_commands.describe(
+        minutes="Top-up duration in minutes (use this OR target_soc, not both).",
+        target_soc="Target SOC % to reach (requires BATTERY_CAPACITY_WH and BATTERY_CHARGE_RATE_W configured).",
+    )
+    async def growatt_topup(
+        interaction: discord.Interaction,
+        minutes: int = 0,
+        target_soc: int = 0,
+    ) -> None:
         async def action() -> None:
-            if minutes <= 0 or minutes > config.discord_topup_max_minutes:
+            effective_minutes = minutes
+            if target_soc > 0:
+                if config.battery_capacity_wh <= 0 or config.battery_charge_rate_w <= 0:
+                    await interaction.response.send_message(
+                        "target_soc requires BATTERY_CAPACITY_WH and BATTERY_CHARGE_RATE_W to be configured.",
+                        ephemeral=True,
+                    )
+                    return
+                rc, out = await run_guard_command(["status"])
+                m = re.search(r"soc=(\d+(?:\.\d+)?)", out)
+                if not m:
+                    await interaction.response.send_message(
+                        "Could not read current SOC from status. Try again.",
+                        ephemeral=True,
+                    )
+                    return
+                current_soc = float(m.group(1))
+                if target_soc <= current_soc:
+                    await interaction.response.send_message(
+                        f"Battery is already at {current_soc:.0f}% — target {target_soc}% is already met.",
+                        ephemeral=True,
+                    )
+                    return
+                needed_wh = (target_soc - current_soc) / 100.0 * config.battery_capacity_wh
+                effective_minutes = max(1, round(needed_wh / config.battery_charge_rate_w * 60))
+                if effective_minutes > config.discord_topup_max_minutes:
+                    effective_minutes = config.discord_topup_max_minutes
+                    await interaction.channel.send(
+                        f"⚠️ Computed duration exceeds max ({config.discord_topup_max_minutes} min); capping."
+                    )
+            elif minutes <= 0:
+                await interaction.response.send_message(
+                    "Provide either minutes (1–{}) or target_soc (> current SOC).".format(
+                        config.discord_topup_max_minutes
+                    ),
+                    ephemeral=True,
+                )
+                return
+            elif minutes > config.discord_topup_max_minutes:
                 await interaction.response.send_message(
                     f"Minutes must be between 1 and {config.discord_topup_max_minutes}.",
                     ephemeral=True,
@@ -426,16 +476,16 @@ def command_serve_discord_bot(config: Config) -> int:
                 )
                 return
 
-            reason = f"Discord top-up for {minutes} minute(s)"
-            paused_until = utc_now() + dt.timedelta(minutes=minutes)
-            write_topup_state(minutes, reason, paused_until)
+            reason = f"Discord top-up for {effective_minutes} minute(s)"
+            paused_until = utc_now() + dt.timedelta(minutes=effective_minutes)
+            write_topup_state(effective_minutes, reason, paused_until)
 
             await interaction.response.send_message(
-                f"Starting top-up for {minutes} minute(s). I will pause automation, switch to Utility, then return to SBU.",
+                f"Starting top-up for {effective_minutes} minute(s). I will pause automation, switch to Utility, then return to SBU.",
             )
 
             pause_rc, pause_out = await run_guard_command(
-                ["pause", "--hours", f"{minutes / 60:.4f}", "--reason", reason]
+                ["pause", "--hours", f"{effective_minutes / 60:.4f}", "--reason", reason]
             )
             if pause_rc != 0:
                 clear_topup_state()
@@ -452,7 +502,7 @@ def command_serve_discord_bot(config: Config) -> int:
                 clear_topup_state()
                 return
 
-            await asyncio.sleep(minutes * 60)
+            await asyncio.sleep(effective_minutes * 60)
 
             resume_rc, resume_out = await run_guard_command(["resume"])
             await interaction.channel.send(command_result_text("topup resume", resume_rc, resume_out))

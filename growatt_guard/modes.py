@@ -15,10 +15,12 @@ from growatt_guard.config import Config
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import (
     describe_status_output_source,
+    extract_first_metric,
     extract_soc,
     extract_spf_output_source,
     extract_status_soc,
     load_context,
+    parse_number,
     set_mode,
     summarize_status,
     verify_mode_switch,
@@ -52,7 +54,7 @@ from growatt_guard.state import (
     read_pause_state,
     write_battery_alert_state,
 )
-from growatt_guard.weather import choose_preserve_threshold
+from growatt_guard.weather import apply_load_adjustment, choose_preserve_threshold
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 LOG_DIR = BASE_DIR / "logs"
@@ -93,6 +95,10 @@ def command_preserve_battery(config: Config) -> int:
     soc, path = soc_result
     previous_mode = describe_status_output_source(status)
     threshold_decision = choose_preserve_threshold(config)
+    if config.load_aware_threshold:
+        _load = extract_first_metric(status, ("loadPercent", "loadPercent1"))
+        _load_pct = parse_number(_load[0]) if _load else None
+        threshold_decision = apply_load_adjustment(threshold_decision, _load_pct)
     threshold = threshold_decision.threshold
     logging.info("Preserve-battery threshold: %.1f%% (%s)", threshold, threshold_decision.reason)
 

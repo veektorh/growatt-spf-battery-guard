@@ -414,6 +414,11 @@ def summarize_status(
             ct = estimate_charge_time(soc_val, abs(bat_w_val), battery_capacity_wh)
             if ct is not None:
                 parts.append(f"charge_min={ct:.0f}")
+    _vbat = extract_first_metric(status, ("vBat", "vBat1", "vbat"))
+    if _vbat:
+        n = parse_number(_vbat[0])
+        if n is not None:
+            parts.append(f"vbat={n:g}")
     return ", ".join(parts)
 
 

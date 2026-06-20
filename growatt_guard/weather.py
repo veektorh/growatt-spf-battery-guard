@@ -69,6 +69,35 @@ def apply_season_adjustment(decision: ThresholdDecision, season: str) -> Thresho
     )
 
 
+LOAD_HIGH_PCT: float = 60.0
+LOAD_LOW_PCT: float = 20.0
+LOAD_ADJUSTMENT_PCT: float = 5.0
+
+
+def apply_load_adjustment(decision: ThresholdDecision, load_percent: float | None) -> ThresholdDecision:
+    if load_percent is None:
+        return decision
+    if load_percent > LOAD_HIGH_PCT:
+        new_t = decision.threshold + LOAD_ADJUSTMENT_PCT
+        return ThresholdDecision(
+            threshold=new_t,
+            reason=decision.reason + f"; load {load_percent:.0f}% (high): +{LOAD_ADJUSTMENT_PCT:g}%",
+            weather_category=decision.weather_category,
+            cloud_cover=decision.cloud_cover,
+            precipitation_mm=decision.precipitation_mm,
+        )
+    if load_percent < LOAD_LOW_PCT:
+        new_t = max(0.0, decision.threshold - LOAD_ADJUSTMENT_PCT)
+        return ThresholdDecision(
+            threshold=new_t,
+            reason=decision.reason + f"; load {load_percent:.0f}% (low): -{LOAD_ADJUSTMENT_PCT:g}%",
+            weather_category=decision.weather_category,
+            cloud_cover=decision.cloud_cover,
+            precipitation_mm=decision.precipitation_mm,
+        )
+    return decision
+
+
 def weather_error(message: str) -> Exception:
     return app_module().GrowattGuardError(message)
 

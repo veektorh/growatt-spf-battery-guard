@@ -281,6 +281,9 @@ def build_dashboard_html(
                 _ct = estimate_charge_time(soc_result[0], abs(_bw), battery_capacity_wh)
                 if _ct is not None:
                     est_runtime = format_duration_minutes(_ct) + " to full"
+    _vbat = extract_first_metric(status, ("vBat", "vBat1", "vbat"))
+    _vbat_n = parse_number(_vbat[0]) if _vbat else None
+    vbat = f"{_vbat_n:g} V" if _vbat_n is not None else "—"
     pause_state = read_pause_state()
     pause = pause_message(pause_state) if pause_state else "active"
     alert_state = read_battery_alert_state()
@@ -399,6 +402,7 @@ def build_dashboard_html(
       <div class="card"><div class="label">Output Source</div><div class="value">{esc(mode)}</div></div>
       <div class="card"><div class="label">Battery Status</div><div class="value">{esc(bat_status)}</div></div>
       <div class="card"><div class="label">Battery Power</div><div class="value">{esc(bat_w)}</div></div>
+      <div class="card"><div class="label">Battery Voltage</div><div class="value">{esc(vbat)}</div></div>
       <div class="card"><div class="label">Est. Runtime</div><div class="value">{esc(est_runtime)}</div></div>
       <div class="card"><div class="label">Output Power</div><div class="value">{esc(out_w)}</div></div>
       <div class="card"><div class="label">Load</div><div class="value">{esc(load_pct)}</div></div>

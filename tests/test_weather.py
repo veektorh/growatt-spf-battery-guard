@@ -15,6 +15,7 @@ from growatt_power_guard import (
     choose_preserve_threshold,
     current_season,
 )
+from growatt_guard.weather import apply_load_adjustment
 
 
 class WeatherTests(unittest.TestCase):
@@ -153,6 +154,49 @@ class SeasonProfileTests(unittest.TestCase):
         dry_date = dt.date(2026, 1, 15)
         decision = choose_preserve_threshold(config, today=dry_date)
         self.assertEqual(decision.threshold, 50.0)
+
+
+class LoadAdjustmentTests(unittest.TestCase):
+    BASE = ThresholdDecision(threshold=45.0, reason="test base", weather_category="normal")
+
+    def test_high_load_raises_threshold(self):
+        result = apply_load_adjustment(self.BASE, 65.0)
+        self.assertEqual(result.threshold, 50.0)
+        self.assertIn("high", result.reason)
+        self.assertIn("+5", result.reason)
+
+    def test_low_load_lowers_threshold(self):
+        result = apply_load_adjustment(self.BASE, 15.0)
+        self.assertEqual(result.threshold, 40.0)
+        self.assertIn("low", result.reason)
+        self.assertIn("-5", result.reason)
+
+    def test_normal_load_unchanged(self):
+        result = apply_load_adjustment(self.BASE, 40.0)
+        self.assertEqual(result.threshold, 45.0)
+        self.assertEqual(result.reason, self.BASE.reason)
+
+    def test_none_load_unchanged(self):
+        result = apply_load_adjustment(self.BASE, None)
+        self.assertEqual(result.threshold, 45.0)
+
+    def test_threshold_floor_at_zero(self):
+        low_base = ThresholdDecision(threshold=3.0, reason="base", weather_category="sunny")
+        result = apply_load_adjustment(low_base, 10.0)
+        self.assertEqual(result.threshold, 0.0)
+
+    def test_boundary_exactly_at_high_threshold_not_adjusted(self):
+        result = apply_load_adjustment(self.BASE, 60.0)
+        self.assertEqual(result.threshold, 45.0)
+
+    def test_boundary_exactly_at_low_threshold_not_adjusted(self):
+        result = apply_load_adjustment(self.BASE, 20.0)
+        self.assertEqual(result.threshold, 45.0)
+
+    def test_weather_category_preserved_after_adjustment(self):
+        result = apply_load_adjustment(self.BASE, 70.0)
+        self.assertEqual(result.weather_category, "normal")
+        self.assertIsNone(result.cloud_cover)
 
 
 if __name__ == "__main__":

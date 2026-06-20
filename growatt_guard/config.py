@@ -59,6 +59,8 @@ class Config:
     discord_topup_max_minutes: int = 180
     battery_capacity_wh: float = 0.0
     battery_bms_cutoff_soc: float = 25.0
+    battery_charge_rate_w: float = 0.0
+    load_aware_threshold: bool = False
 
 
 def app_module() -> Any:
@@ -162,4 +164,6 @@ def load_config() -> Config:
         discord_topup_max_minutes=int(env("DISCORD_TOPUP_MAX_MINUTES", "180")),
         battery_capacity_wh=float(env("BATTERY_CAPACITY_WH", "0")),
         battery_bms_cutoff_soc=float(env("BATTERY_BMS_CUTOFF_SOC", "25")),
+        battery_charge_rate_w=float(env("BATTERY_CHARGE_RATE_W", "0")),
+        load_aware_threshold=str_to_bool(env("LOAD_AWARE_THRESHOLD"), default=False),
     )
