@@ -188,3 +188,35 @@ def write_growatt_cloud_failure_state(state: dict[str, Any]) -> None:
 
 def clear_growatt_cloud_failure_state() -> None:
     clear_state_file(GROWATT_CLOUD_FAILURE_FILE)
+
+
+TOPUP_STATE_FILE = STATE_DIR / "topup_active.json"
+
+
+def read_topup_state() -> dict[str, Any] | None:
+    return read_json_state(TOPUP_STATE_FILE, "topup")
+
+
+def write_topup_state(minutes: int, reason: str, paused_until: dt.datetime) -> None:
+    write_json_state(TOPUP_STATE_FILE, {
+        "started_at": utc_now().isoformat(),
+        "minutes": minutes,
+        "paused_until": paused_until.isoformat(),
+        "reason": reason,
+    })
+
+
+def clear_topup_state() -> None:
+    clear_state_file(TOPUP_STATE_FILE)
+
+
+def topup_is_active(now: dt.datetime | None = None) -> bool:
+    state = read_topup_state()
+    if state is None:
+        return False
+    now = now or utc_now()
+    try:
+        paused_until = parse_utc_datetime(str(state["paused_until"]))
+        return now < paused_until
+    except (KeyError, ValueError):
+        return False

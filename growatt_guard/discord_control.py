@@ -1,17 +1,94 @@
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
 from growatt_guard.config import Config
 from growatt_guard.exceptions import GrowattGuardError
+from growatt_guard.state import (
+    clear_topup_state,
+    read_topup_state,
+    topup_is_active,
+    utc_now,
+    write_topup_state,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = BASE_DIR / "growatt_power_guard.py"
 MAX_DISCORD_MESSAGE = 1800
+
+_COLOR_OK = 0x57F287
+_COLOR_WARN = 0xFEE75C
+_COLOR_FAIL = 0xED4245
+_STATUS_ICON = {"OK": "✅", "WARN": "⚠️", "FAIL": "❌"}
+_CHECK_RE = re.compile(r"^\[(OK|WARN|FAIL)\]\s+([^:]+):\s+(.+)$")
+
+
+def _result_color(status: str) -> int:
+    return {"OK": _COLOR_OK, "WARN": _COLOR_WARN}.get(status, _COLOR_FAIL)
+
+
+def build_health_embed(discord_module: Any, output: str, return_code: int) -> Any:
+    lines = output.strip().splitlines()
+    title_line = lines[0] if lines else "Growatt health check"
+    overall = "FAIL"
+    for line in lines:
+        if line.startswith("Result:"):
+            overall = line.split(":", 1)[1].strip()
+            break
+    if return_code != 0 and overall == "OK":
+        overall = "FAIL"
+
+    embed = discord_module.Embed(
+        title=title_line,
+        color=_result_color(overall),
+    )
+    for line in lines:
+        m = _CHECK_RE.match(line)
+        if not m:
+            continue
+        status, name, detail = m.group(1), m.group(2).strip(), m.group(3).strip()
+        icon = _STATUS_ICON.get(status, "•")
+        embed.add_field(name=f"{icon} {name}", value=detail[:1024], inline=False)
+    embed.set_footer(text=f"Overall: {overall}")
+    embed.timestamp = dt.datetime.now(dt.timezone.utc)
+    return embed
+
+
+def build_status_embed(discord_module: Any, output: str, return_code: int) -> Any:
+    def _extract(pattern: str) -> str:
+        m = re.search(pattern, output)
+        return m.group(1).strip() if m else "unknown"
+
+    soc_raw = _extract(r"soc=([^,]+)")
+    output_raw = _extract(r"output=([^,]+)")
+    plant = _extract(r"plant=([^,]+)")
+    device = _extract(r"device=([^,]+)")
+
+    soc_clean = re.sub(r"\s*\([^)]+\)", "", soc_raw).strip()
+    output_clean = re.sub(r"\s*\([^)]+\)", "", output_raw).strip()
+
+    color = _COLOR_FAIL
+    if return_code == 0:
+        try:
+            soc_val = float(soc_clean.rstrip("%"))
+            color = _COLOR_OK if soc_val >= 60 else (_COLOR_WARN if soc_val >= 30 else _COLOR_FAIL)
+        except ValueError:
+            color = _COLOR_WARN
+
+    embed = discord_module.Embed(title="Growatt Status", color=color)
+    embed.add_field(name="Battery SOC", value=soc_clean or "unknown", inline=True)
+    embed.add_field(name="Output Mode", value=output_clean or "unknown", inline=True)
+    embed.add_field(name="​", value="​", inline=True)
+    embed.add_field(name="Plant", value=plant, inline=True)
+    embed.add_field(name="Device", value=device, inline=True)
+    embed.timestamp = dt.datetime.now(dt.timezone.utc)
+    return embed
 
 
 def trim_output(text: str, limit: int = MAX_DISCORD_MESSAGE) -> str:
@@ -118,11 +195,27 @@ def command_serve_discord_bot(config: Config) -> int:
 
     @tree.command(name="growatt_status", description="Read Growatt status.", **command_scope)
     async def growatt_status(interaction: discord.Interaction) -> None:
-        await _guarded(config, interaction, lambda: run_and_send(interaction, "status", ["status"]))
+        async def action() -> None:
+            await interaction.response.defer(thinking=True)
+            return_code, output = await run_guard_command(["status"], timeout_seconds=60)
+            try:
+                embed = build_status_embed(discord, output, return_code)
+                await interaction.followup.send(embed=embed)
+            except Exception:
+                await interaction.followup.send(command_result_text("status", return_code, output))
+        await _guarded(config, interaction, action)
 
     @tree.command(name="growatt_health", description="Run health-check.", **command_scope)
     async def growatt_health(interaction: discord.Interaction) -> None:
-        await _guarded(config, interaction, lambda: run_and_send(interaction, "health-check", ["health-check"]))
+        async def action() -> None:
+            await interaction.response.defer(thinking=True)
+            return_code, output = await run_guard_command(["health-check"], timeout_seconds=90)
+            try:
+                embed = build_health_embed(discord, output, return_code)
+                await interaction.followup.send(embed=embed)
+            except Exception:
+                await interaction.followup.send(command_result_text("health-check", return_code, output))
+        await _guarded(config, interaction, action)
 
     @tree.command(name="growatt_refresh", description="Refresh dashboard and PVOutput.", **command_scope)
     async def growatt_refresh(interaction: discord.Interaction) -> None:
@@ -179,30 +272,48 @@ def command_serve_discord_bot(config: Config) -> int:
                 )
                 return
 
+            if topup_is_active():
+                active = read_topup_state()
+                active_reason = active.get("reason", "unknown") if active else "unknown"
+                await interaction.response.send_message(
+                    f"A top-up is already in progress: {active_reason}. Wait for it to finish or use /growatt_resume to cancel it.",
+                    ephemeral=True,
+                )
+                return
+
+            reason = f"Discord top-up for {minutes} minute(s)"
+            paused_until = utc_now() + dt.timedelta(minutes=minutes)
+            write_topup_state(minutes, reason, paused_until)
+
             await interaction.response.send_message(
                 f"Starting top-up for {minutes} minute(s). I will pause automation, switch to Utility, then return to SBU.",
             )
+
             pause_rc, pause_out = await run_guard_command(
-                ["pause", "--hours", f"{minutes / 60:.4f}", "--reason", f"Discord top-up for {minutes} minute(s)"]
+                ["pause", "--hours", f"{minutes / 60:.4f}", "--reason", reason]
             )
             if pause_rc != 0:
+                clear_topup_state()
                 await interaction.channel.send(command_result_text("topup pause", pause_rc, pause_out))
                 return
 
             utility_rc, utility_out = await run_guard_command(
-                ["force-utility", "--reason", f"Discord top-up for {minutes} minute(s)"]
+                ["force-utility", "--reason", reason]
             )
             await interaction.channel.send(command_result_text("topup utility", utility_rc, utility_out))
             if utility_rc != 0:
                 resume_rc, resume_out = await run_guard_command(["resume"])
                 await interaction.channel.send(command_result_text("topup resume after failure", resume_rc, resume_out))
+                clear_topup_state()
                 return
 
             await asyncio.sleep(minutes * 60)
+
             resume_rc, resume_out = await run_guard_command(["resume"])
             await interaction.channel.send(command_result_text("topup resume", resume_rc, resume_out))
             sbu_rc, sbu_out = await run_guard_command(["return-sbu"])
             await interaction.channel.send(command_result_text("topup return-sbu", sbu_rc, sbu_out))
+            clear_topup_state()
 
         await _guarded(config, interaction, action)
 
