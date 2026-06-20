@@ -45,7 +45,14 @@ from growatt_guard.weather import choose_preserve_threshold
 BASE_DIR = Path(__file__).resolve().parent.parent
 LOG_DIR = BASE_DIR / "logs"
 
-_MODE_CHANGING_COMMANDS = {"preserve-battery", "utility-check", "morning-check", "return-sbu", "watchdog-sbu"}
+_MODE_CHANGING_COMMANDS = {
+    "preserve-battery",
+    "utility-check",
+    "morning-check",
+    "return-sbu",
+    "watchdog-sbu",
+    "force-utility",
+}
 
 
 def command_status(config: Config) -> int:
@@ -175,6 +182,66 @@ def command_utility_check(config: Config) -> int:
 
 def command_morning_check(config: Config) -> int:
     return command_preserve_battery(config)
+
+
+def command_force_utility(config: Config, reason: str = "") -> int:
+    api, device, status = load_context(config)
+    soc = extract_status_soc(status)
+    previous_mode = describe_status_output_source(status)
+
+    current_source = extract_spf_output_source(status)
+    if current_source and current_source[0] == "2":
+        logging.info("Already in Utility first mode; skipping force-utility switch.")
+        append_mode_audit(
+            config,
+            "force-utility",
+            soc=soc,
+            previous_mode=previous_mode,
+            action="no-change",
+            result="skipped",
+            note="already in Utility mode" + (f"; {reason}" if reason else ""),
+        )
+        print("Already in Utility first mode; no switch needed.")
+        return 0
+
+    try:
+        result = set_mode(api, config, device, "utility")
+    except Exception as exc:  # noqa: BLE001 - audit failed mode decisions before re-raising
+        append_mode_audit(
+            config,
+            "force-utility",
+            soc=soc,
+            previous_mode=previous_mode,
+            action="switch-to-utility-failed",
+            result="error",
+            note=str(exc),
+        )
+        raise
+    append_mode_audit(
+        config,
+        "force-utility",
+        soc=soc,
+        previous_mode=previous_mode,
+        action="switch-to-utility",
+        result=result,
+        note=reason,
+    )
+    if config.discord_notify_success and not config.dry_run:
+        message = "Growatt force-utility action completed.\nSwitched to `Utility first`."
+        if reason:
+            message += f"\nReason: {reason}."
+        send_discord_message(config, message)
+    print(f"Utility command result: {result}")
+    if not config.dry_run:
+        confirmed = verify_mode_switch(api, device, "utility")
+        if confirmed is False:
+            logging.warning("force-utility: Utility switch not confirmed by re-read.")
+            if config.discord_notify_failure:
+                send_discord_message(
+                    config,
+                    "Growatt force-utility: switch command accepted but outputConfig did not update to Utility on re-read. Please check the inverter.",
+                )
+    return 0
 
 
 def command_return_sbu(config: Config) -> int:

@@ -39,6 +39,13 @@ from growatt_guard.dashboard import (
     refresh_observability_once,
     write_dashboard_from_status,
 )
+from growatt_guard.discord_control import (
+    command_result_text,
+    command_serve_discord_bot,
+    is_authorized_interaction,
+    trim_output,
+    validate_control_config,
+)
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import (
     DeviceRef,
@@ -64,6 +71,7 @@ from growatt_guard.health import (
 from growatt_guard.modes import (
     command_battery_alert,
     command_daily_summary,
+    command_force_utility,
     command_monthly_summary,
     command_morning_check,
     command_preserve_battery,
@@ -148,7 +156,7 @@ LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "growatt_power_guard.log"
 
 PAUSABLE_COMMANDS = {"preserve-battery", "utility-check", "morning-check", "return-sbu", "watchdog-sbu"}
-LOCKED_COMMANDS = PAUSABLE_COMMANDS
+LOCKED_COMMANDS = PAUSABLE_COMMANDS | {"force-utility"}
 
 
 def setup_logging(verbose: bool) -> None:

@@ -37,6 +37,12 @@ Also check that no real Discord webhook URL is committed:
 grep -R "discord.com/api/webhooks/[0-9]" .
 ```
 
+Also check that no real Discord bot token or private control IDs are committed:
+
+```bash
+grep -R "DISCORD_BOT_TOKEN=\|DISCORD_CONTROL_CHANNEL_ID=\|DISCORD_CONTROL_ALLOWED_USER_IDS=" .
+```
+
 The public repo should only contain placeholders such as:
 
 ```text
@@ -69,5 +75,6 @@ install_growatt_schedule.ps1
 update_server.sh
 install_dashboard_service.sh
 install_dashboard_proxy.sh
+install_discord_bot_service.sh
 tests/
 ```

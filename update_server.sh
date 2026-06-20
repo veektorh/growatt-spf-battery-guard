@@ -51,6 +51,10 @@ else
   nohup "${PYTHON_BIN}" growatt_power_guard.py observability-refresh --loop --interval-minutes 10 >> "${ROOT}/logs/cron.log" 2>&1 &
   echo "Started observability-refresh (PID $!)."
 fi
+if command -v systemctl >/dev/null 2>&1 && systemctl cat growatt-discord-control.service >/dev/null 2>&1; then
+  echo "Restarting Discord control bot..."
+  sudo systemctl restart growatt-discord-control.service
+fi
 
 echo "Running post-deploy smoke checks..."
 "${PYTHON_BIN}" growatt_power_guard.py observability-refresh

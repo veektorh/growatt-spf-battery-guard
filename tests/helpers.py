@@ -36,6 +36,11 @@ def make_config(**overrides):
         "pvoutput_enabled": False,
         "pvoutput_api_key": "",
         "pvoutput_system_id": "",
+        "discord_bot_token": "",
+        "discord_control_channel_id": "",
+        "discord_control_allowed_user_ids": (),
+        "discord_control_guild_id": "",
+        "discord_topup_max_minutes": 180,
     }
     values.update(overrides)
     return Config(**values)

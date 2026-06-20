@@ -7,6 +7,7 @@ from typing import Any
 
 from growatt_guard.config import Config, load_config
 from growatt_guard.dashboard import DASHBOARD_FILE, MIN_DASHBOARD_REFRESH_MINUTES
+from growatt_guard.discord_control import command_serve_discord_bot
 from growatt_guard.notifications import notify_failure
 from growatt_guard.pvoutput import command_pvoutput_upload
 from growatt_guard.schedule import command_outage_profile, command_schedule_override, command_validate_schedule
@@ -35,6 +36,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("preserve-battery", help="Switch to Utility if battery SOC is below LOW_BATTERY_SOC.")
     subparsers.add_parser("utility-check", help="Alias for preserve-battery.")
     subparsers.add_parser("morning-check", help="Alias for preserve-battery.")
+    force_utility_parser = subparsers.add_parser("force-utility", help="Switch to Utility first without an SOC threshold.")
+    force_utility_parser.add_argument("--reason", default="", help="Optional reason stored in the audit log.")
     subparsers.add_parser("return-sbu", help="Switch back to SBU.")
     subparsers.add_parser("watchdog-sbu", help="Verify output source is SBU; retry SBU once if needed.")
     subparsers.add_parser("daily-summary", help="Post/print a daily Growatt and automation summary.")
@@ -85,6 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--host", default="127.0.0.1", help="Bind host. Use 127.0.0.1 for SSH tunnel access.")
     serve_parser.add_argument("--port", type=int, default=8080, help="Bind port.")
     serve_parser.add_argument("--output", default=str(DASHBOARD_FILE), help="Dashboard HTML file to serve.")
+    subparsers.add_parser("serve-discord-bot", help="Run the private Discord control bot.")
     pause_parser = subparsers.add_parser("pause", help="Pause scheduled mode-changing automation.")
     pause_parser.add_argument("--hours", type=float, required=True, help="How long to pause automation for.")
     pause_parser.add_argument("--reason", default="", help="Optional reason stored in pause state and Discord alert.")
@@ -169,6 +173,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_utility_check(config)
         if command == "morning-check":
             return app.command_morning_check(config)
+        if command == "force-utility":
+            return app.command_force_utility(config, args.reason)
         if command == "return-sbu":
             return app.command_return_sbu(config)
         if command == "watchdog-sbu":
@@ -199,6 +205,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_dashboard_stale_alert(config, args.output, args.max_age_minutes)
         if command == "serve-dashboard":
             return app.command_serve_dashboard(config, args.host, args.port, args.output)
+        if command == "serve-discord-bot":
+            return command_serve_discord_bot(config)
         if command == "run-scheduled":
             return app.command_run_scheduled(config, args.job_id, dry_plan=args.dry_plan)
         if command == "pause":

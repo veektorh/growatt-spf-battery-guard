@@ -174,6 +174,47 @@ class IdempotencyTests(unittest.TestCase):
         self.assertEqual(result, 0)
         mock_set.assert_called_once()
 
+    def test_force_utility_skips_when_already_utility(self):
+        from growatt_guard.modes import command_force_utility
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from tempfile import TemporaryDirectory
+
+        config = make_config()
+        status = {
+            "device": {"capacity": "70 %"},
+            "storage_params": {"storageBean": {"outputConfig": "2"}},
+        }
+        with TemporaryDirectory() as tmpdir:
+            with self._audit_patch(tmpdir)[0], self._audit_patch(tmpdir)[1], \
+                 patch("growatt_guard.modes.load_context", return_value=(None, DeviceRef("p", "s", "storage", {}), status)), \
+                 patch("growatt_guard.modes.set_mode") as mock_set, \
+                 redirect_stdout(StringIO()):
+                result = command_force_utility(config, "test")
+        self.assertEqual(result, 0)
+        mock_set.assert_not_called()
+
+    def test_force_utility_switches_when_not_already_utility(self):
+        from growatt_guard.modes import command_force_utility
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from tempfile import TemporaryDirectory
+
+        config = make_config()
+        status = {
+            "device": {"capacity": "70 %"},
+            "storage_params": {"storageBean": {"outputConfig": "0"}},
+        }
+        with TemporaryDirectory() as tmpdir:
+            with self._audit_patch(tmpdir)[0], self._audit_patch(tmpdir)[1], \
+                 patch("growatt_guard.modes.load_context", return_value=(object(), DeviceRef("p", "s", "storage", {}), status)), \
+                 patch("growatt_guard.modes.set_mode", return_value={"dry_run": True}) as mock_set, \
+                 patch("growatt_guard.modes.verify_mode_switch", return_value=None), \
+                 redirect_stdout(StringIO()):
+                result = command_force_utility(config, "test")
+        self.assertEqual(result, 0)
+        mock_set.assert_called_once()
+
 
 class LoadContextRetryTests(unittest.TestCase):
     def _make_context(self):

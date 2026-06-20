@@ -52,6 +52,10 @@ growatt_guard.dashboard
 growatt_guard.pvoutput
   Owns PVOutput field extraction, upload, extended-field fallback, and upload state.
 
+growatt_guard.discord_control
+  Owns the optional private Discord control bot. It receives allowlisted slash
+  commands and executes safe CLI commands in subprocesses.
+
 growatt_guard.pause
   Owns pause/resume state checks and the mode-command lock.
 
@@ -59,7 +63,7 @@ growatt_guard.health
   Owns the health-check command and health report formatting.
 
 growatt_guard.modes
-  Owns all remaining command implementations: preserve-battery, return-sbu,
+  Owns all remaining command implementations: preserve-battery, force-utility, return-sbu,
   watchdog-sbu, run-scheduled (including --dry-plan), battery-alert, summaries, etc.
 ```
 
@@ -71,11 +75,12 @@ Mode-changing commands:
 preserve-battery
 utility-check
 morning-check
+force-utility
 return-sbu
 watchdog-sbu
 ```
 
-These commands use the mode-command lock in `state/mode_command.lock` to avoid overlapping Growatt writes. They also respect the pause state.
+These commands use the mode-command lock in `state/mode_command.lock` to avoid overlapping Growatt writes. Scheduled mode-changing commands also respect the pause state; `force-utility` is an explicit manual/top-up command and is locked but not blocked by pause.
 
 Read-only or reporting commands:
 
@@ -92,6 +97,7 @@ dashboard-refresh
 observability-refresh
 dashboard-stale-alert
 serve-dashboard
+serve-discord-bot
 validate-schedule
 pause-status
 schedule-preview
@@ -103,6 +109,20 @@ Pause/resume commands:
 ```text
 pause
 resume
+```
+
+Discord control commands:
+
+```text
+/growatt_status
+/growatt_health
+/growatt_refresh
+/growatt_pause
+/growatt_resume
+/growatt_sbu
+/growatt_utility
+/growatt_preserve
+/growatt_topup
 ```
 
 ## Important Files

@@ -52,6 +52,11 @@ class Config:
     pvoutput_enabled: bool = False
     pvoutput_api_key: str = ""
     pvoutput_system_id: str = ""
+    discord_bot_token: str = ""
+    discord_control_channel_id: str = ""
+    discord_control_allowed_user_ids: tuple[str, ...] = ()
+    discord_control_guild_id: str = ""
+    discord_topup_max_minutes: int = 180
 
 
 def app_module() -> Any:
@@ -86,6 +91,13 @@ def env(name: str, default: str = "") -> str:
 
 def optional_float(value: str) -> float | None:
     return float(value) if value else None
+
+
+def csv_env(name: str) -> tuple[str, ...]:
+    value = env(name)
+    if not value:
+        return ()
+    return tuple(part.strip() for part in value.split(",") if part.strip())
 
 
 def load_config() -> Config:
@@ -141,4 +153,9 @@ def load_config() -> Config:
         pvoutput_enabled=str_to_bool(env("PVOUTPUT_ENABLED"), default=False),
         pvoutput_api_key=env("PVOUTPUT_API_KEY"),
         pvoutput_system_id=env("PVOUTPUT_SYSTEM_ID"),
+        discord_bot_token=env("DISCORD_BOT_TOKEN"),
+        discord_control_channel_id=env("DISCORD_CONTROL_CHANNEL_ID"),
+        discord_control_allowed_user_ids=csv_env("DISCORD_CONTROL_ALLOWED_USER_IDS"),
+        discord_control_guild_id=env("DISCORD_CONTROL_GUILD_ID"),
+        discord_topup_max_minutes=int(env("DISCORD_TOPUP_MAX_MINUTES", "180")),
     )

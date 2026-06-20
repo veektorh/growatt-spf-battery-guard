@@ -140,6 +140,10 @@ GROWATT_CLOUD_FAILURE_ALERT_THRESHOLD=3
 DASHBOARD_STALE_MINUTES=30
 GROWATT_MODE_DRIVER=spf5000
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+DISCORD_BOT_TOKEN=your_bot_token
+DISCORD_CONTROL_CHANNEL_ID=your_private_channel_id
+DISCORD_CONTROL_ALLOWED_USER_IDS=your_discord_user_id
+DISCORD_CONTROL_GUILD_ID=your_server_id
 WEATHER_ENABLED=true
 WEATHER_LAT=your_latitude
 WEATHER_LON=your_longitude
@@ -196,6 +200,31 @@ DASHBOARD_STALE_MINUTES=30
 ```
 
 If a separate 10-minute `pvoutput-upload` cron job exists, remove it after installing the dashboard service. `observability-refresh` replaces that duplicate poller.
+
+## Discord Control Bot
+
+The control bot is optional and separate from the send-only Discord webhook. It should only be invited to a private control channel and allowlisted to your Discord user ID.
+
+Install or restart it:
+
+```bash
+cd ~/automation
+.venv/bin/python -m pip install -r requirements.txt
+./install_discord_bot_service.sh
+```
+
+Check status and logs:
+
+```bash
+sudo systemctl status growatt-discord-control.service
+journalctl -u growatt-discord-control.service -n 80 --no-pager
+```
+
+Emergency stop for all Discord write controls:
+
+```bash
+sudo systemctl stop growatt-discord-control.service
+```
 
 Expose on a dashboard subdomain:
 

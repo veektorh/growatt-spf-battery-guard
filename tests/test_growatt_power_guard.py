@@ -39,6 +39,17 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(args.command, "watchdog-sbu")
 
+    def test_force_utility_command_is_available(self):
+        args = build_parser().parse_args(["force-utility", "--reason", "manual top-up"])
+
+        self.assertEqual(args.command, "force-utility")
+        self.assertEqual(args.reason, "manual top-up")
+
+    def test_discord_bot_command_is_available(self):
+        args = build_parser().parse_args(["serve-discord-bot"])
+
+        self.assertEqual(args.command, "serve-discord-bot")
+
     def test_daily_summary_command_is_available(self):
         args = build_parser().parse_args(["daily-summary"])
 

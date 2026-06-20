@@ -150,6 +150,53 @@ other command failures alert immediately, if DISCORD_NOTIFY_FAILURE=true
 checks are skipped, only if DISCORD_NOTIFY_SKIP=true
 ```
 
+## Discord Control Bot
+
+The webhook above is send-only. To trigger safe write actions from Discord, run the optional private control bot.
+
+Create a Discord application/bot, invite it to your server, then put it in a private control channel. In Discord, enable Developer Mode and copy:
+
+```text
+your Discord user ID
+the private channel ID
+the server/guild ID
+the bot token
+```
+
+Add these to `.env`:
+
+```text
+DISCORD_BOT_TOKEN=your_bot_token
+DISCORD_CONTROL_CHANNEL_ID=your_private_channel_id
+DISCORD_CONTROL_ALLOWED_USER_IDS=your_discord_user_id
+DISCORD_CONTROL_GUILD_ID=your_server_id
+DISCORD_TOPUP_MAX_MINUTES=180
+```
+
+Install the bot service on the VPS:
+
+```bash
+cd ~/automation
+.venv/bin/python -m pip install -r requirements.txt
+./install_discord_bot_service.sh
+```
+
+Available slash commands:
+
+```text
+/growatt_status
+/growatt_health
+/growatt_refresh
+/growatt_pause
+/growatt_resume
+/growatt_sbu
+/growatt_utility
+/growatt_preserve
+/growatt_topup
+```
+
+`/growatt_topup minutes:60` pauses scheduled mode-changing automation, switches to Utility first, waits, resumes automation, then returns to SBU.
+
 ## Current Light Schedule
 
 Estate power is unavailable during these windows:
@@ -187,6 +234,7 @@ cd ~/automation
 
 ```powershell
 python .\growatt_power_guard.py preserve-battery
+python .\growatt_power_guard.py force-utility --reason "manual top-up"
 python .\growatt_power_guard.py return-sbu
 python .\growatt_power_guard.py watchdog-sbu
 python .\growatt_power_guard.py daily-summary
@@ -202,6 +250,7 @@ python .\growatt_power_guard.py dashboard-refresh --once
 python .\growatt_power_guard.py observability-refresh
 python .\growatt_power_guard.py dashboard-stale-alert
 python .\growatt_power_guard.py serve-dashboard
+python .\growatt_power_guard.py serve-discord-bot
 python .\growatt_power_guard.py pause --hours 6 --reason "maintenance"
 python .\growatt_power_guard.py pause-status
 python .\growatt_power_guard.py resume
@@ -285,6 +334,7 @@ Test it:
 .venv/bin/python growatt_power_guard.py status
 .venv/bin/python growatt_power_guard.py test-discord
 .venv/bin/python growatt_power_guard.py preserve-battery
+.venv/bin/python growatt_power_guard.py force-utility --reason "manual top-up"
 .venv/bin/python growatt_power_guard.py return-sbu
 .venv/bin/python growatt_power_guard.py watchdog-sbu
 .venv/bin/python growatt_power_guard.py daily-summary
@@ -607,6 +657,7 @@ install_growatt_schedule.ps1
 update_server.sh
 install_dashboard_service.sh
 install_dashboard_proxy.sh
+install_discord_bot_service.sh
 schedule_overrides.example.json
 tests/
 .gitignore

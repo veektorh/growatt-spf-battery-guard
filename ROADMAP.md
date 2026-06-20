@@ -16,6 +16,7 @@ This is a parking lot for improvements that would make the Growatt guard safer, 
 - **Season profiles** — `SEASON_PROFILES_ENABLED=true`; rainy season (Apr–Oct) uses config thresholds; dry season (Nov–Mar) lowers thresholds to 45/40/35%.
 - **PVOutput export** — `pvoutput-upload` command POSTs live Growatt status to PVOutput.org; standard fields (v1-v6) plus extended battery fields (v7-v9); graceful retry without extended data if account plan doesn't support it.
 - **Shared observability refresh** - `observability-refresh` reads Growatt once, then refreshes the dashboard and uploads PVOutput from the same status payload.
+- **Private Discord control bot** - allowlisted slash commands for status, health, refresh, pause/resume, force Utility, SBU return, preserve, and timed top-up.
 - **Tests split by module** — `test_schedule.py`, `test_dashboard.py`, `test_growatt_api.py`, `test_weather.py`, `test_pause.py`, `test_notifications.py`.
 - **Update health gate** — `update_server.sh` runs compile/tests/validate-schedule before reinstalling cron; post-deploy smoke checks.
 - **Monthly summary** — `monthly-summary` command (30-day audit window).

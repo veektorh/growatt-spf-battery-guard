@@ -28,6 +28,7 @@ This project automates battery-preservation mode switching for a Growatt SPF inv
 - `growatt_guard/health.py`: `health-check` command and health report formatting.
 - `growatt_guard/dashboard.py`: static dashboard generation, observability refresh loop, stale alert, and static server.
 - `growatt_guard/pvoutput.py`: PVOutput field extraction, upload, retry without extended fields, and upload state.
+- `growatt_guard/discord_control.py`: optional private Discord control bot; keep commands allowlisted and route writes through existing CLI commands.
 - `growatt_guard/audit.py`: mode decision CSV audit trail, daily summary, weekly summary, and log counters.
 - `growatt_guard/notifications.py`: Discord notifications and Growatt cloud failure streak tracking.
 - `growatt_guard/state.py`: local state files, pause state, alert state, command locks, and timestamps.
