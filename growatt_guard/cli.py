@@ -8,7 +8,7 @@ from typing import Any
 from growatt_guard.config import Config, load_config
 from growatt_guard.dashboard import DASHBOARD_FILE, MIN_DASHBOARD_REFRESH_MINUTES
 from growatt_guard.notifications import notify_failure
-from growatt_guard.schedule import command_validate_schedule
+from growatt_guard.schedule import command_schedule_override, command_validate_schedule
 
 
 def app_module() -> Any:
@@ -82,6 +82,41 @@ def build_parser() -> argparse.ArgumentParser:
         "schedule-preview", help="Print upcoming scheduled jobs for the next N days, including overrides."
     )
     preview_parser.add_argument("--days", type=int, default=7, help="Number of days to preview (default 7).")
+
+    override_parser = subparsers.add_parser(
+        "schedule-override", help="Manage temporary date overrides in schedule_overrides.json."
+    )
+    override_sub = override_parser.add_subparsers(dest="override_subcommand", required=True)
+
+    override_list = override_sub.add_parser("list", help="List current overrides.")
+    override_list.add_argument("date", nargs="?", default="", help="Filter to a specific YYYY-MM-DD date.")
+
+    override_add_skip = override_sub.add_parser("add-skip", help="Skip a job on a specific date.")
+    override_add_skip.add_argument("date", help="YYYY-MM-DD date.")
+    override_add_skip.add_argument("job_id", help="Schedule job id to skip.")
+    override_add_skip.add_argument("--note", default="", help="Optional reason note.")
+
+    override_add_skip_all = override_sub.add_parser("add-skip-all", help="Skip all jobs on a specific date.")
+    override_add_skip_all.add_argument("date", help="YYYY-MM-DD date.")
+    override_add_skip_all.add_argument("--note", default="", help="Optional reason note.")
+
+    override_add_replace = override_sub.add_parser("add-replace", help="Replace a job with another command on a specific date.")
+    override_add_replace.add_argument("date", help="YYYY-MM-DD date.")
+    override_add_replace.add_argument("job_id", help="Schedule job id to replace.")
+    override_add_replace.add_argument("replacement_command", help="Command to run instead.")
+    override_add_replace.add_argument("--note", default="", help="Optional reason note.")
+    override_add_replace.add_argument(
+        "replacement_args",
+        nargs=argparse.REMAINDER,
+        help="Args for the replacement command (e.g. --notify). Put --note before these.",
+    )
+
+    override_remove = override_sub.add_parser("remove", help="Remove overrides for a date (or a specific job on that date).")
+    override_remove.add_argument("date", help="YYYY-MM-DD date.")
+    override_remove.add_argument(
+        "job_id", nargs="?", default="", help="Job id to remove. If omitted, removes all overrides for the date."
+    )
+
     return parser
 
 
@@ -144,6 +179,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_clear_stale_lock(config)
         if command == "schedule-preview":
             return app.command_schedule_preview(config, args.days)
+        if command == "schedule-override":
+            return command_schedule_override(config, args)
         raise app.GrowattGuardError(f"Unknown command: {command}")
 
     if command in app.LOCKED_COMMANDS:

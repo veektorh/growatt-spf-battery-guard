@@ -128,6 +128,39 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(args.command, "clear-stale-lock")
 
+    def test_schedule_override_list_is_available(self):
+        args = build_parser().parse_args(["schedule-override", "list"])
+
+        self.assertEqual(args.command, "schedule-override")
+        self.assertEqual(args.override_subcommand, "list")
+
+    def test_schedule_override_add_skip_is_available(self):
+        args = build_parser().parse_args(
+            ["schedule-override", "add-skip", "2026-07-01", "morning-preserve", "--note", "Maintenance"]
+        )
+
+        self.assertEqual(args.command, "schedule-override")
+        self.assertEqual(args.override_subcommand, "add-skip")
+        self.assertEqual(args.date, "2026-07-01")
+        self.assertEqual(args.job_id, "morning-preserve")
+        self.assertEqual(args.note, "Maintenance")
+
+    def test_schedule_override_add_replace_is_available(self):
+        args = build_parser().parse_args(
+            ["schedule-override", "add-replace", "2026-07-01", "morning-preserve", "health-check", "--notify"]
+        )
+
+        self.assertEqual(args.override_subcommand, "add-replace")
+        self.assertEqual(args.replacement_command, "health-check")
+        self.assertEqual(args.replacement_args, ["--notify"])
+
+    def test_schedule_override_remove_is_available(self):
+        args = build_parser().parse_args(["schedule-override", "remove", "2026-07-01"])
+
+        self.assertEqual(args.override_subcommand, "remove")
+        self.assertEqual(args.date, "2026-07-01")
+        self.assertEqual(args.job_id, "")
+
     def test_build_daily_summary_includes_key_metrics(self):
         status = {
             "device": {"capacity": "50 %"},
