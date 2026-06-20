@@ -61,6 +61,10 @@ class Config:
     battery_bms_cutoff_soc: float = 25.0
     battery_charge_rate_w: float = 0.0
     load_aware_threshold: bool = False
+    battery_charge_target_soc: float = 0.0
+    auto_topup_enabled: bool = False
+    runtime_alert_minutes: float = 0.0
+    runtime_alert_clear_minutes: float = 0.0
 
 
 def app_module() -> Any:
@@ -118,6 +122,10 @@ def validate_config(config: Config) -> list[str]:
     if config.weather_enabled and (config.weather_lat is None or config.weather_lon is None):
         warnings.append(
             "WEATHER_ENABLED=true but WEATHER_LAT and/or WEATHER_LON are not set"
+        )
+    if config.auto_topup_enabled and (config.battery_capacity_wh <= 0 or config.battery_charge_rate_w <= 0):
+        warnings.append(
+            "AUTO_TOPUP_ENABLED requires BATTERY_CAPACITY_WH and BATTERY_CHARGE_RATE_W to be configured"
         )
     return warnings
 
@@ -184,4 +192,8 @@ def load_config() -> Config:
         battery_bms_cutoff_soc=float(env("BATTERY_BMS_CUTOFF_SOC", "25")),
         battery_charge_rate_w=float(env("BATTERY_CHARGE_RATE_W", "0")),
         load_aware_threshold=str_to_bool(env("LOAD_AWARE_THRESHOLD"), default=False),
+        battery_charge_target_soc=float(env("BATTERY_CHARGE_TARGET_SOC", "0")),
+        auto_topup_enabled=str_to_bool(env("AUTO_TOPUP_ENABLED"), default=False),
+        runtime_alert_minutes=float(env("RUNTIME_ALERT_MINUTES", "0")),
+        runtime_alert_clear_minutes=float(env("RUNTIME_ALERT_CLEAR_MINUTES", "0")),
     )

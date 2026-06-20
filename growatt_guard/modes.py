@@ -15,6 +15,8 @@ from growatt_guard.config import Config
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import (
     describe_status_output_source,
+    estimate_runtime,
+    estimate_topup_for_sunrise,
     extract_first_metric,
     extract_soc,
     extract_spf_output_source,
@@ -27,19 +29,22 @@ from growatt_guard.growatt_api import (
     write_probe,
 )
 from growatt_guard.notifications import (
+    embed_auto_topup_started,
     embed_battery_alert,
     embed_battery_cleared,
     embed_mode_not_confirmed,
     embed_mode_switch_sbu,
     embed_mode_switch_utility,
     embed_preserve_skipped,
+    embed_runtime_alert,
+    embed_runtime_alert_cleared,
     embed_summary,
     embed_watchdog_failed,
     embed_watchdog_repaired,
     send_discord_embed,
     send_discord_message,
 )
-from growatt_guard.pause import ensure_not_paused
+from growatt_guard.pause import command_pause, command_resume, ensure_not_paused
 from growatt_guard.schedule import (
     find_schedule_job,
     schedule_job_tokens,
@@ -49,10 +54,19 @@ from growatt_guard.schedule import (
 )
 from growatt_guard.state import (
     clear_battery_alert_state,
+    clear_runtime_alert_state,
+    clear_topup_state,
+    parse_utc_datetime,
     pause_message,
     read_battery_alert_state,
     read_pause_state,
+    read_runtime_alert_state,
+    read_topup_state,
+    topup_is_active,
+    utc_now,
     write_battery_alert_state,
+    write_runtime_alert_state,
+    write_topup_state,
 )
 from growatt_guard.weather import apply_load_adjustment, choose_preserve_threshold, hours_until_next_sunrise
 
@@ -408,6 +422,23 @@ def command_watchdog_sbu(config: Config) -> int:
         print(f"SBU watchdog OK: output={label} [{raw}]")
         return 0
 
+    # Charge ceiling: if we're on Utility and haven't reached the target SOC yet, hold off
+    if config.battery_charge_target_soc > 0 and soc is not None and soc < config.battery_charge_target_soc:
+        logging.info(
+            "Charge ceiling: SOC %.1f%% < target %.1f%%; staying on Utility.", soc, config.battery_charge_target_soc
+        )
+        append_mode_audit(
+            config,
+            "watchdog-sbu",
+            soc=soc,
+            previous_mode=previous_mode,
+            action="ceiling-hold",
+            result="ok",
+            note=f"SOC {soc:.0f}% below ceiling {config.battery_charge_target_soc:g}%",
+        )
+        print(f"Charge ceiling hold: SOC {soc:.0f}% < target {config.battery_charge_target_soc:g}%; staying on Utility.")
+        return 0
+
     logging.warning("SBU watchdog detected output=%s [%s] from %s; retrying SBU.", label, raw, path)
     try:
         result = set_mode(api, config, device, "sbu")
@@ -654,4 +685,137 @@ def command_test_discord(config: Config) -> int:
     if not ok:
         raise GrowattGuardError("Discord test message failed. Check the webhook URL and network access.")
     print("Discord test message sent.")
+    return 0
+
+
+def command_auto_topup_check(config: Config) -> int:
+    if not config.auto_topup_enabled:
+        print("Auto-topup disabled (AUTO_TOPUP_ENABLED=false).")
+        return 0
+
+    if read_pause_state() or topup_is_active():
+        print("Automation already paused or topup active; skipping auto-topup check.")
+        return 0
+
+    hrs = _sunrise_hours(config)
+    if hrs is None or hrs <= 0:
+        print("Sunrise unavailable or already past; skipping auto-topup.")
+        return 0
+
+    api, device, status = load_context(config)
+    soc_result = extract_soc(status)
+    if not soc_result:
+        raise GrowattGuardError("Could not read SOC for auto-topup check.")
+    soc, _ = soc_result
+    previous_mode = describe_status_output_source(status)
+
+    _pd = extract_first_metric(status, ("pDischarge", "pDischarge1"))
+    load_w = parse_number(_pd[0]) if _pd else None
+    if not load_w or load_w <= 0:
+        print(f"Battery not discharging; no auto-topup needed.")
+        return 0
+
+    topup_min_f = estimate_topup_for_sunrise(
+        soc, load_w, config.battery_capacity_wh, config.battery_bms_cutoff_soc,
+        config.battery_charge_rate_w, hrs,
+    )
+    if topup_min_f is None or topup_min_f <= 0:
+        print(f"Battery sufficient to reach sunrise (SOC={soc:.0f}%, {hrs:.1f}h remaining).")
+        return 0
+
+    topup_min = min(round(topup_min_f), config.discord_topup_max_minutes)
+    reason = f"Auto-topup: {topup_min}min needed for {hrs:.1f}h until sunrise"
+    paused_until = utc_now() + dt.timedelta(minutes=topup_min)
+
+    command_pause(config, topup_min / 60.0, reason)
+
+    try:
+        result = set_mode(api, config, device, "utility")
+    except Exception as exc:  # noqa: BLE001
+        append_mode_audit(
+            config, "auto-topup-check", soc=soc, previous_mode=previous_mode,
+            action="utility-failed", result="error", note=str(exc),
+        )
+        from growatt_guard.state import clear_pause_state
+        clear_pause_state()
+        raise
+
+    write_topup_state(topup_min, reason, paused_until)
+    append_mode_audit(
+        config, "auto-topup-check", soc=soc, previous_mode=previous_mode,
+        action="auto-topup-started", result=result,
+        note=f"{topup_min}min, {hrs:.1f}h to sunrise",
+    )
+    if config.discord_notify_success and not config.dry_run:
+        send_discord_embed(config, embed_auto_topup_started(soc, topup_min, hrs, load_w))
+
+    print(f"Auto-topup started: {topup_min}min on Utility (SOC={soc:.0f}%, {hrs:.1f}h to sunrise).")
+    return 0
+
+
+def command_topup_complete_check(config: Config) -> int:
+    state = read_topup_state()
+    if state is None:
+        print("No active topup.")
+        return 0
+    if topup_is_active():
+        try:
+            paused_until = parse_utc_datetime(str(state["paused_until"]))
+            remaining = max(0, int((paused_until - utc_now()).total_seconds() // 60))
+            print(f"Topup still active (~{remaining} min remaining); skipping.")
+        except (KeyError, ValueError):
+            print("Topup still active; skipping.")
+        return 0
+
+    logging.info("Topup window expired; completing topup.")
+    command_resume(config)
+    clear_topup_state()
+    rc = command_return_sbu(config)
+    print("Topup complete: automation resumed and returning to SBU.")
+    return rc
+
+
+def command_runtime_alert(config: Config) -> int:
+    if config.runtime_alert_minutes <= 0:
+        print("Runtime alert disabled (RUNTIME_ALERT_MINUTES not set).")
+        return 0
+    if config.battery_capacity_wh <= 0:
+        raise GrowattGuardError("BATTERY_CAPACITY_WH must be set for runtime alerts.")
+
+    _, _, status = load_context(config)
+    soc_result = extract_soc(status)
+    if not soc_result:
+        raise GrowattGuardError("Could not read SOC.")
+    soc, _ = soc_result
+    previous_mode = describe_status_output_source(status) or "unknown"
+
+    _pd = extract_first_metric(status, ("pDischarge", "pDischarge1"))
+    load_w = parse_number(_pd[0]) if _pd else None
+    rt: float | None = None
+    if load_w and load_w > 0:
+        rt = estimate_runtime(soc, load_w, config.battery_capacity_wh, config.battery_bms_cutoff_soc)
+
+    state = read_runtime_alert_state()
+    clear_minutes = config.runtime_alert_clear_minutes or config.runtime_alert_minutes * 1.5
+
+    if rt is not None and rt < config.runtime_alert_minutes:
+        if state and state.get("active"):
+            print(f"Runtime alert already active ({rt:.0f} min remaining); no repeat.")
+            return 0
+        if not config.discord_webhook_url:
+            raise GrowattGuardError("DISCORD_WEBHOOK_URL must be set for runtime alerts.")
+        send_discord_embed(config, embed_runtime_alert(rt, load_w or 0.0, soc))
+        write_runtime_alert_state(rt)
+        print(f"Runtime alert sent: {rt:.0f} min remaining at {load_w:g} W.")
+        return 0
+
+    if state and state.get("active") and (rt is None or rt >= clear_minutes):
+        clear_runtime_alert_state()
+        if config.discord_webhook_url:
+            send_discord_embed(config, embed_runtime_alert_cleared(rt, soc))
+        print("Runtime alert cleared.")
+        return 0
+
+    rt_str = f"{rt:.0f} min" if rt is not None else "unknown (not discharging)"
+    print(f"Runtime OK: {rt_str}.")
     return 0

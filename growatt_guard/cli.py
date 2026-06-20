@@ -162,6 +162,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Seconds to wait between readings (default 900 = 15 min). Longer gives a more accurate result.",
     )
 
+    subparsers.add_parser(
+        "auto-topup-check",
+        help="Check if battery will survive until sunrise; if not, start a timed Utility top-up and exit.",
+    )
+    subparsers.add_parser(
+        "topup-complete-check",
+        help="Check if an auto-topup has finished; if so, resume automation and return to SBU.",
+    )
+    subparsers.add_parser(
+        "runtime-alert",
+        help="Send a Discord alert if estimated battery runtime is below RUNTIME_ALERT_MINUTES.",
+    )
+
     return parser
 
 
@@ -238,6 +251,12 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return command_pvoutput_upload(config)
         if command == "estimate-charge-rate":
             return app.command_estimate_charge_rate(config, args.wait_seconds)
+        if command == "auto-topup-check":
+            return app.command_auto_topup_check(config)
+        if command == "topup-complete-check":
+            return app.command_topup_complete_check(config)
+        if command == "runtime-alert":
+            return app.command_runtime_alert(config)
         raise app.GrowattGuardError(f"Unknown command: {command}")
 
     if command in app.LOCKED_COMMANDS:

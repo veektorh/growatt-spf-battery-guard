@@ -220,3 +220,22 @@ def topup_is_active(now: dt.datetime | None = None) -> bool:
         return now < paused_until
     except (KeyError, ValueError):
         return False
+
+
+RUNTIME_ALERT_FILE = STATE_DIR / "runtime_alert.json"
+
+
+def read_runtime_alert_state() -> dict[str, Any] | None:
+    return read_json_state(RUNTIME_ALERT_FILE, "runtime alert")
+
+
+def write_runtime_alert_state(runtime_min: float) -> None:
+    write_json_state(RUNTIME_ALERT_FILE, {
+        "active": True,
+        "runtime_min": runtime_min,
+        "last_alert_at": utc_now().isoformat(),
+    })
+
+
+def clear_runtime_alert_state() -> None:
+    clear_state_file(RUNTIME_ALERT_FILE)
