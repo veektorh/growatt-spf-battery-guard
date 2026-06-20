@@ -13,9 +13,11 @@ from growatt_power_guard import (
     extract_spf_output_source,
     render_params,
     set_mode,
+    summarize_status,
     verify_mode_switch,
     command_watchdog_sbu,
 )
+from growatt_guard.growatt_api import extract_battery_status
 
 
 class GrowattApiTests(unittest.TestCase):
@@ -328,6 +330,66 @@ class VerifyModeSwitchTests(unittest.TestCase):
              patch("growatt_guard.growatt_api.time.sleep") as mock_sleep:
             verify_mode_switch(api, self._device(), "utility", delay_seconds=3)
         mock_sleep.assert_called_once_with(3)
+
+
+class ExtractMetricsTests(unittest.TestCase):
+    def test_extract_spf_output_source_prefers_bean_path(self):
+        # device.outputConfig should lose to storageBean.outputConfig
+        status = {
+            "device": {"outputConfig": "3"},
+            "storage_params": {"storageBean": {"outputConfig": "0"}},
+        }
+        raw, label, path = extract_spf_output_source(status)
+        self.assertEqual(raw, "0")
+        self.assertEqual(label, "SBU priority")
+        self.assertIn("Bean", path)
+
+    def test_extract_spf_output_source_falls_back_when_no_bean_path(self):
+        status = {"device": {"outputConfig": "2"}}
+        raw, label, path = extract_spf_output_source(status)
+        self.assertEqual(raw, "2")
+        self.assertEqual(label, "Utility first")
+
+    def test_extract_battery_status_prefers_detail_bean(self):
+        status = {
+            "storage_params": {
+                "storageBean": {"statusText": "storage.status.discharge"},
+                "storageDetailBean": {"statusText": "Discharge"},
+            }
+        }
+        self.assertEqual(extract_battery_status(status), "Discharge")
+
+    def test_extract_battery_status_skips_dotted_values(self):
+        # Internal key format like "storage.status.discharge" should not be returned
+        status = {"storage_params": {"storageBean": {"statusText": "storage.status.discharge"}}}
+        self.assertIsNone(extract_battery_status(status))
+
+    def test_extract_battery_status_returns_none_when_absent(self):
+        status = {"storage_params": {"storageDetailBean": {"bmsSoc": 62}}}
+        self.assertIsNone(extract_battery_status(status))
+
+    def test_summarize_status_includes_live_metrics(self):
+        status = {
+            "plant_id": "p1",
+            "device_sn": "SN1",
+            "device_type": "storage",
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {
+                    "bmsSoc": 62,
+                    "statusText": "Discharge",
+                    "outPutPower": 1554,
+                    "loadPercent": 28.3,
+                    "pDischarge": 1736,
+                    "pCharge": 0,
+                },
+            },
+        }
+        result = summarize_status(status)
+        self.assertIn("bat_status=Discharge", result)
+        self.assertIn("out_w=1554", result)
+        self.assertIn("load_pct=28", result)
+        self.assertIn("bat_w=1736", result)
 
 
 if __name__ == "__main__":
