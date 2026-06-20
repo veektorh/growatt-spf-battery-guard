@@ -250,7 +250,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
             status_code = 204
             text = ""
 
-        with patch("growatt_power_guard.requests.post", return_value=Response()) as mocked:
+        with patch("growatt_guard.notifications.requests.post", return_value=Response()) as mocked:
             self.assertTrue(send_discord_message(config, "hello"))
 
         self.assertEqual(mocked.call_args.args[0], "https://discord.com/api/webhooks/example")
@@ -264,8 +264,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
         )
 
         with TemporaryDirectory() as tmpdir, patch(
-            "growatt_power_guard.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
-        ), patch("growatt_power_guard.send_discord_message", return_value=True) as send_mock:
+            "growatt_guard.notifications.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+        ), patch("growatt_guard.notifications.send_discord_message", return_value=True) as send_mock:
             notify_failure(config, "status", "Growatt login failed: temporary cloud error")
             notify_failure(config, "status", "Growatt login failed: temporary cloud error")
             self.assertEqual(send_mock.call_count, 0)
@@ -285,8 +285,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
         )
 
         with TemporaryDirectory() as tmpdir, patch(
-            "growatt_power_guard.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
-        ), patch("growatt_power_guard.send_discord_message", return_value=True) as send_mock:
+            "growatt_guard.notifications.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+        ), patch("growatt_guard.notifications.send_discord_message", return_value=True) as send_mock:
             notify_failure(config, "status", "Growatt login failed: temporary cloud error")
             notify_failure(config, "status", "Growatt login failed: temporary cloud error")
             record_growatt_cloud_success(config)
@@ -299,8 +299,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
         config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example")
 
         with TemporaryDirectory() as tmpdir, patch(
-            "growatt_power_guard.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
-        ), patch("growatt_power_guard.send_discord_message", return_value=True) as send_mock:
+            "growatt_guard.notifications.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+        ), patch("growatt_guard.notifications.send_discord_message", return_value=True) as send_mock:
             notify_failure(config, "validate-schedule", "schedule.json is invalid")
 
         self.assertEqual(send_mock.call_count, 1)
@@ -523,7 +523,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.PAUSE_FILE", Path(tmpdir) / "pause.json"), patch(
             "growatt_power_guard.COMMAND_LOCK_FILE", Path(tmpdir) / "mode_command.lock"
         ), patch(
-            "growatt_power_guard.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+            "growatt_guard.notifications.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
         ), patch(
             "growatt_power_guard.DASHBOARD_FILE", Path(tmpdir) / "dashboard.html"
         ), patch("growatt_power_guard.validate_schedule", return_value=schedule), patch(
@@ -633,7 +633,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
             "growatt_power_guard.choose_preserve_threshold",
             return_value=ThresholdDecision(50, "weather disabled; using fixed threshold 50%"),
         ), patch(
-            "growatt_power_guard.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+            "growatt_guard.notifications.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
         ), patch("growatt_power_guard.read_mode_audit_rows", return_value=[]), redirect_stdout(StringIO()):
             output = Path(tmpdir) / "dashboard.html"
             self.assertEqual(command_dashboard(config, str(output)), 0)
