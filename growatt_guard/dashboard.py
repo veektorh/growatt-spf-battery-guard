@@ -27,7 +27,9 @@ from growatt_guard.state import (
     write_dashboard_stale_alert_state,
 )
 from growatt_guard.schedule import (
+    cron_matches,
     next_scheduled_runs,
+    schedule_job_id,
     schedule_job_tokens,
     today_schedule_override,
     validate_schedule,
@@ -122,6 +124,75 @@ def dashboard_freshness(
     }
 
 
+def _today_job_rows(
+    schedule: dict[str, Any],
+    today_override: dict[str, Any],
+    today: dt.date,
+) -> list[tuple[str, str, str, str]]:
+    skip_all = bool(today_override.get("skip_all", False))
+    skip_ids = set(today_override.get("skip", []))
+    replace_map = today_override.get("replace") or {}
+    start = dt.datetime.combine(today, dt.time(0, 0))
+    end = start + dt.timedelta(days=1)
+    rows: list[tuple[str, str, str, str]] = []
+    for index, job in enumerate(schedule.get("jobs", []), start=1):
+        job_id = schedule_job_id(job, index)
+        cron_expr = str(job.get("cron", ""))
+        fires: list[dt.datetime] = []
+        cursor = start
+        while cursor < end:
+            if cron_matches(cron_expr, cursor):
+                fires.append(cursor)
+            cursor += dt.timedelta(minutes=1)
+        if not fires:
+            continue
+        cmd = " ".join(schedule_job_tokens(job, index))
+        # Show interval label for sub-hourly repeating jobs
+        parts = cron_expr.strip().split()
+        if len(parts) == 5 and parts[0].startswith("*/") and parts[1] == "*":
+            try:
+                interval = int(parts[0][2:])
+                time_str = f"every {interval} min"
+            except ValueError:
+                time_str = fires[0].strftime("%H:%M")
+        else:
+            time_str = fires[0].strftime("%H:%M")
+
+        if skip_all or job_id in skip_ids:
+            status_str = "SKIP"
+        elif job_id in replace_map:
+            repl_cmd = " ".join(schedule_job_tokens(replace_map[job_id], 0))
+            status_str = f"→ {repl_cmd}"
+        else:
+            status_str = "OK"
+        rows.append((time_str, job_id, cmd, status_str))
+    return rows
+
+
+def _upcoming_override_rows(overrides: dict[str, Any], today: dt.date, days: int = 14) -> list[tuple[str, str, str]]:
+    rows: list[tuple[str, str, str]] = []
+    cutoff = (today + dt.timedelta(days=days)).isoformat()
+    today_iso = today.isoformat()
+    for date_str in sorted(overrides.get("dates", {})):
+        if date_str <= today_iso or date_str > cutoff:
+            continue
+        override = overrides["dates"][date_str]
+        note = str(override.get("note", "")).strip()
+        if override.get("skip_all"):
+            action = "skip-all"
+        else:
+            parts: list[str] = []
+            skip_ids = override.get("skip", [])
+            if skip_ids:
+                parts.append(f"skip: {', '.join(skip_ids)}")
+            replace_map = override.get("replace") or {}
+            if replace_map:
+                parts.append(f"replace: {', '.join(replace_map)}")
+            action = "; ".join(parts) if parts else "none"
+        rows.append((date_str, note, action))
+    return rows
+
+
 def build_dashboard_html(
     status: dict[str, Any],
     schedule: dict[str, Any],
@@ -149,6 +220,9 @@ def build_dashboard_html(
     next_runs = next_scheduled_runs(schedule, now=now, limit=8)
     stale_minutes_text = f"{stale_after_minutes:g}"
 
+    today_jobs = _today_job_rows(schedule, today_override, now.date())
+    upcoming_overrides = _upcoming_override_rows(overrides, now.date())
+
     next_rows = "\n".join(
         "<tr>"
         f"<td>{esc(run_at.strftime('%Y-%m-%d %H:%M'))}</td>"
@@ -167,6 +241,37 @@ def build_dashboard_html(
         f"<td>{esc(row.get('previous_mode', ''))}</td>"
         "</tr>"
         for row in last_actions
+    )
+    today_job_rows_html = "\n".join(
+        "<tr>"
+        f"<td>{esc(t)}</td>"
+        f"<td>{esc(jid)}</td>"
+        f"<td>{esc(cmd)}</td>"
+        f'<td class="status-{"skip" if st == "SKIP" else ("replace" if st.startswith("→") else "ok")}">{esc(st)}</td>'
+        "</tr>"
+        for t, jid, cmd, st in today_jobs
+    )
+    upcoming_override_rows_html = "\n".join(
+        "<tr>"
+        f"<td>{esc(d)}</td>"
+        f"<td>{esc(n) if n else '<span class=\"muted\">—</span>'}</td>"
+        f"<td>{esc(a)}</td>"
+        "</tr>"
+        for d, n, a in upcoming_overrides
+    )
+
+    skip_all_banner = (
+        '<div class="banner-warn">⚠ All automation jobs are skipped today'
+        + (f" — {esc(override_note)}" if override_note != "none" else "")
+        + "</div>"
+        if today_override.get("skip_all")
+        else ""
+    )
+    upcoming_override_section = (
+        f"<h2>Upcoming Overrides</h2>"
+        f'<table><thead><tr><th>Date</th><th>Note</th><th>Actions</th></tr></thead><tbody>{upcoming_override_rows_html}</tbody></table>'
+        if upcoming_overrides
+        else ""
     )
 
     return f"""<!doctype html>
@@ -191,16 +296,21 @@ def build_dashboard_html(
     .badge {{ display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 9px; font-size: 14px; font-weight: 800; }}
     .badge-ok {{ background: #dff6e8; color: #155f34; }}
     .badge-warn {{ background: #fff2cc; color: #775800; }}
+    .banner-warn {{ background: #fff2cc; color: #775800; border-radius: 8px; padding: 10px 16px; margin: 20px 0 0; font-weight: 600; }}
     table {{ width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #dce3e8; }}
     th, td {{ padding: 10px; border-bottom: 1px solid #e8eef2; text-align: left; font-size: 14px; }}
     th {{ background: #eef3f5; color: #34444f; }}
     tr:last-child td {{ border-bottom: 0; }}
+    .status-ok {{ color: #155f34; font-weight: 600; }}
+    .status-skip {{ color: #9a3526; font-weight: 600; }}
+    .status-replace {{ color: #775800; font-weight: 600; }}
   </style>
 </head>
 <body>
   <main>
     <h1>Growatt Dashboard</h1>
     <div class="muted">Generated {esc(generated_at.strftime('%Y-%m-%d %H:%M:%S %Z'))}</div>
+    {skip_all_banner}
     <section class="grid">
       <div class="card">
         <div class="label">Dashboard Health</div>
@@ -217,6 +327,9 @@ def build_dashboard_html(
       <div class="card"><div class="label">Cloud Streak</div><div class="value">{esc(cloud_streak)}</div></div>
       <div class="card"><div class="label">Today Override</div><div class="value">{esc(override_note)}</div></div>
     </section>
+    <h2>Today&#8217;s Schedule — {esc(now.strftime('%A, %Y-%m-%d'))}</h2>
+    <table><thead><tr><th>Time</th><th>Job ID</th><th>Command</th><th>Status</th></tr></thead><tbody>{today_job_rows_html}</tbody></table>
+    {upcoming_override_section}
     <h2>Next Scheduled Jobs</h2>
     <table><thead><tr><th>Time</th><th>ID</th><th>Name</th><th>Command</th></tr></thead><tbody>{next_rows}</tbody></table>
     <h2>Recent Mode Decisions</h2>
