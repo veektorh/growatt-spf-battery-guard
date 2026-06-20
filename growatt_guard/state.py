@@ -197,13 +197,24 @@ def read_topup_state() -> dict[str, Any] | None:
     return read_json_state(TOPUP_STATE_FILE, "topup")
 
 
-def write_topup_state(minutes: int, reason: str, paused_until: dt.datetime) -> None:
-    write_json_state(TOPUP_STATE_FILE, {
+def write_topup_state(
+    minutes: int,
+    reason: str,
+    paused_until: dt.datetime,
+    start_soc: float | None = None,
+    start_load_w: float | None = None,
+) -> None:
+    state: dict[str, Any] = {
         "started_at": utc_now().isoformat(),
         "minutes": minutes,
         "paused_until": paused_until.isoformat(),
         "reason": reason,
-    })
+    }
+    if start_soc is not None:
+        state["start_soc"] = start_soc
+    if start_load_w is not None:
+        state["start_load_w"] = start_load_w
+    write_json_state(TOPUP_STATE_FILE, state)
 
 
 def clear_topup_state() -> None:

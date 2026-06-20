@@ -273,3 +273,24 @@ def embed_auto_topup_started(soc: float, topup_min: int, hours_to_sunrise: float
         _f("Load", f"{load_w:g} W"),
     ]
     return _embed("⚡ Auto-topup started", _COLOR_WARN, fields)
+
+
+def embed_topup_complete_summary(
+    start_soc: float,
+    end_soc: float,
+    actual_min: float,
+    implied_rate_w: float,
+    config_rate_w: float,
+) -> dict:
+    from growatt_guard.growatt_api import format_duration_minutes
+    rate_str = f"{implied_rate_w:.0f} W"
+    if config_rate_w > 0:
+        diff_pct = (implied_rate_w - config_rate_w) / config_rate_w * 100
+        if abs(diff_pct) >= 10:
+            rate_str += f" (configured {config_rate_w:g} W — consider updating)"
+    fields = [
+        _f("SOC", f"{start_soc:.0f}% → {end_soc:.0f}% (+{end_soc - start_soc:.0f}%)"),
+        _f("Duration", format_duration_minutes(actual_min)),
+        _f("Implied charge rate", rate_str),
+    ]
+    return _embed("✅ Auto-topup complete", _COLOR_OK, fields)

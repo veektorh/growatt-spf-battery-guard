@@ -563,5 +563,121 @@ class TopupForSunriseTests(unittest.TestCase):
         self.assertGreater(result, 0.0)
 
 
+class TopupCompleteFeedbackTests(unittest.TestCase):
+    """Tests for command_topup_complete_check charge-rate feedback."""
+
+    def _make_status(self, soc: float) -> dict:
+        return {
+            "datalogSn": "SN1",
+            "deviceSn": "SN1",
+            "data": {
+                "soc": soc,
+                "pDischarge": 1000.0,
+                "outputConfig": "1",
+            },
+        }
+
+    def _make_topup_state(self, started_minutes_ago: float, start_soc: float, load_w: float, minutes: int) -> dict:
+        import datetime as dt
+        started_at = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=started_minutes_ago)).isoformat()
+        paused_until = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=1)).isoformat()
+        return {
+            "started_at": started_at,
+            "minutes": minutes,
+            "paused_until": paused_until,
+            "reason": "Auto-topup: test",
+            "start_soc": start_soc,
+            "start_load_w": load_w,
+        }
+
+    def test_topup_complete_prints_implied_rate(self):
+        from growatt_guard.modes import command_topup_complete_check
+        from growatt_guard import state as state_mod
+
+        state = self._make_topup_state(started_minutes_ago=100, start_soc=48.0, load_w=1000.0, minutes=100)
+        end_status = self._make_status(soc=74.0)
+
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            cfg = make_config(
+                battery_capacity_wh=30000.0,
+                battery_charge_rate_w=3000.0,
+                dry_run=True,
+            )
+            buf = StringIO()
+            with (
+                patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "topup_active.json"),
+                patch.object(state_mod, "PAUSE_FILE", tmp / "pause.json"),
+                patch("growatt_guard.modes.read_topup_state", return_value=state),
+                patch("growatt_guard.modes.topup_is_active", return_value=False),
+                patch("growatt_guard.modes.load_context", return_value=(None, None, end_status)),
+                patch("growatt_guard.modes.command_resume", return_value=0),
+                patch("growatt_guard.modes.clear_topup_state"),
+                patch("growatt_guard.modes.command_return_sbu", return_value=0),
+                redirect_stdout(buf),
+            ):
+                command_topup_complete_check(cfg)
+
+        output = buf.getvalue()
+        self.assertIn("48%", output)
+        self.assertIn("74%", output)
+        self.assertIn("Implied charge rate", output)
+
+    def test_topup_complete_prints_fallback_when_no_soc_data(self):
+        from growatt_guard.modes import command_topup_complete_check
+        from growatt_guard import state as state_mod
+
+        state = self._make_topup_state(started_minutes_ago=100, start_soc=48.0, load_w=1000.0, minutes=100)
+        state.pop("start_soc")
+
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            cfg = make_config(
+                battery_capacity_wh=30000.0,
+                battery_charge_rate_w=3000.0,
+                dry_run=True,
+            )
+            buf = StringIO()
+            with (
+                patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "topup_active.json"),
+                patch.object(state_mod, "PAUSE_FILE", tmp / "pause.json"),
+                patch("growatt_guard.modes.read_topup_state", return_value=state),
+                patch("growatt_guard.modes.topup_is_active", return_value=False),
+                patch("growatt_guard.modes.load_context", return_value=(None, None, self._make_status(74.0))),
+                patch("growatt_guard.modes.command_resume", return_value=0),
+                patch("growatt_guard.modes.clear_topup_state"),
+                patch("growatt_guard.modes.command_return_sbu", return_value=0),
+                redirect_stdout(buf),
+            ):
+                command_topup_complete_check(cfg)
+
+        output = buf.getvalue()
+        self.assertIn("Topup complete", output)
+        self.assertNotIn("Implied charge rate", output)
+
+    def test_topup_complete_skips_when_still_active(self):
+        from growatt_guard.modes import command_topup_complete_check
+
+        import datetime as dt
+        paused_until = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=30)).isoformat()
+        state = {
+            "started_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "minutes": 60,
+            "paused_until": paused_until,
+            "reason": "test",
+        }
+
+        buf = StringIO()
+        with (
+            patch("growatt_guard.modes.read_topup_state", return_value=state),
+            patch("growatt_guard.modes.topup_is_active", return_value=True),
+            redirect_stdout(buf),
+        ):
+            rc = command_topup_complete_check(make_config())
+
+        self.assertEqual(rc, 0)
+        self.assertIn("remaining", buf.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

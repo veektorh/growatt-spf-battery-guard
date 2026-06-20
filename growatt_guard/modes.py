@@ -30,6 +30,7 @@ from growatt_guard.growatt_api import (
 )
 from growatt_guard.notifications import (
     embed_auto_topup_started,
+    embed_topup_complete_summary,
     embed_battery_alert,
     embed_battery_cleared,
     embed_mode_not_confirmed,
@@ -752,7 +753,7 @@ def command_auto_topup_check(config: Config) -> int:
         clear_pause_state()
         raise
 
-    write_topup_state(topup_min, reason, paused_until)
+    write_topup_state(topup_min, reason, paused_until, start_soc=soc, start_load_w=load_w)
     append_mode_audit(
         config, "auto-topup-check", soc=soc, previous_mode=previous_mode,
         action="auto-topup-started", result=result,
@@ -780,10 +781,60 @@ def command_topup_complete_check(config: Config) -> int:
         return 0
 
     logging.info("Topup window expired; completing topup.")
+
+    end_soc: float | None = None
+    try:
+        _, _, end_status = load_context(config)
+        end_soc_result = extract_soc(end_status)
+        if end_soc_result:
+            end_soc, _ = end_soc_result
+    except Exception:  # noqa: BLE001
+        pass
+
     command_resume(config)
     clear_topup_state()
     rc = command_return_sbu(config)
-    print("Topup complete: automation resumed and returning to SBU.")
+
+    def _f(v: object) -> float | None:
+        try:
+            return float(v)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+
+    start_soc = _f(state.get("start_soc"))
+    start_load_w = _f(state.get("start_load_w"))
+    started_at_str = state.get("started_at")
+    planned_min = _f(state.get("minutes")) or 0.0
+
+    actual_min = planned_min
+    if started_at_str:
+        try:
+            actual_min = max(1.0, (utc_now() - parse_utc_datetime(str(started_at_str))).total_seconds() / 60.0)
+        except ValueError:
+            pass
+
+    if end_soc is not None and start_soc is not None and start_load_w is not None and config.battery_capacity_wh > 0:
+        soc_gain = end_soc - start_soc
+        if soc_gain > 0:
+            energy_wh = soc_gain / 100.0 * config.battery_capacity_wh + start_load_w * (actual_min / 60.0)
+            implied_rate_w = energy_wh / (actual_min / 60.0)
+            print(
+                f"Topup complete: {actual_min:.0f}min, {start_soc:.0f}% → {end_soc:.0f}% (+{soc_gain:.0f}%)\n"
+                f"Implied charge rate: {implied_rate_w:.0f} W (configured: {config.battery_charge_rate_w:g} W)"
+            )
+            if config.battery_charge_rate_w > 0:
+                diff_pct = abs(implied_rate_w - config.battery_charge_rate_w) / config.battery_charge_rate_w * 100
+                if diff_pct >= 10:
+                    print(f"  Tip: consider updating BATTERY_CHARGE_RATE_W={implied_rate_w:.0f}")
+            if config.discord_notify_success and not config.dry_run:
+                send_discord_embed(config, embed_topup_complete_summary(
+                    start_soc, end_soc, actual_min, implied_rate_w, config.battery_charge_rate_w,
+                ))
+        else:
+            print(f"Topup complete: {start_soc:.0f}% → {end_soc:.0f}% (no SOC gain detected).")
+    else:
+        print("Topup complete: automation resumed and returning to SBU.")
+
     return rc
 
 
