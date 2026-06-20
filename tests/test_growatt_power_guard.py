@@ -10,6 +10,7 @@ from unittest.mock import patch
 from helpers import make_config
 from growatt_power_guard import (
     DeviceRef,
+    GrowattGuardError,
     HealthCheckItem,
     ThresholdDecision,
     append_mode_audit,
@@ -18,6 +19,7 @@ from growatt_power_guard import (
     build_parser,
     check_cron_schedule,
     command_battery_alert,
+    command_estimate_charge_rate,
     command_health_check,
     format_health_report,
 )
@@ -287,6 +289,45 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Result: OK", stdout.getvalue())
+
+    def test_estimate_charge_rate_continues_on_utility_when_pcharge_is_zero(self):
+        config = make_config(battery_capacity_wh=30_000)
+        status1 = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "2"},
+                "storageDetailBean": {"bmsSoc": 53, "pCharge": 0, "statusText": "AC charge and Bypass"},
+            }
+        }
+        status2 = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "2"},
+                "storageDetailBean": {"bmsSoc": 54, "pCharge": 0, "statusText": "AC charge and Bypass"},
+            }
+        }
+
+        with patch("growatt_guard.modes.load_context", side_effect=[(None, None, status1), (None, None, status2)]), patch(
+            "time.sleep"
+        ) as sleep_mock, redirect_stdout(StringIO()) as stdout:
+            result = command_estimate_charge_rate(config, wait_seconds=900)
+
+        self.assertEqual(result, 0)
+        sleep_mock.assert_called_once_with(900)
+        output = stdout.getvalue()
+        self.assertIn("continuing because output source is Utility first", output)
+        self.assertIn("Estimated charge rate: 1200 W", output)
+
+    def test_estimate_charge_rate_rejects_zero_pcharge_when_not_on_utility(self):
+        config = make_config(battery_capacity_wh=30_000)
+        status = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {"bmsSoc": 53, "pCharge": 0},
+            }
+        }
+
+        with patch("growatt_guard.modes.load_context", return_value=(None, None, status)):
+            with self.assertRaises(GrowattGuardError):
+                command_estimate_charge_rate(config, wait_seconds=900)
 
     def test_battery_alert_sends_once_while_low(self):
         config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example")

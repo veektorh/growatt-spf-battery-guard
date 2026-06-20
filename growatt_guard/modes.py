@@ -100,14 +100,21 @@ def command_estimate_charge_rate(config: Config, wait_seconds: int = 900) -> int
 
     _pc = extract_first_metric(status1, ("pCharge", "pCharge1"))
     pcv = parse_number(_pc[0]) if _pc else None
-    if not pcv or pcv <= 0:
-        bat_status = extract_first_metric(status1, ("statusText",))
+    output_source = extract_spf_output_source(status1)
+    on_utility = bool(output_source and output_source[0] == "2")
+    if (pcv is None or pcv <= 0) and not on_utility:
         raise GrowattGuardError(
             f"Battery does not appear to be charging (pCharge={pcv}). "
             "Switch to Utility/mains charging first, then run this command."
         )
 
-    print(f"Initial SOC : {soc1:.0f}%  |  API charge reading: {pcv:g} W")
+    if pcv is not None and pcv > 0:
+        print(f"Initial SOC : {soc1:.0f}%  |  API charge reading: {pcv:g} W")
+    else:
+        print(
+            f"Initial SOC : {soc1:.0f}%  |  API charge reading: {pcv or 0:g} W "
+            "(continuing because output source is Utility first)"
+        )
     print(f"Waiting {wait_seconds}s ({wait_seconds // 60}m {wait_seconds % 60:02d}s) — do not change modes...")
 
     _time.sleep(wait_seconds)
