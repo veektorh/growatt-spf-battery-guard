@@ -289,6 +289,20 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertIn("Utility switches: 1", summary)
         self.assertIn("Average preserve-check SOC: 51%", summary)
 
+    def test_weekly_summary_includes_recommendations(self):
+        from growatt_power_guard import build_weekly_summary
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"):
+            audit_path = Path(tmpdir) / "mode_decisions.csv"
+            rows = ["timestamp,command,soc,threshold,weather_category,previous_mode,action,dry_run,result,note"]
+            for i in range(6):
+                rows.append(f"2026-06-{14+i:02d}T06:30:00,preserve-battery,45,50,rainy/cloudy,SBU priority [0],switch-to-utility,false,ok,")
+            audit_path.write_text("\n".join(rows), encoding="utf-8")
+
+            summary = build_weekly_summary(dt.datetime(2026, 6, 20, 12, 0))
+
+        self.assertIn("Recommendations:", summary)
+        self.assertIn("LOW_BATTERY_SOC", summary)
+
     def test_weekly_summary_uses_audit_rows(self):
         with TemporaryDirectory() as tmpdir, patch("growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"):
             audit_path = Path(tmpdir) / "mode_decisions.csv"

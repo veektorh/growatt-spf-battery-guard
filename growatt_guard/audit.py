@@ -188,7 +188,68 @@ def build_weekly_summary(now: dt.datetime | None = None) -> str:
             f"{last_row.get('timestamp', '')} {last_row.get('command', '')} "
             f"{last_row.get('action', '')} SOC={last_row.get('soc', '')}%"
         )
+
+    recommendations = _weekly_recommendations(
+        preserve_rows=preserve_rows,
+        utility_switches=utility_switches,
+        watchdog_repairs=watchdog_repairs,
+        failures=failures,
+        avg_soc=avg_soc,
+    )
+    if recommendations:
+        lines.append("")
+        lines.append("Recommendations:")
+        for tip in recommendations:
+            lines.append(f"  - {tip}")
+
     return "\n".join(lines)
+
+
+def _weekly_recommendations(
+    *,
+    preserve_rows: list[dict[str, str]],
+    utility_switches: list[dict[str, str]],
+    watchdog_repairs: list[dict[str, str]],
+    failures: list[dict[str, str]],
+    avg_soc: float | None,
+) -> list[str]:
+    tips: list[str] = []
+
+    if len(utility_switches) >= 5:
+        tips.append(
+            f"Battery switched to utility {len(utility_switches)} times this week — "
+            "consider raising LOW_BATTERY_SOC."
+        )
+
+    if len(watchdog_repairs) >= 3:
+        tips.append(
+            f"Watchdog repaired SBU mode {len(watchdog_repairs)} times — "
+            "check inverter output-source setting or cron timing."
+        )
+
+    if len(failures) > 0:
+        tips.append(
+            f"{len(failures)} command failure(s) recorded — check logs/growatt_power_guard.log."
+        )
+
+    if avg_soc is not None:
+        thresholds = {parse_audit_float(row, "threshold") for row in preserve_rows}
+        thresholds.discard(None)
+        if thresholds:
+            representative_threshold = max(t for t in thresholds if t is not None)
+            if avg_soc < representative_threshold - 5:
+                tips.append(
+                    f"Average SOC at preserve-battery time ({avg_soc:g}%) is well below "
+                    f"threshold ({representative_threshold:g}%) — consider raising LOW_BATTERY_SOC."
+                )
+
+    if len(utility_switches) == 0 and len(preserve_rows) >= 5:
+        tips.append(
+            "Battery maintained SBU all week — conditions may allow a lower threshold "
+            "if weather is reliably sunny."
+        )
+
+    return tips
 
 
 def build_monthly_summary(now: dt.datetime | None = None) -> str:
