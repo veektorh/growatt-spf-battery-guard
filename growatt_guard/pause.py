@@ -6,8 +6,11 @@ from growatt_guard.config import Config
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.notifications import send_discord_message
 from growatt_guard.state import (
+    COMMAND_LOCK_FILE,
+    COMMAND_LOCK_STALE_SECONDS,
     acquire_command_lock,
     clear_pause_state,
+    command_lock_is_stale,
     format_local_time,
     pause_message,
     read_command_lock_state,
@@ -76,4 +79,32 @@ def command_pause_status(config: Config) -> int:
         print("Growatt automation is active.")
         return 0
     print(f"Growatt automation is paused: {pause_message(state)}.")
+    return 0
+
+
+def command_clear_stale_lock(config: Config) -> int:
+    _ = config
+    if not COMMAND_LOCK_FILE.exists():
+        print("No lock file found.")
+        return 0
+
+    state = read_command_lock_state() or {}
+    locked_command = state.get("command", "unknown command")
+    created_at = state.get("created_at", "unknown time")
+
+    if not command_lock_is_stale():
+        age_limit = COMMAND_LOCK_STALE_SECONDS // 60
+        print(
+            f"Lock is active: `{locked_command}` running since {created_at}. "
+            f"Not clearing (locks auto-clear after {age_limit} min)."
+        )
+        return 1
+
+    try:
+        COMMAND_LOCK_FILE.unlink()
+    except OSError as exc:
+        raise GrowattGuardError(f"Could not remove stale lock: {exc}") from exc
+
+    logging.info("Cleared stale lock for %s (started %s).", locked_command, created_at)
+    print(f"Cleared stale lock: `{locked_command}` started {created_at}.")
     return 0

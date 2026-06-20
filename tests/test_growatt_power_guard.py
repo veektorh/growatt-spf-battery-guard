@@ -24,6 +24,7 @@ from growatt_power_guard import (
     build_parser,
     check_cron_schedule,
     command_battery_alert,
+    command_clear_stale_lock,
     command_dashboard,
     command_dashboard_refresh,
     command_dashboard_stale_alert,
@@ -775,6 +776,48 @@ class GrowattPowerGuardTests(unittest.TestCase):
         ), redirect_stdout(StringIO()):
             write_pause_state(1, "testing")
             self.assertTrue(ensure_not_paused(config, "watchdog-sbu"))
+
+    def test_clear_stale_lock_no_lock_file(self):
+        config = make_config()
+        lock_path = Path("nonexistent_lock_file_xyz.lock")
+        with patch("growatt_guard.pause.COMMAND_LOCK_FILE", lock_path), redirect_stdout(StringIO()) as stdout:
+            result = command_clear_stale_lock(config)
+        self.assertEqual(result, 0)
+        self.assertIn("No lock file found", stdout.getvalue())
+
+    def test_clear_stale_lock_removes_stale_lock(self):
+        config = make_config()
+        lock_state = {"command": "preserve-battery", "created_at": "2026-01-01T00:00:00"}
+        with TemporaryDirectory() as tmpdir:
+            lock_path = Path(tmpdir) / "mode_command.lock"
+            lock_path.write_text('{"command": "preserve-battery", "created_at": "2026-01-01T00:00:00"}')
+            with patch("growatt_guard.pause.COMMAND_LOCK_FILE", lock_path), patch(
+                "growatt_guard.pause.command_lock_is_stale", return_value=True
+            ), patch("growatt_guard.pause.read_command_lock_state", return_value=lock_state), redirect_stdout(
+                StringIO()
+            ) as stdout:
+                result = command_clear_stale_lock(config)
+            self.assertEqual(result, 0)
+            self.assertFalse(lock_path.exists())
+            self.assertIn("Cleared stale lock", stdout.getvalue())
+            self.assertIn("preserve-battery", stdout.getvalue())
+
+    def test_clear_stale_lock_refuses_active_lock(self):
+        config = make_config()
+        lock_state = {"command": "return-sbu", "created_at": "2026-06-20T10:00:00"}
+        with TemporaryDirectory() as tmpdir:
+            lock_path = Path(tmpdir) / "mode_command.lock"
+            lock_path.write_text('{"command": "return-sbu", "created_at": "2026-06-20T10:00:00"}')
+            with patch("growatt_guard.pause.COMMAND_LOCK_FILE", lock_path), patch(
+                "growatt_guard.pause.command_lock_is_stale", return_value=False
+            ), patch("growatt_guard.pause.read_command_lock_state", return_value=lock_state), redirect_stdout(
+                StringIO()
+            ) as stdout:
+                result = command_clear_stale_lock(config)
+            self.assertEqual(result, 1)
+            self.assertTrue(lock_path.exists())
+            self.assertIn("active", stdout.getvalue())
+            self.assertIn("return-sbu", stdout.getvalue())
 
     def test_schedule_preview_command_is_available(self):
         args = build_parser().parse_args(["schedule-preview", "--days", "3"])
