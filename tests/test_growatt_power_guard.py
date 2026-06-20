@@ -31,6 +31,9 @@ from growatt_power_guard import (
     ensure_not_paused,
     format_health_report,
     next_scheduled_runs,
+    notify_failure,
+    record_growatt_cloud_success,
+    read_growatt_cloud_failure_state,
     read_pause_state,
     release_command_lock,
     run_with_command_lock,
@@ -66,6 +69,7 @@ def make_config(**overrides):
         "log_retention_days": 30,
         "emergency_soc": 30,
         "emergency_soc_recovery": 35,
+        "cloud_failure_alert_threshold": 3,
         "weather_enabled": False,
         "weather_lat": None,
         "weather_lon": None,
@@ -243,6 +247,54 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertEqual(mocked.call_args.args[0], "https://discord.com/api/webhooks/example")
         self.assertEqual(mocked.call_args.kwargs["json"]["content"], "hello")
         self.assertIn("User-Agent", mocked.call_args.kwargs["headers"])
+
+    def test_growatt_cloud_failures_alert_only_after_threshold(self):
+        config = make_config(
+            discord_webhook_url="https://discord.com/api/webhooks/example",
+            cloud_failure_alert_threshold=3,
+        )
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_power_guard.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+        ), patch("growatt_power_guard.send_discord_message", return_value=True) as send_mock:
+            notify_failure(config, "status", "Growatt login failed: temporary cloud error")
+            notify_failure(config, "status", "Growatt login failed: temporary cloud error")
+            self.assertEqual(send_mock.call_count, 0)
+
+            notify_failure(config, "status", "Growatt login failed: temporary cloud error")
+            state = read_growatt_cloud_failure_state()
+
+        self.assertEqual(send_mock.call_count, 1)
+        self.assertIsNotNone(state)
+        self.assertEqual(state["count"], 3)
+        self.assertTrue(state["alerted"])
+
+    def test_growatt_cloud_success_clears_alerted_streak(self):
+        config = make_config(
+            discord_webhook_url="https://discord.com/api/webhooks/example",
+            cloud_failure_alert_threshold=2,
+        )
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_power_guard.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+        ), patch("growatt_power_guard.send_discord_message", return_value=True) as send_mock:
+            notify_failure(config, "status", "Growatt login failed: temporary cloud error")
+            notify_failure(config, "status", "Growatt login failed: temporary cloud error")
+            record_growatt_cloud_success(config)
+            state = read_growatt_cloud_failure_state()
+
+        self.assertIsNone(state)
+        self.assertEqual(send_mock.call_count, 2)
+
+    def test_non_cloud_failure_still_alerts_immediately(self):
+        config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example")
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_power_guard.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+        ), patch("growatt_power_guard.send_discord_message", return_value=True) as send_mock:
+            notify_failure(config, "validate-schedule", "schedule.json is invalid")
+
+        self.assertEqual(send_mock.call_count, 1)
 
     def test_watchdog_sbu_does_nothing_when_already_sbu(self):
         config = make_config()
@@ -461,6 +513,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.PAUSE_FILE", Path(tmpdir) / "pause.json"), patch(
             "growatt_power_guard.COMMAND_LOCK_FILE", Path(tmpdir) / "mode_command.lock"
+        ), patch(
+            "growatt_power_guard.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
         ), patch("growatt_power_guard.validate_schedule", return_value=schedule), patch(
             "growatt_power_guard.validate_schedule_overrides", return_value={"dates": {}}
         ), patch(

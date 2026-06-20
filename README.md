@@ -110,6 +110,7 @@ DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 DISCORD_NOTIFY_SUCCESS=true
 DISCORD_NOTIFY_SKIP=false
 DISCORD_NOTIFY_FAILURE=true
+GROWATT_CLOUD_FAILURE_ALERT_THRESHOLD=3
 ```
 
 Test it:
@@ -134,7 +135,8 @@ daily-summary posts the end-of-day summary
 health-check --notify posts readiness diagnostics
 battery-alert detects or clears an emergency SOC episode
 weekly-summary posts the weekly performance report
-any command fails, if DISCORD_NOTIFY_FAILURE=true
+Growatt cloud failures alert after repeated consecutive failures
+other command failures alert immediately, if DISCORD_NOTIFY_FAILURE=true
 checks are skipped, only if DISCORD_NOTIFY_SKIP=true
 ```
 
@@ -256,6 +258,7 @@ GROWATT_DEVICE_SN=your_device_sn
 LOW_BATTERY_SOC=50
 EMERGENCY_SOC=30
 EMERGENCY_SOC_RECOVERY=35
+GROWATT_CLOUD_FAILURE_ALERT_THRESHOLD=3
 DRY_RUN=true
 GROWATT_MODE_DRIVER=spf5000
 ```
@@ -411,6 +414,52 @@ sudo systemctl status growatt-dashboard-refresh.service
 sudo systemctl status growatt-dashboard-server.service
 ```
 
+## Expose Dashboard On A Domain
+
+Recommended public URL: a subdomain such as `dashboard.example.com` rather than a root domain, so it does not collide with any main website.
+
+1. Create a DNS record:
+
+```text
+Type: A
+Name: dashboard
+Value: YOUR_VPS_PUBLIC_IP
+```
+
+2. Make sure ports `80` and `443` are open in your VPS firewall/security group.
+
+3. Install the local dashboard services first:
+
+```bash
+cd ~/automation
+./install_dashboard_service.sh
+```
+
+4. Install the HTTPS reverse proxy with basic auth:
+
+```bash
+cd ~/automation
+DASHBOARD_DOMAIN=dashboard.example.com DASHBOARD_EMAIL=you@example.com ./install_dashboard_proxy.sh
+```
+
+It will prompt for a dashboard password. The public dashboard URL will be:
+
+```text
+https://dashboard.example.com/dashboard.html
+```
+
+The Python dashboard server still listens only on `127.0.0.1:8080`; Nginx is what exposes HTTPS publicly.
+
+## Growatt Cloud Flakiness Alerts
+
+Transient Growatt/ShinePhone cloud failures are tracked as a streak so Discord does not alert on every one-off blip. The default is:
+
+```text
+GROWATT_CLOUD_FAILURE_ALERT_THRESHOLD=3
+```
+
+After 3 consecutive Growatt cloud login/status failures, Discord gets one alert. When a later Growatt read succeeds, the streak is cleared and Discord gets a recovery message.
+
 ## Schedule Overrides
 
 Use date overrides for temporary estate schedule changes without editing `schedule.json`.
@@ -496,6 +545,7 @@ install_cloud_cron.sh
 install_growatt_schedule.ps1
 update_server.sh
 install_dashboard_service.sh
+install_dashboard_proxy.sh
 schedule_overrides.example.json
 tests/
 .gitignore

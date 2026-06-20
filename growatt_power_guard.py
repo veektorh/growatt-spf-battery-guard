@@ -42,6 +42,7 @@ STATE_DIR = BASE_DIR / "state"
 PAUSE_FILE = STATE_DIR / "automation_pause.json"
 BATTERY_ALERT_FILE = STATE_DIR / "battery_alert.json"
 COMMAND_LOCK_FILE = STATE_DIR / "mode_command.lock"
+GROWATT_CLOUD_FAILURE_FILE = STATE_DIR / "growatt_cloud_failures.json"
 COMMAND_LOCK_STALE_SECONDS = 45 * 60
 
 SOC_KEYS = (
@@ -108,6 +109,7 @@ class Config:
     log_retention_days: int
     emergency_soc: float = 30
     emergency_soc_recovery: float = 35
+    cloud_failure_alert_threshold: int = 3
     weather_enabled: bool = False
     weather_lat: float | None = None
     weather_lon: float | None = None
@@ -197,6 +199,7 @@ def load_config() -> Config:
         log_retention_days=int(env("LOG_RETENTION_DAYS", "30")),
         emergency_soc=float(env("EMERGENCY_SOC", "30")),
         emergency_soc_recovery=float(env("EMERGENCY_SOC_RECOVERY", "35")),
+        cloud_failure_alert_threshold=int(env("GROWATT_CLOUD_FAILURE_ALERT_THRESHOLD", "3")),
         weather_enabled=str_to_bool(env("WEATHER_ENABLED"), default=False),
         weather_lat=optional_float(env("WEATHER_LAT")),
         weather_lon=optional_float(env("WEATHER_LON")),
@@ -261,8 +264,102 @@ def send_discord_message(config: Config, message: str) -> bool:
     return True
 
 
+GROWATT_CLOUD_FAILURE_PATTERNS = (
+    "growatt login failed",
+    "login succeeded but no user id",
+    "no growatt plants found",
+    "no devices found",
+    "was not found in plant",
+    "could not determine plant id",
+    "could not determine device serial",
+    "could not find battery soc",
+    "soc was not found",
+    "spF output source was not found".lower(),
+    "could not read current spf output source",
+    "connectionerror",
+    "connecttimeout",
+    "readtimeout",
+    "read timed out",
+    "max retries exceeded",
+    "name or service not known",
+    "temporary failure in name resolution",
+    "failed to establish a new connection",
+)
+
+
+def is_growatt_cloud_failure(message: str) -> bool:
+    lower = message.lower()
+    return any(pattern in lower for pattern in GROWATT_CLOUD_FAILURE_PATTERNS)
+
+
+def read_growatt_cloud_failure_state() -> dict[str, Any] | None:
+    if not GROWATT_CLOUD_FAILURE_FILE.exists():
+        return None
+    try:
+        return json.loads(GROWATT_CLOUD_FAILURE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logging.warning("Ignoring invalid Growatt cloud failure state: %s", exc)
+        return None
+
+
+def write_growatt_cloud_failure_state(state: dict[str, Any]) -> None:
+    STATE_DIR.mkdir(exist_ok=True)
+    GROWATT_CLOUD_FAILURE_FILE.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def clear_growatt_cloud_failure_state() -> None:
+    if GROWATT_CLOUD_FAILURE_FILE.exists():
+        GROWATT_CLOUD_FAILURE_FILE.unlink()
+
+
+def record_growatt_cloud_failure(config: Config, command: str, message: str) -> None:
+    state = read_growatt_cloud_failure_state() or {}
+    count = int(state.get("count", 0)) + 1
+    threshold = max(1, config.cloud_failure_alert_threshold)
+    alerted = bool(state.get("alerted"))
+    state.update(
+        {
+            "count": count,
+            "alerted": alerted,
+            "first_failure_at": state.get("first_failure_at") or utc_now().isoformat(),
+            "last_failure_at": utc_now().isoformat(),
+            "last_command": command,
+            "last_message": message,
+            "threshold": threshold,
+        }
+    )
+
+    if count >= threshold and not alerted:
+        alert = (
+            "Growatt cloud appears flaky.\n"
+            f"`{command}` has failed `{count}` consecutive time(s); alert threshold is `{threshold}`.\n"
+            f"Latest error: {message}"
+        )
+        if send_discord_message(config, alert):
+            state["alerted"] = True
+
+    write_growatt_cloud_failure_state(state)
+
+
+def record_growatt_cloud_success(config: Config) -> None:
+    state = read_growatt_cloud_failure_state()
+    if not state:
+        return
+    count = int(state.get("count", 0))
+    was_alerted = bool(state.get("alerted"))
+    clear_growatt_cloud_failure_state()
+    if was_alerted and config.discord_notify_failure:
+        send_discord_message(
+            config,
+            f"Growatt cloud recovered after `{count}` consecutive failure(s). Automation reads are working again.",
+        )
+
+
 def notify_failure(config: Config | None, command: str, message: str) -> None:
     if config is None or not config.discord_notify_failure or command == "test-discord":
+        return
+    if is_growatt_cloud_failure(message):
+        record_growatt_cloud_failure(config, command, message)
         return
     send_discord_message(config, f"Growatt automation failed during `{command}`.\n{message}")
 
@@ -1140,6 +1237,7 @@ def load_context(config: Config):
     device = choose_device(api, plant_id, config)
     status = read_device_status(api, device)
     logging.info("Current status: %s", summarize_status(status))
+    record_growatt_cloud_success(config)
     return api, device, status
 
 
@@ -1604,10 +1702,9 @@ def command_dashboard_refresh(config: Config, output: str, interval_minutes: flo
             output_path = write_dashboard(config, output)
         except Exception as exc:  # noqa: BLE001 - keep refresh service alive after transient failures
             logging.exception("Dashboard refresh failed")
-            if config.discord_notify_failure:
-                send_discord_message(config, f"Growatt dashboard refresh failed.\n{exc}")
             if once:
                 raise
+            notify_failure(config, "dashboard-refresh", str(exc))
         else:
             message = f"Dashboard refreshed: {output_path}"
             logging.info(message)
@@ -1890,6 +1987,27 @@ def command_health_check(config: Config, notify: bool = False) -> int:
                 "Emergency alert",
                 "OK",
                 f"alerts below {config.emergency_soc:g}% and clears at {config.emergency_soc_recovery:g}%.",
+            )
+        )
+
+    cloud_state = read_growatt_cloud_failure_state()
+    if cloud_state:
+        count = int(cloud_state.get("count", 0))
+        threshold = int(cloud_state.get("threshold", config.cloud_failure_alert_threshold))
+        status = "WARN" if cloud_state.get("alerted") else "OK"
+        checks.append(
+            HealthCheckItem(
+                "Growatt cloud streak",
+                status,
+                f"{count}/{threshold} consecutive failure(s); last command {cloud_state.get('last_command', 'unknown')}.",
+            )
+        )
+    else:
+        checks.append(
+            HealthCheckItem(
+                "Growatt cloud streak",
+                "OK",
+                f"no active failure streak; alert threshold is {config.cloud_failure_alert_threshold}.",
             )
         )
 

@@ -64,5 +64,6 @@ install_cloud_cron.sh
 install_growatt_schedule.ps1
 update_server.sh
 install_dashboard_service.sh
+install_dashboard_proxy.sh
 tests/
 ```

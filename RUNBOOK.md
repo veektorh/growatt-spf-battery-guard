@@ -133,6 +133,7 @@ GROWATT_DEVICE_SN=your_device_sn
 LOW_BATTERY_SOC=50
 EMERGENCY_SOC=30
 EMERGENCY_SOC_RECOVERY=35
+GROWATT_CLOUD_FAILURE_ALERT_THRESHOLD=3
 GROWATT_MODE_DRIVER=spf5000
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 WEATHER_ENABLED=true
@@ -182,6 +183,24 @@ http://localhost:8080/dashboard.html
 
 The server serves a static file. Growatt is only called by the refresh service every 10 minutes by default.
 
+Expose on a dashboard subdomain:
+
+```bash
+cd ~/automation
+./install_dashboard_service.sh
+DASHBOARD_DOMAIN=dashboard.example.com DASHBOARD_EMAIL=you@example.com ./install_dashboard_proxy.sh
+```
+
+Before running the proxy installer, create an `A` record for the dashboard subdomain pointing to the VPS public IP and open ports `80` and `443`.
+
+Growatt cloud flakiness alerts:
+
+```text
+GROWATT_CLOUD_FAILURE_ALERT_THRESHOLD=3
+```
+
+Discord alerts after 3 consecutive Growatt cloud login/status failures, then sends a recovery message when cloud reads work again.
+
 ## Weather Thresholds
 
 Weather-aware thresholds are conservative:
@@ -201,7 +220,7 @@ cd ~/automation
 
 ## Discord Alerts
 
-The automation can post to Discord on successful mode switches, health reports, emergency battery alerts, weekly summaries, and failures.
+The automation can post to Discord on successful mode switches, health reports, emergency battery alerts, weekly summaries, repeated Growatt cloud failures, recoveries, and other failures.
 
 ```text
 DISCORD_NOTIFY_SUCCESS=true
