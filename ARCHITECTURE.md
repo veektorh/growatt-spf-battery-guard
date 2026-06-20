@@ -6,17 +6,20 @@ This repository is a small Python automation service with one command-line entry
 
 ```text
 cron/systemd/manual shell
-  -> growatt_power_guard.py
-  -> growatt_guard.cli
-  -> command implementation in growatt_power_guard.py
+  -> growatt_power_guard.py  (thin shim; re-exports all public symbols)
+  -> growatt_guard.cli       (argparse, dispatch, main)
+  -> growatt_guard.modes / growatt_guard.health / growatt_guard.pause
   -> focused helper modules under growatt_guard/
 ```
 
-`growatt_power_guard.py` remains the public script users run. It imports and re-exports many helpers for compatibility, but most implementation detail now lives in `growatt_guard/`.
+`growatt_power_guard.py` is the public script users run. It is a thin import-and-re-export shim; all implementation lives in `growatt_guard/`.
 
 ## Module Boundaries
 
 ```text
+growatt_guard.exceptions
+  Defines GrowattGuardError so helper modules can raise it without importing the shim.
+
 growatt_guard.config
   Loads .env and returns Config.
 
@@ -29,7 +32,7 @@ growatt_guard.growatt_api
 
 growatt_guard.schedule
   Validates schedule.json and schedule_overrides.json, computes scheduled jobs,
-  and checks installed cron entries.
+  checks installed cron entries, and implements schedule-preview.
 
 growatt_guard.state
   Owns local JSON state and lock files under state/.
@@ -45,6 +48,16 @@ growatt_guard.weather
 
 growatt_guard.dashboard
   Owns dashboard.html rendering, refresh loop, static server, and stale dashboard alerts.
+
+growatt_guard.pause
+  Owns pause/resume state checks and the mode-command lock.
+
+growatt_guard.health
+  Owns the health-check command and health report formatting.
+
+growatt_guard.modes
+  Owns all remaining command implementations: preserve-battery, return-sbu,
+  watchdog-sbu, run-scheduled (including --dry-plan), battery-alert, summaries, etc.
 ```
 
 ## Command Categories
@@ -77,6 +90,8 @@ dashboard-stale-alert
 serve-dashboard
 validate-schedule
 pause-status
+schedule-preview
+run-scheduled --dry-plan
 ```
 
 Pause/resume commands:

@@ -204,6 +204,9 @@ python .\growatt_power_guard.py serve-dashboard
 python .\growatt_power_guard.py pause --hours 6 --reason "maintenance"
 python .\growatt_power_guard.py pause-status
 python .\growatt_power_guard.py resume
+python .\growatt_power_guard.py schedule-preview
+python .\growatt_power_guard.py schedule-preview --days 14
+python .\growatt_power_guard.py run-scheduled morning-preserve --dry-plan
 ```
 
 ## Schedule on Windows

@@ -33,13 +33,17 @@ from growatt_guard.schedule import (
 )
 from growatt_guard.state import (
     clear_battery_alert_state,
+    pause_message,
     read_battery_alert_state,
+    read_pause_state,
     write_battery_alert_state,
 )
 from growatt_guard.weather import choose_preserve_threshold
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 LOG_DIR = BASE_DIR / "logs"
+
+_MODE_CHANGING_COMMANDS = {"preserve-battery", "utility-check", "morning-check", "return-sbu", "watchdog-sbu"}
 
 
 def command_status(config: Config) -> int:
@@ -342,13 +346,91 @@ def command_battery_alert(config: Config) -> int:
     return 0
 
 
-def command_run_scheduled(config: Config, job_id: str) -> int:
+def _run_scheduled_dry_plan(
+    config: Config,
+    job_id: str,
+    job: dict,
+    index: int,
+    override: dict,
+    today: str,
+    note: str,
+) -> int:
+    skip_all = bool(override.get("skip_all", False))
+    skip_ids = override.get("skip", [])
+    replace_map = override.get("replace", {}) if isinstance(override.get("replace", {}), dict) else {}
+
+    scheduled_tokens = schedule_job_tokens(job, index)
+    scheduled_cmd = " ".join(scheduled_tokens)
+
+    lines = [f"Dry plan: run-scheduled {job_id} ({today})"]
+    lines.append(f"  Scheduled command:  {scheduled_cmd}")
+
+    if skip_all:
+        override_label = "SKIP-ALL"
+        if note:
+            override_label += f" — {note}"
+        lines.append(f"  Override today:     {override_label}")
+        lines.append(f"  Outcome:            would skip  (schedule override: skip-all)")
+        print("\n".join(lines))
+        return 0
+
+    if job_id in (skip_ids or []):
+        override_label = "SKIP"
+        if note:
+            override_label += f" — {note}"
+        lines.append(f"  Override today:     {override_label}")
+        lines.append(f"  Outcome:            would skip  (schedule override)")
+        print("\n".join(lines))
+        return 0
+
+    replacement = replace_map.get(job_id)
+    if replacement:
+        repl_tokens = schedule_job_tokens(replacement, 0)
+        repl_cmd = " ".join(repl_tokens)
+        override_label = f"replace -> {repl_cmd}"
+        if note:
+            override_label += f" — {note}"
+        lines.append(f"  Override today:     {override_label}")
+        effective_tokens = repl_tokens
+    else:
+        override_label = "none" + (f" — {note}" if note else "")
+        lines.append(f"  Override today:     {override_label}")
+        effective_tokens = scheduled_tokens
+
+    effective_cmd = " ".join(effective_tokens)
+    effective_command = effective_tokens[0] if effective_tokens else ""
+    is_mode_changing = effective_command in _MODE_CHANGING_COMMANDS
+
+    lines.append(f"  Effective command:  {effective_cmd}")
+    lines.append(f"  Mode-changing:      {'yes' if is_mode_changing else 'no'}")
+
+    pause_state = read_pause_state()
+    if pause_state:
+        lines.append(f"  Paused:             yes — {pause_message(pause_state)}")
+    else:
+        lines.append(f"  Paused:             no")
+
+    lines.append(f"  DRY_RUN:            {'true' if config.dry_run else 'false'}")
+
+    if is_mode_changing and pause_state:
+        lines.append(f"  Outcome:            would skip  (paused)")
+    else:
+        lines.append(f"  Outcome:            would run   {effective_cmd}")
+
+    print("\n".join(lines))
+    return 0
+
+
+def command_run_scheduled(config: Config, job_id: str, dry_plan: bool = False) -> int:
     schedule = validate_schedule()
     job, index = find_schedule_job(schedule, job_id)
     overrides = validate_schedule_overrides(schedule)
     override = today_schedule_override(overrides)
     today = dt.date.today().isoformat()
     note = str(override.get("note", "")).strip()
+
+    if dry_plan:
+        return _run_scheduled_dry_plan(config, job_id, job, index, override, today, note)
 
     if override.get("skip_all") or job_id in override.get("skip", []):
         message = f"Skipped scheduled job `{job_id}` for {today} due to schedule override."

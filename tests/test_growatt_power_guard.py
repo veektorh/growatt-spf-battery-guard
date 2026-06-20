@@ -837,6 +837,100 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertIn("[SKIP]", output)
         self.assertIn("[-> health-check --notify]", output)
 
+    def test_run_scheduled_dry_plan_flag_is_available(self):
+        args = build_parser().parse_args(["run-scheduled", "morning-preserve", "--dry-plan"])
+
+        self.assertEqual(args.command, "run-scheduled")
+        self.assertEqual(args.job_id, "morning-preserve")
+        self.assertTrue(args.dry_plan)
+
+    def test_run_scheduled_dry_plan_no_override(self):
+        config = make_config()
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [{"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"}],
+        }
+        with patch("growatt_guard.modes.validate_schedule", return_value=schedule), patch(
+            "growatt_guard.modes.validate_schedule_overrides", return_value={"dates": {}}
+        ), patch("growatt_guard.modes.today_schedule_override", return_value={}), patch(
+            "growatt_guard.modes.read_pause_state", return_value=None
+        ), redirect_stdout(StringIO()) as stdout:
+            result = command_run_scheduled(config, "morning-preserve", dry_plan=True)
+
+        self.assertEqual(result, 0)
+        output = stdout.getvalue()
+        self.assertIn("Dry plan: run-scheduled morning-preserve", output)
+        self.assertIn("Scheduled command:  preserve-battery", output)
+        self.assertIn("Override today:     none", output)
+        self.assertIn("Mode-changing:      yes", output)
+        self.assertIn("Paused:             no", output)
+        self.assertIn("would run", output)
+
+    def test_run_scheduled_dry_plan_skip_override(self):
+        config = make_config()
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [{"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"}],
+        }
+        with patch("growatt_guard.modes.validate_schedule", return_value=schedule), patch(
+            "growatt_guard.modes.validate_schedule_overrides", return_value={"dates": {}}
+        ), patch(
+            "growatt_guard.modes.today_schedule_override",
+            return_value={"skip": ["morning-preserve"], "note": "grid work"},
+        ), redirect_stdout(StringIO()) as stdout:
+            result = command_run_scheduled(config, "morning-preserve", dry_plan=True)
+
+        self.assertEqual(result, 0)
+        output = stdout.getvalue()
+        self.assertIn("Override today:     SKIP", output)
+        self.assertIn("grid work", output)
+        self.assertIn("would skip", output)
+
+    def test_run_scheduled_dry_plan_replace_override(self):
+        config = make_config()
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [{"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"}],
+        }
+        with patch("growatt_guard.modes.validate_schedule", return_value=schedule), patch(
+            "growatt_guard.modes.validate_schedule_overrides", return_value={"dates": {}}
+        ), patch(
+            "growatt_guard.modes.today_schedule_override",
+            return_value={"replace": {"morning-preserve": {"command": "health-check"}}},
+        ), patch("growatt_guard.modes.read_pause_state", return_value=None), redirect_stdout(
+            StringIO()
+        ) as stdout:
+            result = command_run_scheduled(config, "morning-preserve", dry_plan=True)
+
+        self.assertEqual(result, 0)
+        output = stdout.getvalue()
+        self.assertIn("replace -> health-check", output)
+        self.assertIn("Effective command:  health-check", output)
+        self.assertIn("Mode-changing:      no", output)
+        self.assertIn("would run", output)
+
+    def test_run_scheduled_dry_plan_paused_mode_changing(self):
+        config = make_config()
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [{"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"}],
+        }
+        pause_state = {"until": "2099-01-01T00:00:00", "reason": "grid work"}
+        with patch("growatt_guard.modes.validate_schedule", return_value=schedule), patch(
+            "growatt_guard.modes.validate_schedule_overrides", return_value={"dates": {}}
+        ), patch("growatt_guard.modes.today_schedule_override", return_value={}), patch(
+            "growatt_guard.modes.read_pause_state", return_value=pause_state
+        ), patch("growatt_guard.modes.pause_message", return_value="paused until 2099-01-01"), redirect_stdout(
+            StringIO()
+        ) as stdout:
+            result = command_run_scheduled(config, "morning-preserve", dry_plan=True)
+
+        self.assertEqual(result, 0)
+        output = stdout.getvalue()
+        self.assertIn("Paused:             yes", output)
+        self.assertIn("paused until 2099-01-01", output)
+        self.assertIn("would skip  (paused)", output)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,6 +37,9 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py pause --hours 6 --reason "maintenance"
 .venv/bin/python growatt_power_guard.py pause-status
 .venv/bin/python growatt_power_guard.py resume
+.venv/bin/python growatt_power_guard.py schedule-preview
+.venv/bin/python growatt_power_guard.py schedule-preview --days 14
+.venv/bin/python growatt_power_guard.py run-scheduled morning-preserve --dry-plan
 ```
 
 ## Pause Automation

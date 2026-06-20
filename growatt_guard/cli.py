@@ -45,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("test-discord", help="Send a test Discord webhook message.")
     run_parser = subparsers.add_parser("run-scheduled", help="Run a schedule job by id, applying date overrides first.")
     run_parser.add_argument("job_id", help="Schedule job id from schedule.json.")
+    run_parser.add_argument("--dry-plan", action="store_true", help="Print what would happen without running anything.")
     health_parser = subparsers.add_parser("health-check", help="Run read-only configuration and connectivity checks.")
     health_parser.add_argument("--notify", action="store_true", help="Post the health report to Discord.")
     dashboard_parser = subparsers.add_parser("dashboard", help="Generate a small local HTML dashboard.")
@@ -128,7 +129,7 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
         if command == "serve-dashboard":
             return app.command_serve_dashboard(config, args.host, args.port, args.output)
         if command == "run-scheduled":
-            return app.command_run_scheduled(config, args.job_id)
+            return app.command_run_scheduled(config, args.job_id, dry_plan=args.dry_plan)
         if command == "pause":
             return app.command_pause(config, args.hours, args.reason)
         if command == "resume":
