@@ -38,10 +38,8 @@ echo "Installing cron schedule..."
 ./install_cloud_cron.sh
 
 echo "Restarting long-lived processes..."
-DASHBOARD_REFRESH_PID=$(pgrep -f "growatt_power_guard.py dashboard-refresh" || true)
-if [[ -n "${DASHBOARD_REFRESH_PID}" ]]; then
-  kill "${DASHBOARD_REFRESH_PID}"
-  echo "Stopped dashboard-refresh (PID ${DASHBOARD_REFRESH_PID})."
+if pkill -f "growatt_power_guard.py dashboard-refresh" 2>/dev/null; then
+  echo "Stopped dashboard-refresh."
 fi
 nohup "${PYTHON_BIN}" growatt_power_guard.py dashboard-refresh --interval-minutes 10 >> "${ROOT}/logs/cron.log" 2>&1 &
 echo "Started dashboard-refresh (PID $!)."
