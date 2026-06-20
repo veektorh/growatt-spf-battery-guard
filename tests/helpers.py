@@ -1,0 +1,37 @@
+def make_config(**overrides):
+    from growatt_guard.config import Config
+    values = {
+        "username": "u",
+        "password": "p",
+        "server_url": "https://openapi.growatt.com/",
+        "plant_id": "plant123",
+        "device_sn": "SN123",
+        "low_battery_soc": 50,
+        "dry_run": True,
+        "mode_driver": "spf5000",
+        "set_mode_path": "tcpSet.do",
+        "set_mode_method": "post",
+        "utility_mode_params": "",
+        "sbu_mode_params": "",
+        "discord_webhook_url": "",
+        "discord_notify_success": True,
+        "discord_notify_skip": False,
+        "discord_notify_failure": True,
+        "log_retention_days": 30,
+        "emergency_soc": 30,
+        "emergency_soc_recovery": 35,
+        "cloud_failure_alert_threshold": 3,
+        "dashboard_stale_minutes": 30,
+        "weather_enabled": False,
+        "weather_lat": None,
+        "weather_lon": None,
+        "weather_timezone": "Africa/Lagos",
+        "weather_lookahead_hours": 4,
+        "weather_cloudy_threshold": 70,
+        "weather_sunny_threshold": 35,
+        "weather_rain_threshold_mm": 1,
+        "low_battery_soc_normal": 45,
+        "low_battery_soc_sunny": 40,
+    }
+    values.update(overrides)
+    return Config(**values)
