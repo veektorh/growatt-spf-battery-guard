@@ -250,6 +250,40 @@ def format_metric(data: dict[str, Any], label: str, keys: tuple[str, ...], unit:
     return f"{label}: {value}{unit}"
 
 
+def estimate_runtime(
+    soc: float,
+    p_discharge_w: float,
+    battery_capacity_wh: float,
+    bms_cutoff_soc: float = 25.0,
+) -> float | None:
+    """Return estimated runtime in minutes down to BMS cutoff, or None if inputs are invalid."""
+    if battery_capacity_wh <= 0 or p_discharge_w <= 0:
+        return None
+    if soc <= bms_cutoff_soc:
+        return 0.0
+    usable_wh = battery_capacity_wh * (soc - bms_cutoff_soc) / 100.0
+    return usable_wh / p_discharge_w * 60.0
+
+
+def estimate_charge_time(
+    soc: float,
+    p_charge_w: float,
+    battery_capacity_wh: float,
+) -> float | None:
+    """Return estimated time to full charge in minutes, or None if inputs are invalid."""
+    if battery_capacity_wh <= 0 or p_charge_w <= 0 or soc >= 100.0:
+        return None
+    remaining_wh = battery_capacity_wh * (100.0 - soc) / 100.0
+    return remaining_wh / p_charge_w * 60.0
+
+
+def format_duration_minutes(minutes: float) -> str:
+    m = round(minutes)
+    if m >= 60:
+        return f"{m // 60}h {m % 60:02d}m"
+    return f"{m}min"
+
+
 def extract_battery_status(data: dict[str, Any]) -> str | None:
     # DetailBean contains human-readable values like "Discharge", "Charging", "Standby"
     for path, value in deep_values(data):
@@ -329,7 +363,11 @@ def read_device_status(api, device: DeviceRef) -> dict[str, Any]:
     return status
 
 
-def summarize_status(status: dict[str, Any]) -> str:
+def summarize_status(
+    status: dict[str, Any],
+    battery_capacity_wh: float = 0.0,
+    bms_cutoff_soc: float = 25.0,
+) -> str:
     soc_result = extract_soc(status)
     parts = [
         f"plant={status.get('plant_id')}",
@@ -362,9 +400,20 @@ def summarize_status(status: dict[str, Any]) -> str:
     _pc = extract_first_metric(status, ("pCharge", "pCharge1"))
     pdv = parse_number(_pd[0]) if _pd else None
     pcv = parse_number(_pc[0]) if _pc else None
+    bat_w_val = None
     if pdv is not None or pcv is not None:
-        bat_w = (pdv or 0.0) - (pcv or 0.0)
-        parts.append(f"bat_w={bat_w:g}")
+        bat_w_val = (pdv or 0.0) - (pcv or 0.0)
+        parts.append(f"bat_w={bat_w_val:g}")
+    if battery_capacity_wh > 0 and soc_result is not None and bat_w_val is not None:
+        soc_val = soc_result[0]
+        if bat_w_val > 0:
+            rt = estimate_runtime(soc_val, bat_w_val, battery_capacity_wh, bms_cutoff_soc)
+            if rt is not None:
+                parts.append(f"runtime_min={rt:.0f}")
+        elif bat_w_val < 0:
+            ct = estimate_charge_time(soc_val, abs(bat_w_val), battery_capacity_wh)
+            if ct is not None:
+                parts.append(f"charge_min={ct:.0f}")
     return ", ".join(parts)
 
 

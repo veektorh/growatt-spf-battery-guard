@@ -17,7 +17,7 @@ from growatt_power_guard import (
     verify_mode_switch,
     command_watchdog_sbu,
 )
-from growatt_guard.growatt_api import extract_battery_status
+from growatt_guard.growatt_api import extract_battery_status, estimate_runtime, estimate_charge_time, format_duration_minutes
 
 
 class GrowattApiTests(unittest.TestCase):
@@ -330,6 +330,80 @@ class VerifyModeSwitchTests(unittest.TestCase):
              patch("growatt_guard.growatt_api.time.sleep") as mock_sleep:
             verify_mode_switch(api, self._device(), "utility", delay_seconds=3)
         mock_sleep.assert_called_once_with(3)
+
+
+class RuntimeEstimationTests(unittest.TestCase):
+    # 2x SunmateMS 15kWh = 30,000 Wh total, 25% BMS cutoff
+    CAPACITY = 30_000.0
+    CUTOFF = 25.0
+
+    def test_estimate_runtime_basic(self):
+        # (62-25)/100 * 30000 / 1736 * 60 = 11100/1736*60 ≈ 383.87 min
+        result = estimate_runtime(62.0, 1736.0, self.CAPACITY, self.CUTOFF)
+        self.assertIsNotNone(result)
+        self.assertAlmostEqual(result, 383.87, delta=0.5)
+
+    def test_estimate_runtime_at_cutoff_returns_zero(self):
+        result = estimate_runtime(25.0, 1736.0, self.CAPACITY, self.CUTOFF)
+        self.assertEqual(result, 0.0)
+
+    def test_estimate_runtime_below_cutoff_returns_zero(self):
+        result = estimate_runtime(20.0, 1736.0, self.CAPACITY, self.CUTOFF)
+        self.assertEqual(result, 0.0)
+
+    def test_estimate_runtime_no_discharge_returns_none(self):
+        self.assertIsNone(estimate_runtime(62.0, 0.0, self.CAPACITY, self.CUTOFF))
+
+    def test_estimate_runtime_no_capacity_returns_none(self):
+        self.assertIsNone(estimate_runtime(62.0, 1736.0, 0.0, self.CUTOFF))
+
+    def test_estimate_charge_time_basic(self):
+        # (100-62)/100 * 30000 / 1500 * 60 = 11400/1500*60 = 456 min
+        result = estimate_charge_time(62.0, 1500.0, self.CAPACITY)
+        self.assertIsNotNone(result)
+        self.assertAlmostEqual(result, 456.0, delta=0.5)
+
+    def test_estimate_charge_time_full_battery_returns_none(self):
+        self.assertIsNone(estimate_charge_time(100.0, 1500.0, self.CAPACITY))
+
+    def test_estimate_charge_time_no_charge_returns_none(self):
+        self.assertIsNone(estimate_charge_time(62.0, 0.0, self.CAPACITY))
+
+    def test_format_duration_minutes_under_an_hour(self):
+        self.assertEqual(format_duration_minutes(45.0), "45min")
+
+    def test_format_duration_minutes_exactly_one_hour(self):
+        self.assertEqual(format_duration_minutes(60.0), "1h 00m")
+
+    def test_format_duration_minutes_hours_and_minutes(self):
+        self.assertEqual(format_duration_minutes(383.87), "6h 24m")
+
+    def test_summarize_status_includes_runtime_when_capacity_set(self):
+        status = {
+            "plant_id": "p1", "device_sn": "SN1", "device_type": "storage",
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {
+                    "bmsSoc": 62, "statusText": "Discharge",
+                    "outPutPower": 1554, "loadPercent": 28.3,
+                    "pDischarge": 1736, "pCharge": 0,
+                },
+            },
+        }
+        result = summarize_status(status, battery_capacity_wh=30_000.0, bms_cutoff_soc=25.0)
+        self.assertIn("runtime_min=", result)
+        m = __import__("re").search(r"runtime_min=(\d+)", result)
+        self.assertIsNotNone(m)
+        self.assertAlmostEqual(int(m.group(1)), 384, delta=2)
+
+    def test_summarize_status_no_runtime_when_capacity_zero(self):
+        status = {
+            "plant_id": "p1", "device_sn": "SN1", "device_type": "storage",
+            "storage_params": {"storageDetailBean": {"bmsSoc": 62, "pDischarge": 1736, "pCharge": 0}},
+        }
+        result = summarize_status(status)  # no capacity passed
+        self.assertNotIn("runtime_min=", result)
+        self.assertNotIn("charge_min=", result)
 
 
 class ExtractMetricsTests(unittest.TestCase):

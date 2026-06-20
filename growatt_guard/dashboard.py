@@ -14,10 +14,13 @@ from typing import Any
 from growatt_guard.audit import build_chart_data, read_mode_audit_rows
 from growatt_guard.pvoutput import publish_pvoutput_status_from_status, read_pvoutput_state
 from growatt_guard.growatt_api import (
+    estimate_charge_time,
+    estimate_runtime,
     extract_battery_status,
     extract_first_metric,
     extract_soc,
     extract_spf_output_source,
+    format_duration_minutes,
     load_context,
     parse_number,
 )
@@ -242,6 +245,8 @@ def build_dashboard_html(
     overrides: dict[str, Any],
     threshold_decision: Any,
     stale_after_minutes: float = 30,
+    battery_capacity_wh: float = 0.0,
+    battery_bms_cutoff_soc: float = 25.0,
 ) -> str:
     now = dt.datetime.now()
     generated_at = now.astimezone()
@@ -261,12 +266,21 @@ def build_dashboard_html(
     _pc = extract_first_metric(status, ("pCharge", "pCharge1"))
     _pdv = parse_number(_pd[0]) if _pd else None
     _pcv = parse_number(_pc[0]) if _pc else None
+    bat_w = "—"
+    est_runtime = "—"
     if _pdv is not None or _pcv is not None:
         _bw = (_pdv or 0.0) - (_pcv or 0.0)
         _dir = "discharge" if _bw > 0 else ("charge" if _bw < 0 else "standby")
         bat_w = f"{abs(_bw):g} W {_dir}"
-    else:
-        bat_w = "—"
+        if battery_capacity_wh > 0 and soc_result:
+            if _bw > 0:
+                _rt = estimate_runtime(soc_result[0], _bw, battery_capacity_wh, battery_bms_cutoff_soc)
+                if _rt is not None:
+                    est_runtime = format_duration_minutes(_rt) + " remaining"
+            elif _bw < 0:
+                _ct = estimate_charge_time(soc_result[0], abs(_bw), battery_capacity_wh)
+                if _ct is not None:
+                    est_runtime = format_duration_minutes(_ct) + " to full"
     pause_state = read_pause_state()
     pause = pause_message(pause_state) if pause_state else "active"
     alert_state = read_battery_alert_state()
@@ -385,6 +399,7 @@ def build_dashboard_html(
       <div class="card"><div class="label">Output Source</div><div class="value">{esc(mode)}</div></div>
       <div class="card"><div class="label">Battery Status</div><div class="value">{esc(bat_status)}</div></div>
       <div class="card"><div class="label">Battery Power</div><div class="value">{esc(bat_w)}</div></div>
+      <div class="card"><div class="label">Est. Runtime</div><div class="value">{esc(est_runtime)}</div></div>
       <div class="card"><div class="label">Output Power</div><div class="value">{esc(out_w)}</div></div>
       <div class="card"><div class="label">Load</div><div class="value">{esc(load_pct)}</div></div>
       <div class="card"><div class="label">Preserve Threshold</div><div class="value">{esc(f'{threshold_decision.threshold:g}%')}</div></div>
@@ -527,7 +542,10 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
     threshold_decision = choose_preserve_threshold(config)
     output_path = resolve_dashboard_output(output)
     output_path.write_text(
-        build_dashboard_html(status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes),
+        build_dashboard_html(
+            status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes,
+            config.battery_capacity_wh, config.battery_bms_cutoff_soc,
+        ),
         encoding="utf-8",
     )
     return output_path

@@ -57,6 +57,8 @@ class Config:
     discord_control_allowed_user_ids: tuple[str, ...] = ()
     discord_control_guild_id: str = ""
     discord_topup_max_minutes: int = 180
+    battery_capacity_wh: float = 0.0
+    battery_bms_cutoff_soc: float = 25.0
 
 
 def app_module() -> Any:
@@ -158,4 +160,6 @@ def load_config() -> Config:
         discord_control_allowed_user_ids=csv_env("DISCORD_CONTROL_ALLOWED_USER_IDS"),
         discord_control_guild_id=env("DISCORD_CONTROL_GUILD_ID"),
         discord_topup_max_minutes=int(env("DISCORD_TOPUP_MAX_MINUTES", "180")),
+        battery_capacity_wh=float(env("BATTERY_CAPACITY_WH", "0")),
+        battery_bms_cutoff_soc=float(env("BATTERY_BMS_CUTOFF_SOC", "25")),
     )

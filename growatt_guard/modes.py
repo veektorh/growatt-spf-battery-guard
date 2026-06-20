@@ -69,14 +69,14 @@ _MODE_CHANGING_COMMANDS = {
 
 def command_status(config: Config) -> int:
     _, _, status = load_context(config)
-    print(summarize_status(status))
+    print(summarize_status(status, config.battery_capacity_wh, config.battery_bms_cutoff_soc))
     return 0
 
 
 def command_probe(config: Config) -> int:
     _, _, status = load_context(config)
     path = write_probe(status)
-    print(summarize_status(status))
+    print(summarize_status(status, config.battery_capacity_wh, config.battery_bms_cutoff_soc))
     print(f"Wrote redacted probe data to {path}")
     return 0
 

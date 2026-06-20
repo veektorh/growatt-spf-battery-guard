@@ -103,6 +103,12 @@ def build_status_embed(discord_module: Any, output: str, return_code: int) -> An
     return embed
 
 
+def _fmt_duration(minutes: int) -> str:
+    if minutes >= 60:
+        return f"{minutes // 60}h {minutes % 60:02d}m"
+    return f"{minutes}min"
+
+
 def build_dashboard_embed(discord_module: Any, status_output: str, return_code: int) -> Any:
     def _extract(pattern: str) -> str:
         m = re.search(pattern, status_output)
@@ -116,6 +122,8 @@ def build_dashboard_embed(discord_module: Any, status_output: str, return_code: 
     out_w_raw = _extract(r"out_w=([^,]+)")
     load_pct_raw = _extract(r"load_pct=([^,]+)")
     bat_w_raw = _extract(r"bat_w=(-?[^,]+)")
+    runtime_min_raw = _extract(r"runtime_min=(\d+)")
+    charge_min_raw = _extract(r"charge_min=(\d+)")
 
     color = _COLOR_FAIL
     if return_code == 0:
@@ -130,13 +138,25 @@ def build_dashboard_embed(discord_module: Any, status_output: str, return_code: 
     embed.add_field(name="Output Mode", value=output_clean or "unknown", inline=True)
     embed.add_field(name="​", value="​", inline=True)
 
-    # Live metrics row: battery (status + power), output power, load
+    # Live metrics row: battery (status + power + runtime), output power, load
     bat_value = bat_status_raw if bat_status_raw != "unknown" else ""
     if bat_w_raw != "unknown":
         try:
             bw = float(bat_w_raw)
             if bw != 0:
                 bat_value += f" · {abs(bw):g} W" if bat_value else f"{abs(bw):g} W"
+        except ValueError:
+            pass
+    if runtime_min_raw != "unknown":
+        try:
+            dur = _fmt_duration(int(runtime_min_raw))
+            bat_value += f" · {dur} left"
+        except ValueError:
+            pass
+    elif charge_min_raw != "unknown":
+        try:
+            dur = _fmt_duration(int(charge_min_raw))
+            bat_value += f" · {dur} to full"
         except ValueError:
             pass
     embed.add_field(name="Battery", value=bat_value or "—", inline=True)
