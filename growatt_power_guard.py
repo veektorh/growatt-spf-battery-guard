@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import argparse
 import datetime as dt
 import logging
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,6 +24,12 @@ from growatt_guard.dashboard import (
     command_serve_dashboard,
     dashboard_freshness,
     read_dashboard_stale_alert_state,
+)
+from growatt_guard.cli import (
+    build_parser,
+    dispatch_command,
+    main,
+    parse_command_tokens,
 )
 from growatt_guard.config import (
     Config,
@@ -725,142 +729,6 @@ def command_test_discord(config: Config) -> int:
         raise GrowattGuardError("Discord test message failed. Check the webhook URL and network access.")
     print("Discord test message sent.")
     return 0
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Growatt SPF battery-preservation automation.")
-    parser.add_argument("--verbose", action="store_true", help="Log extra details.")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("status", help="Log in, select plant/device, and print battery SOC.")
-    subparsers.add_parser("probe", help="Write redacted raw Growatt responses to logs/ for setup.")
-    subparsers.add_parser("preserve-battery", help="Switch to Utility if battery SOC is below LOW_BATTERY_SOC.")
-    subparsers.add_parser("utility-check", help="Alias for preserve-battery.")
-    subparsers.add_parser("morning-check", help="Alias for preserve-battery.")
-    subparsers.add_parser("return-sbu", help="Switch back to SBU.")
-    subparsers.add_parser("watchdog-sbu", help="Verify output source is SBU; retry SBU once if needed.")
-    subparsers.add_parser("daily-summary", help="Post/print a daily Growatt and automation summary.")
-    subparsers.add_parser("weekly-summary", help="Post/print a weekly automation performance summary.")
-    subparsers.add_parser("rotate-logs", help="Delete old generated probe/log files according to LOG_RETENTION_DAYS.")
-    subparsers.add_parser("weather-threshold", help="Print the current weather-aware preserve-battery threshold.")
-    subparsers.add_parser("battery-alert", help="Send a Discord alert if battery SOC is below EMERGENCY_SOC.")
-    subparsers.add_parser("validate-schedule", help="Validate schedule.json.")
-    subparsers.add_parser("test-discord", help="Send a test Discord webhook message.")
-    run_parser = subparsers.add_parser("run-scheduled", help="Run a schedule job by id, applying date overrides first.")
-    run_parser.add_argument("job_id", help="Schedule job id from schedule.json.")
-    health_parser = subparsers.add_parser("health-check", help="Run read-only configuration and connectivity checks.")
-    health_parser.add_argument("--notify", action="store_true", help="Post the health report to Discord.")
-    dashboard_parser = subparsers.add_parser("dashboard", help="Generate a small local HTML dashboard.")
-    dashboard_parser.add_argument("--output", default=str(DASHBOARD_FILE), help="Dashboard HTML output path.")
-    refresh_parser = subparsers.add_parser("dashboard-refresh", help="Regenerate dashboard.html on a safe interval.")
-    refresh_parser.add_argument("--output", default=str(DASHBOARD_FILE), help="Dashboard HTML output path.")
-    refresh_parser.add_argument(
-        "--interval-minutes",
-        type=float,
-        default=10,
-        help=f"Refresh interval. Minimum {MIN_DASHBOARD_REFRESH_MINUTES} minutes unless --once is used.",
-    )
-    refresh_parser.add_argument("--once", action="store_true", help="Refresh once, then exit.")
-    stale_parser = subparsers.add_parser("dashboard-stale-alert", help="Alert if dashboard.html has not refreshed recently.")
-    stale_parser.add_argument("--output", default=str(DASHBOARD_FILE), help="Dashboard HTML file to check.")
-    stale_parser.add_argument(
-        "--max-age-minutes",
-        type=float,
-        default=None,
-        help="Override DASHBOARD_STALE_MINUTES for this check.",
-    )
-    serve_parser = subparsers.add_parser("serve-dashboard", help="Serve dashboard.html without calling Growatt.")
-    serve_parser.add_argument("--host", default="127.0.0.1", help="Bind host. Use 127.0.0.1 for SSH tunnel access.")
-    serve_parser.add_argument("--port", type=int, default=8080, help="Bind port.")
-    serve_parser.add_argument("--output", default=str(DASHBOARD_FILE), help="Dashboard HTML file to serve.")
-    pause_parser = subparsers.add_parser("pause", help="Pause scheduled mode-changing automation.")
-    pause_parser.add_argument("--hours", type=float, required=True, help="How long to pause automation for.")
-    pause_parser.add_argument("--reason", default="", help="Optional reason stored in pause state and Discord alert.")
-    subparsers.add_parser("resume", help="Resume scheduled mode-changing automation.")
-    subparsers.add_parser("pause-status", help="Show whether automation is currently paused.")
-    return parser
-
-
-def parse_command_tokens(tokens: list[str]) -> argparse.Namespace:
-    return build_parser().parse_args(tokens)
-
-
-def dispatch_command(config: Config, args: argparse.Namespace) -> int:
-    command = args.command
-
-    def action() -> int:
-        if command == "status":
-            return command_status(config)
-        if command == "probe":
-            return command_probe(config)
-        if command == "preserve-battery":
-            return command_preserve_battery(config)
-        if command == "utility-check":
-            return command_utility_check(config)
-        if command == "morning-check":
-            return command_morning_check(config)
-        if command == "return-sbu":
-            return command_return_sbu(config)
-        if command == "watchdog-sbu":
-            return command_watchdog_sbu(config)
-        if command == "daily-summary":
-            return command_daily_summary(config)
-        if command == "weekly-summary":
-            return command_weekly_summary(config)
-        if command == "rotate-logs":
-            return command_rotate_logs(config)
-        if command == "weather-threshold":
-            return command_weather_threshold(config)
-        if command == "battery-alert":
-            return command_battery_alert(config)
-        if command == "test-discord":
-            return command_test_discord(config)
-        if command == "health-check":
-            return command_health_check(config, args.notify)
-        if command == "dashboard":
-            return command_dashboard(config, args.output)
-        if command == "dashboard-refresh":
-            return command_dashboard_refresh(config, args.output, args.interval_minutes, args.once)
-        if command == "dashboard-stale-alert":
-            return command_dashboard_stale_alert(config, args.output, args.max_age_minutes)
-        if command == "serve-dashboard":
-            return command_serve_dashboard(config, args.host, args.port, args.output)
-        if command == "run-scheduled":
-            return command_run_scheduled(config, args.job_id)
-        if command == "pause":
-            return command_pause(config, args.hours, args.reason)
-        if command == "resume":
-            return command_resume(config)
-        if command == "pause-status":
-            return command_pause_status(config)
-        raise GrowattGuardError(f"Unknown command: {command}")
-
-    if command in LOCKED_COMMANDS:
-        return run_with_command_lock(config, command, action)
-    return action()
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    setup_logging(args.verbose)
-    config: Config | None = None
-
-    try:
-        if args.command == "validate-schedule":
-            return command_validate_schedule()
-        config = load_config()
-        logging.info("Command=%s dry_run=%s low_soc=%s", args.command, config.dry_run, config.low_battery_soc)
-        return dispatch_command(config, args)
-    except GrowattGuardError as exc:
-        logging.error("%s", exc)
-        notify_failure(config, args.command, str(exc))
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 1
-    except Exception as exc:  # noqa: BLE001 - logs traceback for unattended scheduler runs
-        logging.exception("Unhandled error")
-        notify_failure(config, args.command, str(exc))
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 1
 
 
 if __name__ == "__main__":
