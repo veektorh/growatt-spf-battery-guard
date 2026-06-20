@@ -217,13 +217,10 @@ def _pvoutput_card_html(state: dict[str, Any] | None, now: dt.datetime) -> str:
     parts: list[str] = []
     v1 = fields.get("v1")
     v2 = fields.get("v2")
-    v7 = fields.get("v7")
     if v1 is not None:
         parts.append(f"{int(v1) / 1000:.1f} kWh")
     if v2 is not None:
         parts.append(f"{v2} W PV")
-    if v7 is not None:
-        parts.append(f"SOC {v7:g}%")
     age_text = format_duration(age_seconds)
     detail = (", ".join(parts) + f" · {age_text} ago") if parts else f"{age_text} ago"
     badge_cls = "badge-warn" if stale else "badge-ok"
