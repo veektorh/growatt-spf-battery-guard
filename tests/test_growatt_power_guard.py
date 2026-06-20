@@ -1,3 +1,4 @@
+import datetime as dt
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -19,7 +20,43 @@ from growatt_power_guard import (
     GrowattGuardError,
     send_discord_message,
     truncate_discord_message,
+    analyze_weather_window,
+    choose_preserve_threshold,
 )
+
+
+def make_config(**overrides):
+    values = {
+        "username": "u",
+        "password": "p",
+        "server_url": "https://openapi.growatt.com/",
+        "plant_id": "plant123",
+        "device_sn": "SN123",
+        "low_battery_soc": 50,
+        "dry_run": True,
+        "mode_driver": "spf5000",
+        "set_mode_path": "tcpSet.do",
+        "set_mode_method": "post",
+        "utility_mode_params": "",
+        "sbu_mode_params": "",
+        "discord_webhook_url": "",
+        "discord_notify_success": True,
+        "discord_notify_skip": False,
+        "discord_notify_failure": True,
+        "log_retention_days": 30,
+        "weather_enabled": False,
+        "weather_lat": None,
+        "weather_lon": None,
+        "weather_timezone": "Africa/Lagos",
+        "weather_lookahead_hours": 4,
+        "weather_cloudy_threshold": 70,
+        "weather_sunny_threshold": 35,
+        "weather_rain_threshold_mm": 1,
+        "low_battery_soc_normal": 45,
+        "low_battery_soc_sunny": 40,
+    }
+    values.update(overrides)
+    return Config(**values)
 
 
 class GrowattPowerGuardTests(unittest.TestCase):
@@ -55,25 +92,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         )
 
     def test_spf5000_driver_prepares_expected_dry_run_params(self):
-        config = Config(
-            username="u",
-            password="p",
-            server_url="https://openapi.growatt.com/",
-            plant_id="plant123",
-            device_sn="SN123",
-            low_battery_soc=45,
-            dry_run=True,
-            mode_driver="spf5000",
-            set_mode_path="tcpSet.do",
-            set_mode_method="post",
-            utility_mode_params="",
-            sbu_mode_params="",
-            discord_webhook_url="",
-            discord_notify_success=True,
-            discord_notify_skip=False,
-            discord_notify_failure=True,
-            log_retention_days=30,
-        )
+        config = make_config()
         device = DeviceRef("plant123", "SN123", "storage", {})
 
         self.assertEqual(
@@ -125,6 +144,11 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(args.command, "validate-schedule")
 
+    def test_weather_threshold_command_is_available(self):
+        args = build_parser().parse_args(["weather-threshold"])
+
+        self.assertEqual(args.command, "weather-threshold")
+
     def test_truncate_discord_message_keeps_short_messages(self):
         self.assertEqual(truncate_discord_message("hello"), "hello")
 
@@ -132,25 +156,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertLessEqual(len(truncate_discord_message("x" * 2500)), 1904)
 
     def test_send_discord_message_posts_json_payload(self):
-        config = Config(
-            username="u",
-            password="p",
-            server_url="https://openapi.growatt.com/",
-            plant_id="plant123",
-            device_sn="SN123",
-            low_battery_soc=45,
-            dry_run=True,
-            mode_driver="spf5000",
-            set_mode_path="tcpSet.do",
-            set_mode_method="post",
-            utility_mode_params="",
-            sbu_mode_params="",
-            discord_webhook_url="https://discord.com/api/webhooks/example",
-            discord_notify_success=True,
-            discord_notify_skip=False,
-            discord_notify_failure=True,
-            log_retention_days=30,
-        )
+        config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example")
 
         class Response:
             status_code = 204
@@ -164,25 +170,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertIn("User-Agent", mocked.call_args.kwargs["headers"])
 
     def test_watchdog_sbu_does_nothing_when_already_sbu(self):
-        config = Config(
-            username="u",
-            password="p",
-            server_url="https://openapi.growatt.com/",
-            plant_id="plant123",
-            device_sn="SN123",
-            low_battery_soc=45,
-            dry_run=True,
-            mode_driver="spf5000",
-            set_mode_path="tcpSet.do",
-            set_mode_method="post",
-            utility_mode_params="",
-            sbu_mode_params="",
-            discord_webhook_url="",
-            discord_notify_success=True,
-            discord_notify_skip=False,
-            discord_notify_failure=True,
-            log_retention_days=30,
-        )
+        config = make_config()
 
         with patch(
             "growatt_power_guard.load_context",
@@ -193,25 +181,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         set_mode_mock.assert_not_called()
 
     def test_watchdog_sbu_retries_when_not_sbu(self):
-        config = Config(
-            username="u",
-            password="p",
-            server_url="https://openapi.growatt.com/",
-            plant_id="plant123",
-            device_sn="SN123",
-            low_battery_soc=45,
-            dry_run=True,
-            mode_driver="spf5000",
-            set_mode_path="tcpSet.do",
-            set_mode_method="post",
-            utility_mode_params="",
-            sbu_mode_params="",
-            discord_webhook_url="",
-            discord_notify_success=True,
-            discord_notify_skip=False,
-            discord_notify_failure=True,
-            log_retention_days=30,
-        )
+        config = make_config()
 
         with patch(
             "growatt_power_guard.load_context",
@@ -267,6 +237,57 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
             with self.assertRaises(GrowattGuardError):
                 validate_schedule(path)
+
+    def test_choose_preserve_threshold_uses_fixed_when_weather_disabled(self):
+        decision = choose_preserve_threshold(make_config(weather_enabled=False, low_battery_soc=50))
+
+        self.assertEqual(decision.threshold, 50)
+        self.assertEqual(decision.weather_category, "disabled")
+
+    def test_analyze_weather_window_keeps_rainy_threshold_at_50(self):
+        now = dt.datetime.now().replace(minute=0, second=0, microsecond=0)
+        forecast = {
+            "hourly": {
+                "time": [(now + dt.timedelta(hours=i)).isoformat(timespec="minutes") for i in range(4)],
+                "cloud_cover": [80, 75, 70, 60],
+                "precipitation": [0, 0.2, 0.9, 0],
+            }
+        }
+
+        decision = analyze_weather_window(make_config(), forecast)
+
+        self.assertEqual(decision.threshold, 50)
+        self.assertEqual(decision.weather_category, "rainy/cloudy")
+
+    def test_analyze_weather_window_uses_normal_threshold(self):
+        now = dt.datetime.now().replace(minute=0, second=0, microsecond=0)
+        forecast = {
+            "hourly": {
+                "time": [(now + dt.timedelta(hours=i)).isoformat(timespec="minutes") for i in range(4)],
+                "cloud_cover": [50, 55, 45, 40],
+                "precipitation": [0, 0, 0, 0],
+            }
+        }
+
+        decision = analyze_weather_window(make_config(), forecast)
+
+        self.assertEqual(decision.threshold, 45)
+        self.assertEqual(decision.weather_category, "normal")
+
+    def test_analyze_weather_window_uses_sunny_threshold(self):
+        now = dt.datetime.now().replace(minute=0, second=0, microsecond=0)
+        forecast = {
+            "hourly": {
+                "time": [(now + dt.timedelta(hours=i)).isoformat(timespec="minutes") for i in range(4)],
+                "cloud_cover": [10, 15, 20, 30],
+                "precipitation": [0, 0, 0, 0],
+            }
+        }
+
+        decision = analyze_weather_window(make_config(), forecast)
+
+        self.assertEqual(decision.threshold, 40)
+        self.assertEqual(decision.weather_category, "sunny")
 
 
 if __name__ == "__main__":

@@ -83,6 +83,25 @@ class Config:
     discord_notify_skip: bool
     discord_notify_failure: bool
     log_retention_days: int
+    weather_enabled: bool = False
+    weather_lat: float | None = None
+    weather_lon: float | None = None
+    weather_timezone: str = "Africa/Lagos"
+    weather_lookahead_hours: int = 4
+    weather_cloudy_threshold: float = 70
+    weather_sunny_threshold: float = 35
+    weather_rain_threshold_mm: float = 1
+    low_battery_soc_normal: float = 45
+    low_battery_soc_sunny: float = 40
+
+
+@dataclass(frozen=True)
+class ThresholdDecision:
+    threshold: float
+    reason: str
+    weather_category: str = "disabled"
+    cloud_cover: float | None = None
+    precipitation_mm: float | None = None
 
 
 @dataclass(frozen=True)
@@ -103,6 +122,10 @@ def str_to_bool(value: str | bool | None, default: bool = False) -> bool:
 
 def env(name: str, default: str = "") -> str:
     return os.getenv(name, default).strip()
+
+
+def optional_float(value: str) -> float | None:
+    return float(value) if value else None
 
 
 def load_config() -> Config:
@@ -140,6 +163,16 @@ def load_config() -> Config:
         discord_notify_skip=str_to_bool(env("DISCORD_NOTIFY_SKIP"), default=False),
         discord_notify_failure=str_to_bool(env("DISCORD_NOTIFY_FAILURE"), default=True),
         log_retention_days=int(env("LOG_RETENTION_DAYS", "30")),
+        weather_enabled=str_to_bool(env("WEATHER_ENABLED"), default=False),
+        weather_lat=optional_float(env("WEATHER_LAT")),
+        weather_lon=optional_float(env("WEATHER_LON")),
+        weather_timezone=env("WEATHER_TIMEZONE", "Africa/Lagos"),
+        weather_lookahead_hours=int(env("WEATHER_LOOKAHEAD_HOURS", "4")),
+        weather_cloudy_threshold=float(env("WEATHER_CLOUDY_THRESHOLD", "70")),
+        weather_sunny_threshold=float(env("WEATHER_SUNNY_THRESHOLD", "35")),
+        weather_rain_threshold_mm=float(env("WEATHER_RAIN_THRESHOLD_MM", "1")),
+        low_battery_soc_normal=float(env("LOW_BATTERY_SOC_NORMAL", "45")),
+        low_battery_soc_sunny=float(env("LOW_BATTERY_SOC_SUNNY", "40")),
     )
 
 
@@ -198,6 +231,116 @@ def notify_failure(config: Config | None, command: str, message: str) -> None:
     if config is None or not config.discord_notify_failure or command == "test-discord":
         return
     send_discord_message(config, f"Growatt automation failed during `{command}`.\n{message}")
+
+
+def parse_forecast_time(value: str) -> dt.datetime:
+    parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is not None:
+        return parsed.astimezone().replace(tzinfo=None)
+    return parsed
+
+
+def fetch_weather_forecast(config: Config) -> dict[str, Any]:
+    if config.weather_lat is None or config.weather_lon is None:
+        raise GrowattGuardError("WEATHER_LAT and WEATHER_LON must be set when WEATHER_ENABLED=true.")
+
+    response = requests.get(
+        "https://api.open-meteo.com/v1/forecast",
+        params={
+            "latitude": config.weather_lat,
+            "longitude": config.weather_lon,
+            "hourly": "precipitation,cloud_cover",
+            "forecast_days": 2,
+            "timezone": config.weather_timezone,
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def analyze_weather_window(config: Config, forecast: dict[str, Any]) -> ThresholdDecision:
+    hourly = forecast.get("hourly", {})
+    times = hourly.get("time", [])
+    cloud_cover = hourly.get("cloud_cover", [])
+    precipitation = hourly.get("precipitation", [])
+    if not times or not cloud_cover or not precipitation:
+        raise GrowattGuardError("Weather response did not include hourly time, cloud_cover and precipitation.")
+
+    now = dt.datetime.now()
+    window_end = now + dt.timedelta(hours=config.weather_lookahead_hours)
+    clouds: list[float] = []
+    rain: list[float] = []
+
+    for index, time_value in enumerate(times):
+        forecast_time = parse_forecast_time(str(time_value))
+        if now <= forecast_time <= window_end:
+            if index < len(cloud_cover) and cloud_cover[index] is not None:
+                clouds.append(float(cloud_cover[index]))
+            if index < len(precipitation) and precipitation[index] is not None:
+                rain.append(float(precipitation[index]))
+
+    if not clouds and not rain:
+        # If the forecast starts at the next hour boundary, still use the first few available points.
+        lookahead = max(1, config.weather_lookahead_hours)
+        clouds = [float(value) for value in cloud_cover[:lookahead] if value is not None]
+        rain = [float(value) for value in precipitation[:lookahead] if value is not None]
+
+    max_cloud = max(clouds) if clouds else 0.0
+    total_rain = sum(rain)
+
+    if total_rain >= config.weather_rain_threshold_mm or max_cloud >= config.weather_cloudy_threshold:
+        return ThresholdDecision(
+            threshold=config.low_battery_soc,
+            reason=(
+                f"rainy/cloudy forecast: max cloud {max_cloud:g}%, "
+                f"rain {total_rain:g}mm; using rainy-season threshold {config.low_battery_soc:g}%"
+            ),
+            weather_category="rainy/cloudy",
+            cloud_cover=max_cloud,
+            precipitation_mm=total_rain,
+        )
+
+    if total_rain == 0 and max_cloud <= config.weather_sunny_threshold:
+        return ThresholdDecision(
+            threshold=config.low_battery_soc_sunny,
+            reason=(
+                f"sunny forecast: max cloud {max_cloud:g}%, "
+                f"rain {total_rain:g}mm; using sunny threshold {config.low_battery_soc_sunny:g}%"
+            ),
+            weather_category="sunny",
+            cloud_cover=max_cloud,
+            precipitation_mm=total_rain,
+        )
+
+    return ThresholdDecision(
+        threshold=config.low_battery_soc_normal,
+        reason=(
+            f"normal forecast: max cloud {max_cloud:g}%, "
+            f"rain {total_rain:g}mm; using normal threshold {config.low_battery_soc_normal:g}%"
+        ),
+        weather_category="normal",
+        cloud_cover=max_cloud,
+        precipitation_mm=total_rain,
+    )
+
+
+def choose_preserve_threshold(config: Config) -> ThresholdDecision:
+    if not config.weather_enabled:
+        return ThresholdDecision(
+            threshold=config.low_battery_soc,
+            reason=f"weather disabled; using fixed threshold {config.low_battery_soc:g}%",
+        )
+
+    try:
+        return analyze_weather_window(config, fetch_weather_forecast(config))
+    except Exception as exc:  # noqa: BLE001 - preserve automation if weather is unavailable
+        logging.warning("Weather threshold unavailable, using fixed threshold: %s", exc)
+        return ThresholdDecision(
+            threshold=config.low_battery_soc,
+            reason=f"weather unavailable; using fixed threshold {config.low_battery_soc:g}%",
+            weather_category="unavailable",
+        )
 
 
 def require_dependencies() -> None:
@@ -658,30 +801,38 @@ def command_preserve_battery(config: Config) -> int:
         raise GrowattGuardError("Could not find battery SOC in Growatt response. Run the probe command.")
 
     soc, path = soc_result
-    if soc < config.low_battery_soc:
-        logging.info("Battery SOC %.1f%% from %s is below %.1f%%; switching to Utility.", soc, path, config.low_battery_soc)
+    threshold_decision = choose_preserve_threshold(config)
+    threshold = threshold_decision.threshold
+    logging.info("Preserve-battery threshold: %.1f%% (%s)", threshold, threshold_decision.reason)
+
+    if soc < threshold:
+        logging.info("Battery SOC %.1f%% from %s is below %.1f%%; switching to Utility.", soc, path, threshold)
         result = set_mode(api, config, device, "utility")
         if config.discord_notify_success and not config.dry_run:
             send_discord_message(
                 config,
                 (
                     "Growatt preserve-battery action completed.\n"
-                    f"SOC `{soc:g}%` is below threshold `{config.low_battery_soc:g}%`; "
-                    "switched to `Utility first`."
+                    f"SOC `{soc:g}%` is below threshold `{threshold:g}%`; "
+                    "switched to `Utility first`.\n"
+                    f"Reason: {threshold_decision.reason}."
                 ),
             )
-        print(f"SOC {soc:g}% < {config.low_battery_soc:g}%; Utility command result: {result}")
+        print(f"SOC {soc:g}% < {threshold:g}%; Utility command result: {result}")
+        print(f"Threshold reason: {threshold_decision.reason}")
     else:
-        logging.info("Battery SOC %.1f%% is not below %.1f%%; leaving SBU as-is.", soc, config.low_battery_soc)
+        logging.info("Battery SOC %.1f%% is not below %.1f%%; leaving SBU as-is.", soc, threshold)
         if config.discord_notify_skip:
             send_discord_message(
                 config,
                 (
                     "Growatt preserve-battery check skipped.\n"
-                    f"SOC `{soc:g}%` is at or above threshold `{config.low_battery_soc:g}%`; no switch needed."
+                    f"SOC `{soc:g}%` is at or above threshold `{threshold:g}%`; no switch needed.\n"
+                    f"Reason: {threshold_decision.reason}."
                 ),
             )
-        print(f"SOC {soc:g}% >= {config.low_battery_soc:g}%; no switch needed.")
+        print(f"SOC {soc:g}% >= {threshold:g}%; no switch needed.")
+        print(f"Threshold reason: {threshold_decision.reason}")
     return 0
 
 
@@ -799,6 +950,14 @@ def command_rotate_logs(config: Config) -> int:
     return 0
 
 
+def command_weather_threshold(config: Config) -> int:
+    decision = choose_preserve_threshold(config)
+    print(f"Threshold: {decision.threshold:g}%")
+    print(f"Category: {decision.weather_category}")
+    print(f"Reason: {decision.reason}")
+    return 0
+
+
 def validate_schedule(path: Path = SCHEDULE_FILE) -> dict[str, Any]:
     if not path.exists():
         raise GrowattGuardError(f"Schedule file not found: {path}")
@@ -856,6 +1015,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("watchdog-sbu", help="Verify output source is SBU; retry SBU once if needed.")
     subparsers.add_parser("daily-summary", help="Post/print a daily Growatt and automation summary.")
     subparsers.add_parser("rotate-logs", help="Delete old generated probe/log files according to LOG_RETENTION_DAYS.")
+    subparsers.add_parser("weather-threshold", help="Print the current weather-aware preserve-battery threshold.")
     subparsers.add_parser("validate-schedule", help="Validate schedule.json.")
     subparsers.add_parser("test-discord", help="Send a test Discord webhook message.")
     return parser
@@ -890,6 +1050,8 @@ def main(argv: list[str] | None = None) -> int:
             return command_daily_summary(config)
         if args.command == "rotate-logs":
             return command_rotate_logs(config)
+        if args.command == "weather-threshold":
+            return command_weather_threshold(config)
         if args.command == "test-discord":
             return command_test_discord(config)
         parser.error(f"Unknown command: {args.command}")

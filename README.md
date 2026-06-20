@@ -62,6 +62,36 @@ The script sends `storage_spf5000_ac_output_source` through Growatt's `storageSP
 
 Keep `DRY_RUN=true` for the first `preserve-battery` and `return-sbu` manual test. After the dry-run output looks right, set `DRY_RUN=false`.
 
+## Weather-Aware Threshold
+
+Weather support is optional and uses [Open-Meteo](https://open-meteo.com/en/docs), which does not require an API key. The forecast checks hourly precipitation and cloud cover for the next few hours.
+
+This setup keeps your rainy-season threshold at `50%`, then reduces utility use on better solar days:
+
+```text
+rainy/cloudy -> 50%
+normal       -> 45%
+sunny        -> 40%
+```
+
+Enable it in `.env`:
+
+```text
+WEATHER_ENABLED=true
+WEATHER_LAT=your_latitude
+WEATHER_LON=your_longitude
+WEATHER_TIMEZONE=Africa/Lagos
+LOW_BATTERY_SOC=50
+LOW_BATTERY_SOC_NORMAL=45
+LOW_BATTERY_SOC_SUNNY=40
+```
+
+Test the current dynamic threshold:
+
+```bash
+python growatt_power_guard.py weather-threshold
+```
+
 ## Discord Notifications
 
 Discord notifications are optional. Create a webhook in your Discord server:
@@ -140,6 +170,7 @@ python .\growatt_power_guard.py return-sbu
 python .\growatt_power_guard.py watchdog-sbu
 python .\growatt_power_guard.py daily-summary
 python .\growatt_power_guard.py rotate-logs
+python .\growatt_power_guard.py weather-threshold
 python .\growatt_power_guard.py validate-schedule
 ```
 
@@ -215,6 +246,7 @@ Test it:
 .venv/bin/python growatt_power_guard.py watchdog-sbu
 .venv/bin/python growatt_power_guard.py daily-summary
 .venv/bin/python growatt_power_guard.py rotate-logs
+.venv/bin/python growatt_power_guard.py weather-threshold
 .venv/bin/python growatt_power_guard.py validate-schedule
 ```
 

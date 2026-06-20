@@ -22,6 +22,12 @@ Search for real Growatt values before publishing:
 grep -R "GROWATT_USERNAME=\|GROWATT_PASSWORD=\|GROWATT_PLANT_ID=\|GROWATT_DEVICE_SN=" .
 ```
 
+If weather support is enabled locally, also avoid committing exact coordinates:
+
+```bash
+grep -R "WEATHER_LAT=\|WEATHER_LON=" .
+```
+
 Also check that no real Discord webhook URL is committed:
 
 ```bash

@@ -24,6 +24,7 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py watchdog-sbu
 .venv/bin/python growatt_power_guard.py daily-summary
 .venv/bin/python growatt_power_guard.py rotate-logs
+.venv/bin/python growatt_power_guard.py weather-threshold
 .venv/bin/python growatt_power_guard.py validate-schedule
 ```
 
@@ -94,6 +95,26 @@ GROWATT_DEVICE_SN=your_device_sn
 LOW_BATTERY_SOC=50
 GROWATT_MODE_DRIVER=spf5000
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+WEATHER_ENABLED=true
+WEATHER_LAT=your_latitude
+WEATHER_LON=your_longitude
+```
+
+## Weather Thresholds
+
+Weather-aware thresholds are conservative:
+
+```text
+rainy/cloudy -> 50%
+normal       -> 45%
+sunny        -> 40%
+```
+
+Check the current threshold:
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py weather-threshold
 ```
 
 ## Discord Alerts
