@@ -25,11 +25,21 @@ fi
 echo "Installing dependencies..."
 "${PYTHON_BIN}" -m pip install -r requirements.txt
 
+echo "Checking syntax..."
+"${PYTHON_BIN}" -m py_compile "${ROOT}"/growatt_power_guard.py "${ROOT}"/growatt_guard/*.py
+
+echo "Running tests..."
+"${PYTHON_BIN}" -m unittest discover -s tests -q
+
 echo "Validating schedule..."
 "${PYTHON_BIN}" growatt_power_guard.py validate-schedule
 
 echo "Installing cron schedule..."
 ./install_cloud_cron.sh
+
+echo "Running post-deploy smoke checks..."
+"${PYTHON_BIN}" growatt_power_guard.py dashboard-refresh --once
+"${PYTHON_BIN}" growatt_power_guard.py dashboard-stale-alert
 
 echo "Running health check..."
 if [[ "${NOTIFY}" == "1" ]]; then
