@@ -14,9 +14,12 @@ from typing import Any
 from growatt_guard.audit import build_chart_data, read_mode_audit_rows
 from growatt_guard.pvoutput import publish_pvoutput_status_from_status, read_pvoutput_state
 from growatt_guard.growatt_api import (
+    extract_battery_status,
+    extract_first_metric,
     extract_soc,
     extract_spf_output_source,
     load_context,
+    parse_number,
 )
 from growatt_guard.state import (
     clear_dashboard_stale_alert_state,
@@ -247,6 +250,23 @@ def build_dashboard_html(
     soc = f"{soc_result[0]:g}%" if soc_result else "Not found"
     output_source = extract_spf_output_source(status)
     mode = f"{output_source[1]} [{output_source[0]}]" if output_source else "Not found"
+    bat_status = extract_battery_status(status) or "—"
+    _out_w = extract_first_metric(status, ("outPutPower", "outPutPower1", "activePower"))
+    _n = parse_number(_out_w[0]) if _out_w else None
+    out_w = f"{_n:g} W" if _n is not None else "—"
+    _load = extract_first_metric(status, ("loadPercent", "loadPercent1"))
+    _n = parse_number(_load[0]) if _load else None
+    load_pct = f"{_n:.0f}%" if _n is not None else "—"
+    _pd = extract_first_metric(status, ("pDischarge", "pDischarge1"))
+    _pc = extract_first_metric(status, ("pCharge", "pCharge1"))
+    _pdv = parse_number(_pd[0]) if _pd else None
+    _pcv = parse_number(_pc[0]) if _pc else None
+    if _pdv is not None or _pcv is not None:
+        _bw = (_pdv or 0.0) - (_pcv or 0.0)
+        _dir = "discharge" if _bw > 0 else ("charge" if _bw < 0 else "standby")
+        bat_w = f"{abs(_bw):g} W {_dir}"
+    else:
+        bat_w = "—"
     pause_state = read_pause_state()
     pause = pause_message(pause_state) if pause_state else "active"
     alert_state = read_battery_alert_state()
@@ -363,6 +383,10 @@ def build_dashboard_html(
       </div>
       <div class="card"><div class="label">Battery SOC</div><div class="value">{esc(soc)}</div></div>
       <div class="card"><div class="label">Output Source</div><div class="value">{esc(mode)}</div></div>
+      <div class="card"><div class="label">Battery Status</div><div class="value">{esc(bat_status)}</div></div>
+      <div class="card"><div class="label">Battery Power</div><div class="value">{esc(bat_w)}</div></div>
+      <div class="card"><div class="label">Output Power</div><div class="value">{esc(out_w)}</div></div>
+      <div class="card"><div class="label">Load</div><div class="value">{esc(load_pct)}</div></div>
       <div class="card"><div class="label">Preserve Threshold</div><div class="value">{esc(f'{threshold_decision.threshold:g}%')}</div></div>
       <div class="card"><div class="label">Pause State</div><div class="value">{esc(pause)}</div></div>
       <div class="card"><div class="label">Emergency Alert</div><div class="value">{esc(alert)}</div></div>

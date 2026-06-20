@@ -112,6 +112,10 @@ def build_dashboard_embed(discord_module: Any, status_output: str, return_code: 
     output_raw = _extract(r"output=([^,]+)")
     soc_clean = re.sub(r"\s*\([^)]+\)", "", soc_raw).strip()
     output_clean = re.sub(r"\s*\([^)]+\)", "", output_raw).strip()
+    bat_status_raw = _extract(r"bat_status=([^,]+)")
+    out_w_raw = _extract(r"out_w=([^,]+)")
+    load_pct_raw = _extract(r"load_pct=([^,]+)")
+    bat_w_raw = _extract(r"bat_w=(-?[^,]+)")
 
     color = _COLOR_FAIL
     if return_code == 0:
@@ -125,6 +129,19 @@ def build_dashboard_embed(discord_module: Any, status_output: str, return_code: 
     embed.add_field(name="Battery SOC", value=soc_clean or "unknown", inline=True)
     embed.add_field(name="Output Mode", value=output_clean or "unknown", inline=True)
     embed.add_field(name="​", value="​", inline=True)
+
+    # Live metrics row: battery (status + power), output power, load
+    bat_value = bat_status_raw if bat_status_raw != "unknown" else ""
+    if bat_w_raw != "unknown":
+        try:
+            bw = float(bat_w_raw)
+            if bw != 0:
+                bat_value += f" · {abs(bw):g} W" if bat_value else f"{abs(bw):g} W"
+        except ValueError:
+            pass
+    embed.add_field(name="Battery", value=bat_value or "—", inline=True)
+    embed.add_field(name="Output", value=f"{out_w_raw} W" if out_w_raw != "unknown" else "—", inline=True)
+    embed.add_field(name="Load", value=f"{load_pct_raw}%" if load_pct_raw != "unknown" else "—", inline=True)
 
     # PVOutput — from state file, no API call needed
     pvo = _read_state_file("state/pvoutput_last.json")

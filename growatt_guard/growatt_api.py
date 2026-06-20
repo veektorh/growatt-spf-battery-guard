@@ -216,11 +216,16 @@ def extract_soc(data: dict[str, Any]) -> tuple[float, str] | None:
 
 
 def extract_spf_output_source(data: dict[str, Any]) -> tuple[str, str, str] | None:
+    # Prefer paths through a *Bean object — avoids shadowing from top-level or device keys
+    fallback = None
     for path, value in deep_values(data):
         if path.split(".")[-1] == "outputConfig":
             raw = str(value)
-            return raw, SPF_OUTPUT_SOURCE.get(raw, f"Unknown ({raw})"), path
-    return None
+            if "Bean" in path:
+                return raw, SPF_OUTPUT_SOURCE.get(raw, f"Unknown ({raw})"), path
+            if fallback is None:
+                fallback = (raw, SPF_OUTPUT_SOURCE.get(raw, f"Unknown ({raw})"), path)
+    return fallback
 
 
 def output_source_label(raw: str) -> str:
@@ -243,6 +248,22 @@ def format_metric(data: dict[str, Any], label: str, keys: tuple[str, ...], unit:
     if isinstance(value, str) and re.search(r"[a-zA-Z%]", value):
         return f"{label}: {value}"
     return f"{label}: {value}{unit}"
+
+
+def extract_battery_status(data: dict[str, Any]) -> str | None:
+    # DetailBean contains human-readable values like "Discharge", "Charging", "Standby"
+    for path, value in deep_values(data):
+        if path.split(".")[-1] == "statusText" and "Detail" in path:
+            s = str(value).strip()
+            if s and "." not in s:
+                return s
+    # Fallback: any statusText that isn't a dot-notation key like "storage.status.discharge"
+    for path, value in deep_values(data):
+        if path.split(".")[-1] == "statusText":
+            s = str(value).strip()
+            if s and "." not in s:
+                return s
+    return None
 
 
 def read_device_status(api, device: DeviceRef) -> dict[str, Any]:
@@ -324,6 +345,26 @@ def summarize_status(status: dict[str, Any]) -> str:
     if output_source:
         raw, label, path = output_source
         parts.append(f"output={label} [{raw}] ({path})")
+    bat_status = extract_battery_status(status)
+    if bat_status:
+        parts.append(f"bat_status={bat_status}")
+    _out_w = extract_first_metric(status, ("outPutPower", "outPutPower1", "activePower"))
+    if _out_w:
+        n = parse_number(_out_w[0])
+        if n is not None:
+            parts.append(f"out_w={n:g}")
+    _load = extract_first_metric(status, ("loadPercent", "loadPercent1"))
+    if _load:
+        n = parse_number(_load[0])
+        if n is not None:
+            parts.append(f"load_pct={n:.0f}")
+    _pd = extract_first_metric(status, ("pDischarge", "pDischarge1"))
+    _pc = extract_first_metric(status, ("pCharge", "pCharge1"))
+    pdv = parse_number(_pd[0]) if _pd else None
+    pcv = parse_number(_pc[0]) if _pc else None
+    if pdv is not None or pcv is not None:
+        bat_w = (pdv or 0.0) - (pcv or 0.0)
+        parts.append(f"bat_w={bat_w:g}")
     return ", ".join(parts)
 
 
