@@ -450,6 +450,13 @@ https://dashboard.example.com/dashboard.html
 
 The Python dashboard server still listens only on `127.0.0.1:8080`; Nginx is what exposes HTTPS publicly.
 
+To expose the dashboard without basic auth:
+
+```bash
+cd ~/automation
+DASHBOARD_AUTH_ENABLED=false DASHBOARD_DOMAIN=dashboard.example.com DASHBOARD_EMAIL=you@example.com ./install_dashboard_proxy.sh
+```
+
 ## Growatt Cloud Flakiness Alerts
 
 Transient Growatt/ShinePhone cloud failures are tracked as a streak so Discord does not alert on every one-off blip. The default is:

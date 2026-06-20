@@ -191,6 +191,12 @@ cd ~/automation
 DASHBOARD_DOMAIN=dashboard.example.com DASHBOARD_EMAIL=you@example.com ./install_dashboard_proxy.sh
 ```
 
+To expose it without basic auth:
+
+```bash
+DASHBOARD_AUTH_ENABLED=false DASHBOARD_DOMAIN=dashboard.example.com DASHBOARD_EMAIL=you@example.com ./install_dashboard_proxy.sh
+```
+
 Before running the proxy installer, create an `A` record for the dashboard subdomain pointing to the VPS public IP and open ports `80` and `443`.
 
 Growatt cloud flakiness alerts:
