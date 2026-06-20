@@ -85,6 +85,12 @@ Test it:
 python growatt_power_guard.py test-discord
 ```
 
+If the test returns `HTTP 403: Forbidden`, regenerate the webhook in Discord and paste the fresh full URL into `.env`. Make sure it starts with:
+
+```text
+https://discord.com/api/webhooks/
+```
+
 Notifications are sent when:
 
 ```text

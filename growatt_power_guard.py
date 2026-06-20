@@ -7,11 +7,11 @@ import logging
 import os
 import re
 import sys
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import requests
 
 try:
     from dotenv import load_dotenv
@@ -161,32 +161,29 @@ def send_discord_message(config: Config, message: str) -> bool:
     if not config.discord_webhook_url:
         return False
 
-    payload = json.dumps(
-        {
-            "username": "Growatt Guard",
-            "content": truncate_discord_message(message),
-        }
-    ).encode("utf-8")
-    request = urllib.request.Request(
-        config.discord_webhook_url,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    payload = {
+        "username": "Growatt Guard",
+        "content": truncate_discord_message(message),
+    }
+    headers = {
+        "User-Agent": "growatt-spf-battery-guard/1.0",
+    }
 
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            if response.status >= 300:
-                logging.warning("Discord webhook returned HTTP %s", response.status)
-                return False
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        logging.warning("Discord notification failed: %s", exc)
+        response = requests.post(config.discord_webhook_url, json=payload, headers=headers, timeout=10)
+    except requests.RequestException as exc:
+        response = getattr(exc, "response", None)
+        body = f": {response.text[:500]}" if response is not None and response.text else ""
+        logging.warning("Discord notification failed: %s%s", exc, body)
+        return False
+    if response.status_code >= 300:
+        logging.warning("Discord webhook returned HTTP %s: %s", response.status_code, response.text[:500])
         return False
     return True
 
 
 def notify_failure(config: Config | None, command: str, message: str) -> None:
-    if config is None or not config.discord_notify_failure:
+    if config is None or not config.discord_notify_failure or command == "test-discord":
         return
     send_discord_message(config, f"Growatt automation failed during `{command}`.\n{message}")
 

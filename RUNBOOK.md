@@ -88,3 +88,5 @@ Test after changing the webhook:
 cd ~/automation
 .venv/bin/python growatt_power_guard.py test-discord
 ```
+
+If Discord returns `HTTP 403: Forbidden`, regenerate the webhook and replace `DISCORD_WEBHOOK_URL` in `.env` with the fresh full URL.

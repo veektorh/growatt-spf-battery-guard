@@ -123,20 +123,15 @@ class GrowattPowerGuardTests(unittest.TestCase):
         )
 
         class Response:
-            status = 204
+            status_code = 204
+            text = ""
 
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, tb):
-                return False
-
-        with patch("growatt_power_guard.urllib.request.urlopen", return_value=Response()) as mocked:
+        with patch("growatt_power_guard.requests.post", return_value=Response()) as mocked:
             self.assertTrue(send_discord_message(config, "hello"))
 
-        request = mocked.call_args.args[0]
-        self.assertEqual(request.method, "POST")
-        self.assertIn(b'"content": "hello"', request.data)
+        self.assertEqual(mocked.call_args.args[0], "https://discord.com/api/webhooks/example")
+        self.assertEqual(mocked.call_args.kwargs["json"]["content"], "hello")
+        self.assertIn("User-Agent", mocked.call_args.kwargs["headers"])
 
 
 if __name__ == "__main__":
