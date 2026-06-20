@@ -52,6 +52,7 @@ These are safe to publish after the checks above:
 
 ```text
 growatt_power_guard.py
+growatt_guard/
 requirements.txt
 README.md
 RUNBOOK.md

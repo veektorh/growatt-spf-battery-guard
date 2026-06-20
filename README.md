@@ -561,6 +561,7 @@ Safe to publish:
 
 ```text
 growatt_power_guard.py
+growatt_guard/
 requirements.txt
 README.md
 RUNBOOK.md

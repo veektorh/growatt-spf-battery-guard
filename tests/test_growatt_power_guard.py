@@ -649,7 +649,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
     def test_dashboard_refresh_once_writes_and_exits(self):
         config = make_config()
 
-        with patch("growatt_power_guard.write_dashboard", return_value=Path("dashboard.html")) as write_mock, redirect_stdout(
+        with patch("growatt_guard.dashboard.write_dashboard", return_value=Path("dashboard.html")) as write_mock, redirect_stdout(
             StringIO()
         ) as stdout:
             self.assertEqual(command_dashboard_refresh(config, "dashboard.html", 1, once=True), 0)
@@ -661,7 +661,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example")
 
         with TemporaryDirectory() as tmpdir, patch(
-            "growatt_power_guard.DASHBOARD_STALE_ALERT_FILE", Path(tmpdir) / "dashboard_stale_alert.json"
+            "growatt_guard.dashboard.DASHBOARD_STALE_ALERT_FILE", Path(tmpdir) / "dashboard_stale_alert.json"
         ), patch("growatt_power_guard.send_discord_message", return_value=True) as send_mock, redirect_stdout(StringIO()):
             output = Path(tmpdir) / "dashboard.html"
             self.assertEqual(command_dashboard_stale_alert(config, str(output), 30), 0)
@@ -676,7 +676,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example")
 
         with TemporaryDirectory() as tmpdir, patch(
-            "growatt_power_guard.DASHBOARD_STALE_ALERT_FILE", Path(tmpdir) / "dashboard_stale_alert.json"
+            "growatt_guard.dashboard.DASHBOARD_STALE_ALERT_FILE", Path(tmpdir) / "dashboard_stale_alert.json"
         ), patch("growatt_power_guard.send_discord_message", return_value=True) as send_mock, redirect_stdout(StringIO()):
             output = Path(tmpdir) / "dashboard.html"
             self.assertEqual(command_dashboard_stale_alert(config, str(output), 30), 0)
