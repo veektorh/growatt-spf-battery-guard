@@ -336,6 +336,10 @@ def extract_spf_output_source(data: dict[str, Any]) -> tuple[str, str, str] | No
     return None
 
 
+def output_source_label(raw: str) -> str:
+    return SPF_OUTPUT_SOURCE.get(raw, f"Unknown ({raw})")
+
+
 def read_device_status(api, device: DeviceRef) -> dict[str, Any]:
     status: dict[str, Any] = {
         "plant_id": device.plant_id,
@@ -639,6 +643,34 @@ def command_return_sbu(config: Config) -> int:
     return 0
 
 
+def command_watchdog_sbu(config: Config) -> int:
+    api, device, status = load_context(config)
+    output_source = extract_spf_output_source(status)
+    if not output_source:
+        message = "Could not read current SPF output source; cannot verify SBU mode."
+        if config.discord_notify_failure:
+            send_discord_message(config, f"Growatt SBU watchdog could not verify mode.\n{message}")
+        raise GrowattGuardError(message)
+
+    raw, label, path = output_source
+    if raw == "0":
+        logging.info("SBU watchdog OK: output=%s [%s] from %s", label, raw, path)
+        print(f"SBU watchdog OK: output={label} [{raw}]")
+        return 0
+
+    logging.warning("SBU watchdog detected output=%s [%s] from %s; retrying SBU.", label, raw, path)
+    result = set_mode(api, config, device, "sbu")
+    message = (
+        "Growatt SBU watchdog repaired output source.\n"
+        f"Detected `{label}` [{raw}] from `{path}`; retried `SBU priority`.\n"
+        f"Growatt response: `{result}`"
+    )
+    if config.discord_notify_failure and not config.dry_run:
+        send_discord_message(config, message)
+    print(message)
+    return 0
+
+
 def command_test_discord(config: Config) -> int:
     if not config.discord_webhook_url:
         raise GrowattGuardError("DISCORD_WEBHOOK_URL is not configured in .env.")
@@ -659,6 +691,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("utility-check", help="Alias for preserve-battery.")
     subparsers.add_parser("morning-check", help="Alias for preserve-battery.")
     subparsers.add_parser("return-sbu", help="Switch back to SBU.")
+    subparsers.add_parser("watchdog-sbu", help="Verify output source is SBU; retry SBU once if needed.")
     subparsers.add_parser("test-discord", help="Send a test Discord webhook message.")
     return parser
 
@@ -684,6 +717,8 @@ def main(argv: list[str] | None = None) -> int:
             return command_morning_check(config)
         if args.command == "return-sbu":
             return command_return_sbu(config)
+        if args.command == "watchdog-sbu":
+            return command_watchdog_sbu(config)
         if args.command == "test-discord":
             return command_test_discord(config)
         parser.error(f"Unknown command: {args.command}")

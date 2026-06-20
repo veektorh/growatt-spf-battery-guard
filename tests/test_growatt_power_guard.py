@@ -1,4 +1,6 @@
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from unittest.mock import patch
 
 from growatt_power_guard import (
@@ -9,6 +11,7 @@ from growatt_power_guard import (
     render_params,
     set_mode,
     build_parser,
+    command_watchdog_sbu,
     send_discord_message,
     truncate_discord_message,
 )
@@ -96,6 +99,11 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(args.command, "test-discord")
 
+    def test_watchdog_sbu_command_is_available(self):
+        args = build_parser().parse_args(["watchdog-sbu"])
+
+        self.assertEqual(args.command, "watchdog-sbu")
+
     def test_truncate_discord_message_keeps_short_messages(self):
         self.assertEqual(truncate_discord_message("hello"), "hello")
 
@@ -132,6 +140,64 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertEqual(mocked.call_args.args[0], "https://discord.com/api/webhooks/example")
         self.assertEqual(mocked.call_args.kwargs["json"]["content"], "hello")
         self.assertIn("User-Agent", mocked.call_args.kwargs["headers"])
+
+    def test_watchdog_sbu_does_nothing_when_already_sbu(self):
+        config = Config(
+            username="u",
+            password="p",
+            server_url="https://openapi.growatt.com/",
+            plant_id="plant123",
+            device_sn="SN123",
+            low_battery_soc=45,
+            dry_run=True,
+            mode_driver="spf5000",
+            set_mode_path="tcpSet.do",
+            set_mode_method="post",
+            utility_mode_params="",
+            sbu_mode_params="",
+            discord_webhook_url="",
+            discord_notify_success=True,
+            discord_notify_skip=False,
+            discord_notify_failure=True,
+        )
+
+        with patch(
+            "growatt_power_guard.load_context",
+            return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), {"storage_params": {"outputConfig": "0"}}),
+        ), patch("growatt_power_guard.set_mode") as set_mode_mock, redirect_stdout(StringIO()):
+            self.assertEqual(command_watchdog_sbu(config), 0)
+
+        set_mode_mock.assert_not_called()
+
+    def test_watchdog_sbu_retries_when_not_sbu(self):
+        config = Config(
+            username="u",
+            password="p",
+            server_url="https://openapi.growatt.com/",
+            plant_id="plant123",
+            device_sn="SN123",
+            low_battery_soc=45,
+            dry_run=True,
+            mode_driver="spf5000",
+            set_mode_path="tcpSet.do",
+            set_mode_method="post",
+            utility_mode_params="",
+            sbu_mode_params="",
+            discord_webhook_url="",
+            discord_notify_success=True,
+            discord_notify_skip=False,
+            discord_notify_failure=True,
+        )
+
+        with patch(
+            "growatt_power_guard.load_context",
+            return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), {"storage_params": {"outputConfig": "2"}}),
+        ), patch("growatt_power_guard.set_mode", return_value={"success": True}) as set_mode_mock, patch(
+            "growatt_power_guard.logging.warning"
+        ), redirect_stdout(StringIO()):
+            self.assertEqual(command_watchdog_sbu(config), 0)
+
+        set_mode_mock.assert_called_once()
 
 
 if __name__ == "__main__":

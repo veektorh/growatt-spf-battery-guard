@@ -17,8 +17,10 @@ cat >> "${CRON_FILE}" <<EOF
 CRON_TZ=Africa/Lagos
 30 6 * * * cd "${ROOT}" && "${PYTHON_BIN}" growatt_power_guard.py preserve-battery >> "${ROOT}/logs/cron.log" 2>&1 # growatt-power-guard
 55 7 * * * cd "${ROOT}" && "${PYTHON_BIN}" growatt_power_guard.py return-sbu >> "${ROOT}/logs/cron.log" 2>&1 # growatt-power-guard
+1 8 * * * cd "${ROOT}" && "${PYTHON_BIN}" growatt_power_guard.py watchdog-sbu >> "${ROOT}/logs/cron.log" 2>&1 # growatt-power-guard
 30 14 * * 1-5 cd "${ROOT}" && "${PYTHON_BIN}" growatt_power_guard.py preserve-battery >> "${ROOT}/logs/cron.log" 2>&1 # growatt-power-guard
 25 15 * * 1-5 cd "${ROOT}" && "${PYTHON_BIN}" growatt_power_guard.py return-sbu >> "${ROOT}/logs/cron.log" 2>&1 # growatt-power-guard
+31 15 * * 1-5 cd "${ROOT}" && "${PYTHON_BIN}" growatt_power_guard.py watchdog-sbu >> "${ROOT}/logs/cron.log" 2>&1 # growatt-power-guard
 EOF
 
 crontab "${CRON_FILE}"
