@@ -31,6 +31,7 @@ This project automates battery-preservation mode switching for a Growatt SPF inv
 - `schedule.json`: source of truth for cloud cron jobs.
 - `schedule_overrides.example.json`: public-safe template for temporary local date overrides.
 - `RUNBOOK.md`: operations guide for the VPS.
+- `ROADMAP.md`: backlog of improvement and enhancement ideas.
 - `PUBLIC_RELEASE_CHECKLIST.md`: public-repo hygiene checks.
 
 ## Local Verification

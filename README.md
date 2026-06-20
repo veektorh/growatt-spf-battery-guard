@@ -17,6 +17,7 @@ The script starts in `DRY_RUN=true` mode. In dry-run it logs in and prepares the
 
 - [AGENTS.md](AGENTS.md) gives coding agents the safety rules, module map, and verification checklist.
 - [ARCHITECTURE.md](ARCHITECTURE.md) explains the command flow and module boundaries.
+- [ROADMAP.md](ROADMAP.md) lists improvement and enhancement ideas for future work.
 - [RUNBOOK.md](RUNBOOK.md) covers VPS operations and recovery steps.
 - [PUBLIC_RELEASE_CHECKLIST.md](PUBLIC_RELEASE_CHECKLIST.md) lists public-repo hygiene checks.
 

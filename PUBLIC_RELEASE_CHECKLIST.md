@@ -58,6 +58,7 @@ README.md
 RUNBOOK.md
 AGENTS.md
 ARCHITECTURE.md
+ROADMAP.md
 PUBLIC_RELEASE_CHECKLIST.md
 .env.example
 .gitignore
