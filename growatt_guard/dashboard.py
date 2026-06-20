@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from growatt_guard.audit import build_chart_data, read_mode_audit_rows
-from growatt_guard.pvoutput import read_pvoutput_state
+from growatt_guard.pvoutput import publish_pvoutput_status_from_status, read_pvoutput_state
 from growatt_guard.growatt_api import (
     extract_soc,
     extract_spf_output_source,
@@ -497,8 +497,7 @@ def resolve_dashboard_output(output: str) -> Path:
     return output_path
 
 
-def write_dashboard(config: Any, output: str) -> Path:
-    _, _, status = load_context(config)
+def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str) -> Path:
     schedule = validate_schedule()
     overrides = validate_schedule_overrides(schedule)
     threshold_decision = choose_preserve_threshold(config)
@@ -508,6 +507,11 @@ def write_dashboard(config: Any, output: str) -> Path:
         encoding="utf-8",
     )
     return output_path
+
+
+def write_dashboard(config: Any, output: str) -> Path:
+    _, _, status = load_context(config)
+    return write_dashboard_from_status(config, status, output)
 
 
 def command_dashboard(config: Any, output: str) -> int:
@@ -535,6 +539,53 @@ def command_dashboard_refresh(config: Any, output: str, interval_minutes: float,
             logging.info(message)
             print(message, flush=True)
             if once:
+                return 0
+        time.sleep(interval_minutes * 60)
+
+
+def refresh_observability_once(config: Any, output: str) -> dict[str, Any]:
+    _, _, status = load_context(config)
+    output_path = write_dashboard_from_status(config, status, output)
+    try:
+        pvoutput_ok, pvoutput_message = publish_pvoutput_status_from_status(config, status)
+    except Exception as exc:  # noqa: BLE001 - dashboard refresh should survive PVOutput issues
+        logging.exception("PVOutput step failed during observability refresh")
+        pvoutput_ok = False
+        pvoutput_message = f"PVOutput failed: {exc}"
+    return {
+        "dashboard_path": output_path,
+        "pvoutput_ok": pvoutput_ok,
+        "pvoutput_message": pvoutput_message,
+    }
+
+
+def command_observability_refresh(config: Any, output: str, interval_minutes: float, loop: bool = False) -> int:
+    if loop and interval_minutes < MIN_DASHBOARD_REFRESH_MINUTES:
+        raise app_module().GrowattGuardError(
+            f"--interval-minutes must be at least {MIN_DASHBOARD_REFRESH_MINUTES} to avoid Growatt API overuse."
+        )
+
+    while True:
+        try:
+            result = refresh_observability_once(config, output)
+        except Exception as exc:  # noqa: BLE001 - keep loop service alive after transient failures
+            logging.exception("Observability refresh failed")
+            if not loop:
+                raise
+            app_module().notify_failure(config, "observability-refresh", str(exc))
+        else:
+            message = (
+                f"Observability refreshed: dashboard={result['dashboard_path']}; "
+                f"{result['pvoutput_message']}"
+            )
+            logging.info(message)
+            print(message, flush=True)
+            if not result["pvoutput_ok"]:
+                logging.error("%s", result["pvoutput_message"])
+                if not loop:
+                    raise app_module().GrowattGuardError(str(result["pvoutput_message"]))
+                app_module().notify_failure(config, "observability-refresh", str(result["pvoutput_message"]))
+            if not loop:
                 return 0
         time.sleep(interval_minutes * 60)
 

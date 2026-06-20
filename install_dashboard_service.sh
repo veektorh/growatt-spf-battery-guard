@@ -17,7 +17,7 @@ fi
 
 sudo tee /etc/systemd/system/growatt-dashboard-refresh.service > /dev/null <<EOF
 [Unit]
-Description=Growatt dashboard refresh
+Description=Growatt dashboard and PVOutput refresh
 After=network-online.target
 Wants=network-online.target
 
@@ -25,7 +25,7 @@ Wants=network-online.target
 Type=simple
 User=${SERVICE_USER}
 WorkingDirectory=${ROOT}
-ExecStart=${PYTHON_BIN} ${ROOT}/growatt_power_guard.py dashboard-refresh --interval-minutes ${INTERVAL_MINUTES}
+ExecStart=${PYTHON_BIN} ${ROOT}/growatt_power_guard.py observability-refresh --loop --interval-minutes ${INTERVAL_MINUTES}
 Restart=always
 RestartSec=30
 

@@ -47,7 +47,10 @@ growatt_guard.weather
   Owns optional Open-Meteo forecast reads and weather-aware threshold selection.
 
 growatt_guard.dashboard
-  Owns dashboard.html rendering, refresh loop, static server, and stale dashboard alerts.
+  Owns dashboard.html rendering, observability refresh loop, static server, and stale dashboard alerts.
+
+growatt_guard.pvoutput
+  Owns PVOutput field extraction, upload, extended-field fallback, and upload state.
 
 growatt_guard.pause
   Owns pause/resume state checks and the mode-command lock.
@@ -86,6 +89,7 @@ weather-threshold
 battery-alert
 dashboard
 dashboard-refresh
+observability-refresh
 dashboard-stale-alert
 serve-dashboard
 validate-schedule
@@ -139,8 +143,17 @@ This keeps scheduled jobs and manual command behavior consistent.
 ## Dashboard Flow
 
 The dashboard is static HTML. The refresh service periodically calls Growatt and writes `dashboard.html`; the server only serves that file.
+The preferred refresh path is `observability-refresh`, which reuses the same Growatt status read for dashboard generation and PVOutput upload.
 
 ```text
+observability-refresh
+  -> load Growatt status once
+  -> validate schedule and overrides
+  -> choose preserve threshold
+  -> read audit/state summaries
+  -> write dashboard.html
+  -> upload PVOutput if enabled
+
 dashboard-refresh
   -> load Growatt status
   -> validate schedule and overrides

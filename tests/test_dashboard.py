@@ -14,6 +14,7 @@ from growatt_power_guard import (
     command_dashboard,
     command_dashboard_refresh,
     command_dashboard_stale_alert,
+    command_observability_refresh,
     read_dashboard_stale_alert_state,
 )
 from growatt_guard.audit import build_chart_data
@@ -97,6 +98,48 @@ class DashboardTests(unittest.TestCase):
 
         with self.assertRaises(GrowattGuardError):
             command_dashboard_refresh(config, "dashboard.html", 1, once=False)
+
+    def test_observability_refresh_once_reuses_status_for_dashboard_and_pvoutput(self):
+        config = make_config(pvoutput_enabled=True, dry_run=True)
+        status = {
+            "device": {"capacity": "60%"},
+            "storage_params": {"outputConfig": "0", "storageBean": {"ppv": 1200.0, "epvToday": 3.5}},
+        }
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [{"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"}],
+        }
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.dashboard.load_context",
+            return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
+        ) as load_mock, patch("growatt_guard.dashboard.validate_schedule", return_value=schedule), patch(
+            "growatt_guard.dashboard.validate_schedule_overrides", return_value={"dates": {}}
+        ), patch(
+            "growatt_guard.dashboard.choose_preserve_threshold",
+            return_value=ThresholdDecision(50, "fixed threshold"),
+        ), patch(
+            "growatt_guard.dashboard.publish_pvoutput_status_from_status",
+            return_value=(True, "PVOutput OK: v2=1200"),
+        ) as pvoutput_mock, patch(
+            "growatt_guard.dashboard.read_mode_audit_rows", return_value=[]
+        ), redirect_stdout(StringIO()) as stdout:
+            output = Path(tmpdir) / "dashboard.html"
+            result = command_observability_refresh(config, str(output), 1, loop=False)
+            output_exists = output.exists()
+
+        self.assertEqual(result, 0)
+        load_mock.assert_called_once_with(config)
+        pvoutput_mock.assert_called_once_with(config, status)
+        self.assertTrue(output_exists)
+        self.assertIn("Observability refreshed", stdout.getvalue())
+        self.assertIn("PVOutput OK", stdout.getvalue())
+
+    def test_observability_refresh_rejects_too_fast_loop(self):
+        config = make_config()
+
+        with self.assertRaises(GrowattGuardError):
+            command_observability_refresh(config, "dashboard.html", 1, loop=True)
 
     def test_dashboard_html_includes_todays_schedule_section(self):
         config = make_config()

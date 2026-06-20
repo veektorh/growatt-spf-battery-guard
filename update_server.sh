@@ -38,14 +38,22 @@ echo "Installing cron schedule..."
 ./install_cloud_cron.sh
 
 echo "Restarting long-lived processes..."
-if pkill -f "growatt_power_guard.py dashboard-refresh" 2>/dev/null; then
-  echo "Stopped dashboard-refresh."
+if command -v systemctl >/dev/null 2>&1 && systemctl cat growatt-dashboard-refresh.service >/dev/null 2>&1; then
+  echo "Reinstalling dashboard services..."
+  ./install_dashboard_service.sh
+else
+  if pkill -f "growatt_power_guard.py dashboard-refresh" 2>/dev/null; then
+    echo "Stopped dashboard-refresh."
+  fi
+  if pkill -f "growatt_power_guard.py observability-refresh" 2>/dev/null; then
+    echo "Stopped observability-refresh."
+  fi
+  nohup "${PYTHON_BIN}" growatt_power_guard.py observability-refresh --loop --interval-minutes 10 >> "${ROOT}/logs/cron.log" 2>&1 &
+  echo "Started observability-refresh (PID $!)."
 fi
-nohup "${PYTHON_BIN}" growatt_power_guard.py dashboard-refresh --interval-minutes 10 >> "${ROOT}/logs/cron.log" 2>&1 &
-echo "Started dashboard-refresh (PID $!)."
 
 echo "Running post-deploy smoke checks..."
-"${PYTHON_BIN}" growatt_power_guard.py dashboard-refresh --once
+"${PYTHON_BIN}" growatt_power_guard.py observability-refresh
 "${PYTHON_BIN}" growatt_power_guard.py dashboard-stale-alert
 
 echo "Running health check..."

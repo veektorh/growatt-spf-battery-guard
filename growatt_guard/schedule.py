@@ -29,6 +29,7 @@ SCHEDULE_COMMANDS = {
     "weekly-summary",
     "dashboard-stale-alert",
     "pvoutput-upload",
+    "observability-refresh",
 }
 SCHEDULE_COMMAND_ARGS = {
     "health-check": {"--notify"},

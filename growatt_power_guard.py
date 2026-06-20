@@ -32,9 +32,12 @@ from growatt_guard.dashboard import (
     command_dashboard,
     command_dashboard_refresh,
     command_dashboard_stale_alert,
+    command_observability_refresh,
     command_serve_dashboard,
     dashboard_freshness,
     read_dashboard_stale_alert_state,
+    refresh_observability_once,
+    write_dashboard_from_status,
 )
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import (
@@ -80,6 +83,7 @@ from growatt_guard.pvoutput import (
     PVOUTPUT_URL,
     command_pvoutput_upload,
     extract_pvoutput_fields,
+    publish_pvoutput_status_from_status,
     read_pvoutput_state,
     upload_pvoutput_status,
     write_pvoutput_state,

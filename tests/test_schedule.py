@@ -51,6 +51,21 @@ class ScheduleTests(unittest.TestCase):
 
         self.assertEqual(schedule["jobs"][0]["args"], ["--notify"])
 
+    def test_validate_schedule_accepts_observability_refresh(self):
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "schedule.json"
+            path.write_text(
+                (
+                    '{"timezone":"Africa/Lagos","jobs":[{"id":"observability",'
+                    '"cron":"*/10 * * * *","command":"observability-refresh"}]}'
+                ),
+                encoding="utf-8",
+            )
+
+            schedule = validate_schedule(path)
+
+        self.assertEqual(schedule["jobs"][0]["command"], "observability-refresh")
+
     def test_validate_schedule_rejects_unsupported_command_args(self):
         with TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "schedule.json"

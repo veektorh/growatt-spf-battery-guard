@@ -175,6 +175,15 @@ def upload_pvoutput_status(config: Any, fields: dict[str, Any]) -> bool:
     return False
 
 
+def _pvoutput_summary(fields: dict[str, Any]) -> tuple[str, str]:
+    skip = {"d", "t"}
+    api_fields = {k: v for k, v in fields.items() if not k.startswith("_") and k not in skip}
+    debug_fields = {k: v for k, v in fields.items() if k.startswith("_")}
+    summary = ", ".join(f"{k}={v}" for k, v in sorted(api_fields.items()))
+    debug = ", ".join(f"{k}={v}" for k, v in sorted(debug_fields.items()))
+    return summary, debug
+
+
 def write_pvoutput_state(fields: dict[str, Any], now: dt.datetime | None = None) -> None:
     if now is None:
         now = dt.datetime.now()
@@ -188,12 +197,14 @@ def read_pvoutput_state() -> dict[str, Any] | None:
     return read_json_state(PVOUTPUT_STATE_FILE, "pvoutput")
 
 
-def command_pvoutput_upload(config: Any) -> int:
+def publish_pvoutput_status_from_status(
+    config: Any,
+    status: dict[str, Any],
+    now: dt.datetime | None = None,
+) -> tuple[bool, str]:
     if not getattr(config, "pvoutput_enabled", False):
-        print("PVOutput upload skipped: set PVOUTPUT_ENABLED=true in .env to enable.")
-        return 0
+        return True, "PVOutput upload skipped: set PVOUTPUT_ENABLED=true in .env to enable."
 
-    _, _, status = load_context(config)
     fields = extract_pvoutput_fields(status)
 
     if "v1" not in fields and "v2" not in fields:
@@ -202,23 +213,32 @@ def command_pvoutput_upload(config: Any) -> int:
             "Run 'probe' to inspect available fields."
         )
 
-    _skip = {"d", "t"}
-    _api_fields = {k: v for k, v in fields.items() if not k.startswith("_") and k not in _skip}
-    _debug_fields = {k: v for k, v in fields.items() if k.startswith("_")}
+    summary, debug = _pvoutput_summary(fields)
+    suffix = f" ({debug})" if debug else ""
 
     if config.dry_run:
-        summary = ", ".join(f"{k}={v}" for k, v in sorted(_api_fields.items()))
-        debug = ", ".join(f"{k}={v}" for k, v in sorted(_debug_fields.items()))
-        print(f"DRY_RUN: would upload to PVOutput: {summary}" + (f" ({debug})" if debug else ""))
-        return 0
+        return True, f"DRY_RUN: would upload to PVOutput: {summary}{suffix}"
 
-    now = dt.datetime.now()
+    if now is None:
+        now = dt.datetime.now()
     ok = upload_pvoutput_status(config, fields)
     if ok:
         write_pvoutput_state(fields, now=now)
-        summary = ", ".join(f"{k}={v}" for k, v in sorted(_api_fields.items()))
-        debug = ", ".join(f"{k}={v}" for k, v in sorted(_debug_fields.items()))
-        print(f"PVOutput OK: {summary}" + (f" ({debug})" if debug else ""))
+        return True, f"PVOutput OK: {summary}{suffix}"
+
+    return False, "PVOutput upload failed; check logs for details."
+
+
+def command_pvoutput_upload(config: Any) -> int:
+    if not getattr(config, "pvoutput_enabled", False):
+        ok, message = publish_pvoutput_status_from_status(config, {})
+        print(message)
+        return 0 if ok else 1
+
+    _, _, status = load_context(config)
+    ok, message = publish_pvoutput_status_from_status(config, status)
+    print(message)
+    if ok:
         return 0
 
-    raise _pvoutput_error("PVOutput upload failed; check logs for details.")
+    raise _pvoutput_error(message)

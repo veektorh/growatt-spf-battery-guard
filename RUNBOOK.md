@@ -157,6 +157,7 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py weekly-summary
 .venv/bin/python growatt_power_guard.py dashboard
 .venv/bin/python growatt_power_guard.py dashboard-refresh --once
+.venv/bin/python growatt_power_guard.py observability-refresh
 .venv/bin/python growatt_power_guard.py dashboard-stale-alert
 ```
 
@@ -187,11 +188,14 @@ http://localhost:8080/dashboard.html
 ```
 
 The server serves a static file. Growatt is only called by the refresh service every 10 minutes by default.
+That refresh service uses one Growatt read for both `dashboard.html` and PVOutput uploads when PVOutput is enabled.
 The dashboard page shows a freshness badge, and `growatt-dashboard-stale-alert.timer` sends Discord alerts when `dashboard.html` is older than `DASHBOARD_STALE_MINUTES`.
 
 ```text
 DASHBOARD_STALE_MINUTES=30
 ```
+
+If a separate 10-minute `pvoutput-upload` cron job exists, remove it after installing the dashboard service. `observability-refresh` replaces that duplicate poller.
 
 Expose on a dashboard subdomain:
 

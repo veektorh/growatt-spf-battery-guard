@@ -284,6 +284,15 @@ class PvoutputParserTests(unittest.TestCase):
         args = parser.parse_args(["pvoutput-upload"])
         self.assertEqual(args.command, "pvoutput-upload")
 
+    def test_observability_refresh_command_is_registered(self):
+        from growatt_guard.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["observability-refresh", "--loop", "--interval-minutes", "10"])
+        self.assertEqual(args.command, "observability-refresh")
+        self.assertTrue(args.loop)
+        self.assertEqual(args.interval_minutes, 10)
+
 
 if __name__ == "__main__":
     unittest.main()

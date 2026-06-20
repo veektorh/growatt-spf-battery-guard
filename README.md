@@ -199,6 +199,7 @@ python .\growatt_power_guard.py health-check --notify
 python .\growatt_power_guard.py battery-alert
 python .\growatt_power_guard.py dashboard
 python .\growatt_power_guard.py dashboard-refresh --once
+python .\growatt_power_guard.py observability-refresh
 python .\growatt_power_guard.py dashboard-stale-alert
 python .\growatt_power_guard.py serve-dashboard
 python .\growatt_power_guard.py pause --hours 6 --reason "maintenance"
@@ -296,6 +297,7 @@ Test it:
 .venv/bin/python growatt_power_guard.py battery-alert
 .venv/bin/python growatt_power_guard.py dashboard
 .venv/bin/python growatt_power_guard.py dashboard-refresh --once
+.venv/bin/python growatt_power_guard.py observability-refresh
 ```
 
 ## Pause Or Resume Automation
@@ -397,12 +399,13 @@ cd ~/automation
 This installs:
 
 ```text
-growatt-dashboard-refresh.service  refreshes dashboard.html every 10 minutes
+growatt-dashboard-refresh.service  refreshes dashboard.html and PVOutput every 10 minutes
 growatt-dashboard-server.service   serves the static file on 127.0.0.1:8080
 growatt-dashboard-stale-alert.timer checks dashboard freshness every 10 minutes
 ```
 
 Browser refreshes do not call Growatt. Only the refresh service calls Growatt, and only on the configured interval.
+The refresh service uses one Growatt status read for both the dashboard and PVOutput uploads, if PVOutput is enabled.
 The dashboard includes a health badge that turns stale when `dashboard.html` is older than `DASHBOARD_STALE_MINUTES`.
 
 To use a 30-minute refresh interval instead:
@@ -444,6 +447,25 @@ Manual freshness check:
 cd ~/automation
 .venv/bin/python growatt_power_guard.py dashboard-stale-alert
 ```
+
+## PVOutput Upload
+
+Enable PVOutput in `.env`:
+
+```text
+PVOUTPUT_ENABLED=true
+PVOUTPUT_API_KEY=your_pvoutput_api_key
+PVOUTPUT_SYSTEM_ID=your_pvoutput_system_id
+```
+
+Manual upload test:
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py pvoutput-upload
+```
+
+If the dashboard service is installed, do not run a separate `pvoutput-upload` cron job. The service runs `observability-refresh`, which reads Growatt once and uses that same status for both `dashboard.html` and PVOutput.
 
 ## Expose Dashboard On A Domain
 

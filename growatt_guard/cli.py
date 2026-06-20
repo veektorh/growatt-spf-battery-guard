@@ -61,6 +61,18 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Refresh interval. Minimum {MIN_DASHBOARD_REFRESH_MINUTES} minutes unless --once is used.",
     )
     refresh_parser.add_argument("--once", action="store_true", help="Refresh once, then exit.")
+    observability_parser = subparsers.add_parser(
+        "observability-refresh",
+        help="Read Growatt once, refresh dashboard.html, and upload PVOutput if enabled.",
+    )
+    observability_parser.add_argument("--output", default=str(DASHBOARD_FILE), help="Dashboard HTML output path.")
+    observability_parser.add_argument(
+        "--interval-minutes",
+        type=float,
+        default=10,
+        help=f"Loop interval when --loop is used. Minimum {MIN_DASHBOARD_REFRESH_MINUTES} minutes.",
+    )
+    observability_parser.add_argument("--loop", action="store_true", help="Keep refreshing on the configured interval.")
     stale_parser = subparsers.add_parser("dashboard-stale-alert", help="Alert if dashboard.html has not refreshed recently.")
     stale_parser.add_argument("--output", default=str(DASHBOARD_FILE), help="Dashboard HTML file to check.")
     stale_parser.add_argument(
@@ -181,6 +193,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_dashboard(config, args.output)
         if command == "dashboard-refresh":
             return app.command_dashboard_refresh(config, args.output, args.interval_minutes, args.once)
+        if command == "observability-refresh":
+            return app.command_observability_refresh(config, args.output, args.interval_minutes, args.loop)
         if command == "dashboard-stale-alert":
             return app.command_dashboard_stale_alert(config, args.output, args.max_age_minutes)
         if command == "serve-dashboard":
