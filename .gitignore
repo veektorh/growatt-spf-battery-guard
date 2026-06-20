@@ -1,0 +1,11 @@
+.env
+.env.local
+.env.*.local
+.venv/
+logs/
+growatt-probe-*.json
+__pycache__/
+tests/__pycache__/
+.pytest_cache/
+*.pyc
+*.log
