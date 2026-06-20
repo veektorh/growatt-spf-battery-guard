@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import requests
+
+from growatt_guard.state import STATE_DIR
+
+WEATHER_CACHE_FILE = STATE_DIR / "weather_cache.json"
+WEATHER_CACHE_TTL_SECONDS = 15 * 60
 
 
 @dataclass(frozen=True)
@@ -43,9 +50,37 @@ def parse_forecast_time(value: str) -> dt.datetime:
     return parsed
 
 
+def _read_weather_cache() -> dict[str, Any] | None:
+    if not WEATHER_CACHE_FILE.exists():
+        return None
+    try:
+        data = json.loads(WEATHER_CACHE_FILE.read_text(encoding="utf-8"))
+        fetched_at = dt.datetime.fromisoformat(str(data["fetched_at"]))
+        age = (dt.datetime.now() - fetched_at).total_seconds()
+        if age > WEATHER_CACHE_TTL_SECONDS:
+            return None
+        return data.get("forecast")
+    except (OSError, KeyError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _write_weather_cache(forecast: dict[str, Any]) -> None:
+    try:
+        WEATHER_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"fetched_at": dt.datetime.now().isoformat(), "forecast": forecast}
+        WEATHER_CACHE_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except OSError as exc:
+        logging.warning("Could not write weather cache: %s", exc)
+
+
 def fetch_weather_forecast(config: Any) -> dict[str, Any]:
     if config.weather_lat is None or config.weather_lon is None:
         raise weather_error("WEATHER_LAT and WEATHER_LON must be set when WEATHER_ENABLED=true.")
+
+    cached = _read_weather_cache()
+    if cached is not None:
+        logging.debug("Using cached weather forecast (age < %d min).", WEATHER_CACHE_TTL_SECONDS // 60)
+        return cached
 
     response = requests.get(
         "https://api.open-meteo.com/v1/forecast",
@@ -59,7 +94,9 @@ def fetch_weather_forecast(config: Any) -> dict[str, Any]:
         timeout=10,
     )
     response.raise_for_status()
-    return response.json()
+    forecast = response.json()
+    _write_weather_cache(forecast)
+    return forecast
 
 
 def analyze_weather_window(config: Any, forecast: dict[str, Any]) -> ThresholdDecision:

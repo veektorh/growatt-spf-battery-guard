@@ -758,6 +758,50 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertEqual(decision.threshold, 40)
         self.assertEqual(decision.weather_category, "sunny")
 
+    def test_fetch_weather_forecast_uses_cache_when_fresh(self):
+        forecast = {"hourly": {"time": [], "cloud_cover": [], "precipitation": []}}
+        payload = {
+            "fetched_at": dt.datetime.now().isoformat(),
+            "forecast": forecast,
+        }
+        with TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / "weather_cache.json"
+            cache_path.write_text(__import__("json").dumps(payload), encoding="utf-8")
+            with patch("growatt_guard.weather.WEATHER_CACHE_FILE", cache_path), patch(
+                "growatt_guard.weather.requests"
+            ) as mock_requests:
+                result = __import__("growatt_guard.weather", fromlist=["fetch_weather_forecast"]).fetch_weather_forecast(
+                    make_config(weather_lat=6.5, weather_lon=3.4)
+                )
+        self.assertEqual(result, forecast)
+        mock_requests.get.assert_not_called()
+
+    def test_fetch_weather_forecast_fetches_and_caches_when_stale(self):
+        import json as _json
+
+        forecast = {"hourly": {"time": [], "cloud_cover": [], "precipitation": []}}
+        stale_payload = {
+            "fetched_at": (dt.datetime.now() - dt.timedelta(hours=1)).isoformat(),
+            "forecast": {"old": True},
+        }
+        mock_response = unittest.mock.MagicMock()
+        mock_response.json.return_value = forecast
+
+        with TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / "weather_cache.json"
+            cache_path.write_text(_json.dumps(stale_payload), encoding="utf-8")
+            with patch("growatt_guard.weather.WEATHER_CACHE_FILE", cache_path), patch(
+                "growatt_guard.weather.requests"
+            ) as mock_requests:
+                mock_requests.get.return_value = mock_response
+                result = __import__("growatt_guard.weather", fromlist=["fetch_weather_forecast"]).fetch_weather_forecast(
+                    make_config(weather_lat=6.5, weather_lon=3.4)
+                )
+            self.assertEqual(result, forecast)
+            mock_requests.get.assert_called_once()
+            cached = _json.loads(cache_path.read_text(encoding="utf-8"))
+            self.assertEqual(cached["forecast"], forecast)
+
     def test_write_and_read_pause_state(self):
         with TemporaryDirectory() as tmpdir, patch("growatt_guard.state.STATE_DIR", Path(tmpdir)), patch(
             "growatt_guard.state.PAUSE_FILE", Path(tmpdir) / "automation_pause.json"
