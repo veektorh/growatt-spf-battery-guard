@@ -6,6 +6,7 @@ from pathlib import Path
 from growatt_guard.audit import (
     MODE_AUDIT_FILE,
     append_mode_audit,
+    build_chart_data,
     build_daily_summary,
     build_monthly_summary,
     build_weekly_summary,

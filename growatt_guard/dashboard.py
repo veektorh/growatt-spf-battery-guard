@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import html
 import http.server
+import json
 import logging
 import socketserver
 import sys
@@ -10,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from growatt_guard.audit import read_mode_audit_rows
+from growatt_guard.audit import build_chart_data, read_mode_audit_rows
 from growatt_guard.growatt_api import (
     extract_soc,
     extract_spf_output_source,
@@ -222,6 +223,7 @@ def build_dashboard_html(
 
     today_jobs = _today_job_rows(schedule, today_override, now.date())
     upcoming_overrides = _upcoming_override_rows(overrides, now.date())
+    chart_data_json = json.dumps(build_chart_data(now=now))
 
     next_rows = "\n".join(
         "<tr>"
@@ -330,6 +332,11 @@ def build_dashboard_html(
     <h2>Today&#8217;s Schedule — {esc(now.strftime('%A, %Y-%m-%d'))}</h2>
     <table><thead><tr><th>Time</th><th>Job ID</th><th>Command</th><th>Status</th></tr></thead><tbody>{today_job_rows_html}</tbody></table>
     {upcoming_override_section}
+    <h2>7-Day History</h2>
+    <div class="card" style="padding:16px 20px;">
+      <canvas id="history-chart" style="width:100%;height:160px;display:block;"></canvas>
+    </div>
+    <script id="chart-data" type="application/json">{chart_data_json}</script>
     <h2>Next Scheduled Jobs</h2>
     <table><thead><tr><th>Time</th><th>ID</th><th>Name</th><th>Command</th></tr></thead><tbody>{next_rows}</tbody></table>
     <h2>Recent Mode Decisions</h2>
@@ -341,6 +348,62 @@ def build_dashboard_html(
     </div>
   </main>
   <script>
+    (function () {{
+      const canvas = document.getElementById("history-chart");
+      const dataEl = document.getElementById("chart-data");
+      if (canvas && dataEl) {{
+        try {{
+          const data = JSON.parse(dataEl.textContent);
+          const ctx = canvas.getContext("2d");
+          const dpr = window.devicePixelRatio || 1;
+          const rect = canvas.getBoundingClientRect();
+          canvas.width = rect.width * dpr || 600 * dpr;
+          canvas.height = 160 * dpr;
+          ctx.scale(dpr, dpr);
+          const W = canvas.width / dpr, H = 160;
+          const PAD = {{ top: 12, right: 12, bottom: 28, left: 32 }};
+          const chartW = W - PAD.left - PAD.right;
+          const chartH = H - PAD.top - PAD.bottom;
+          const n = data.labels.length;
+          const maxVal = Math.max(1, ...data.preserve_checks, ...data.utility_switches, ...data.watchdog_repairs);
+          const yStep = Math.ceil(maxVal / 4);
+          ctx.font = "11px system-ui, sans-serif";
+          ctx.fillStyle = "#64727d";
+          for (let y = 0; y <= maxVal; y += yStep) {{
+            const px = PAD.top + chartH - (y / maxVal) * chartH;
+            ctx.fillText(y, 0, px + 4);
+            ctx.strokeStyle = "#e8eef2"; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(PAD.left, px); ctx.lineTo(PAD.left + chartW, px); ctx.stroke();
+          }}
+          const groupW = chartW / n;
+          const barW = Math.max(4, groupW / 4 - 2);
+          const COLORS = ["#3b82f6", "#f59e0b", "#ef4444"];
+          const SERIES = ["preserve_checks", "utility_switches", "watchdog_repairs"];
+          SERIES.forEach(function (key, si) {{
+            ctx.fillStyle = COLORS[si];
+            data[key].forEach(function (val, i) {{
+              const x = PAD.left + i * groupW + si * (barW + 2) + (groupW - SERIES.length * (barW + 2)) / 2;
+              const barH = (val / maxVal) * chartH;
+              ctx.fillRect(x, PAD.top + chartH - barH, barW, barH || 1);
+            }});
+          }});
+          data.labels.forEach(function (label, i) {{
+            ctx.fillStyle = "#64727d";
+            const x = PAD.left + i * groupW + groupW / 2;
+            ctx.textAlign = "center";
+            ctx.fillText(label, x, H - 6);
+          }});
+          ctx.textAlign = "left";
+          const legendY = PAD.top; const legendX = PAD.left + chartW - 200;
+          [["Preserve checks", "#3b82f6"], ["Utility switches", "#f59e0b"], ["Watchdog repairs", "#ef4444"]].forEach(function (item, i) {{
+            ctx.fillStyle = item[1];
+            ctx.fillRect(legendX + i * 70, legendY, 8, 8);
+            ctx.fillStyle = "#64727d";
+            ctx.fillText(item[0].split(" ")[0], legendX + i * 70 + 11, legendY + 8);
+          }});
+        }} catch (e) {{ /* chart render failed */ }}
+      }}
+    }})();
     (function () {{
       const badge = document.querySelector("[data-refresh-badge]");
       const ageNode = document.querySelector("[data-refresh-age]");

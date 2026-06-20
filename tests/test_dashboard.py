@@ -16,6 +16,7 @@ from growatt_power_guard import (
     command_dashboard_stale_alert,
     read_dashboard_stale_alert_state,
 )
+from growatt_guard.audit import build_chart_data
 from growatt_guard.dashboard import _today_job_rows, _upcoming_override_rows
 
 
@@ -163,6 +164,41 @@ class TodayJobRowsTests(unittest.TestCase):
         rows = _today_job_rows(self.SCHEDULE, {}, today)
         time_strs = {jid: t for t, jid, _, _ in rows}
         self.assertIn("every", time_strs["watchdog"])
+
+
+class ChartDataTests(unittest.TestCase):
+    def test_chart_data_has_correct_keys(self):
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "m.csv"):
+            data = build_chart_data(dt.datetime(2026, 6, 20, 12, 0), days=7)
+        self.assertIn("labels", data)
+        self.assertIn("preserve_checks", data)
+        self.assertIn("utility_switches", data)
+        self.assertIn("watchdog_repairs", data)
+        self.assertEqual(len(data["labels"]), 7)
+
+    def test_chart_data_counts_correct_events(self):
+        with TemporaryDirectory() as tmpdir:
+            audit_path = Path(tmpdir) / "m.csv"
+            audit_path.write_text(
+                "\n".join([
+                    "timestamp,command,soc,threshold,weather_category,previous_mode,action,dry_run,result,note",
+                    "2026-06-19T06:30:00,preserve-battery,47,50,normal,SBU priority [0],switch-to-utility,false,ok,",
+                    "2026-06-19T06:30:00,preserve-battery,55,50,normal,SBU priority [0],no-change,false,skipped,",
+                    "2026-06-20T08:00:00,watchdog-sbu,54,,normal,Utility first [2],repair-sbu,false,ok,",
+                ]),
+                encoding="utf-8",
+            )
+            with patch("growatt_guard.audit.MODE_AUDIT_FILE", audit_path):
+                data = build_chart_data(dt.datetime(2026, 6, 20, 12, 0), days=7)
+
+        labels = data["labels"]
+        label_19 = dt.date(2026, 6, 19).strftime("%a %m-%d")
+        label_20 = dt.date(2026, 6, 20).strftime("%a %m-%d")
+        idx_19 = labels.index(label_19)
+        idx_20 = labels.index(label_20)
+        self.assertEqual(data["preserve_checks"][idx_19], 2)
+        self.assertEqual(data["utility_switches"][idx_19], 1)
+        self.assertEqual(data["watchdog_repairs"][idx_20], 1)
 
 
 class UpcomingOverrideRowsTests(unittest.TestCase):

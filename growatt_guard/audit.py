@@ -153,6 +153,34 @@ def average(values: list[float]) -> float | None:
     return sum(values) / len(values) if values else None
 
 
+def build_chart_data(now: dt.datetime | None = None, days: int = 7) -> dict[str, Any]:
+    now = now or dt.datetime.now()
+    since = now - dt.timedelta(days=days)
+    rows = read_mode_audit_rows(since=since)
+    dates = [(now - dt.timedelta(days=i)).date() for i in range(days - 1, -1, -1)]
+    labels = [d.strftime("%a %m-%d") for d in dates]
+    preserve_by_date: dict[str, int] = {d.isoformat(): 0 for d in dates}
+    utility_by_date: dict[str, int] = {d.isoformat(): 0 for d in dates}
+    watchdog_by_date: dict[str, int] = {d.isoformat(): 0 for d in dates}
+    for row in rows:
+        ts = parse_audit_timestamp(row.get("timestamp", ""))
+        if ts is None:
+            continue
+        date_key = ts.date().isoformat()
+        if row.get("command") == "preserve-battery" and date_key in preserve_by_date:
+            preserve_by_date[date_key] += 1
+        if row.get("action") == "switch-to-utility" and date_key in utility_by_date:
+            utility_by_date[date_key] += 1
+        if row.get("action") == "repair-sbu" and date_key in watchdog_by_date:
+            watchdog_by_date[date_key] += 1
+    return {
+        "labels": labels,
+        "preserve_checks": [preserve_by_date[d.isoformat()] for d in dates],
+        "utility_switches": [utility_by_date[d.isoformat()] for d in dates],
+        "watchdog_repairs": [watchdog_by_date[d.isoformat()] for d in dates],
+    }
+
+
 def build_weekly_summary(now: dt.datetime | None = None) -> str:
     now = now or dt.datetime.now()
     since = now - dt.timedelta(days=7)
