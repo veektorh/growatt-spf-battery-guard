@@ -793,8 +793,6 @@ def command_topup_complete_check(config: Config) -> int:
         pass
 
     command_resume(config)
-    clear_topup_state()
-    rc = command_return_sbu(config)
 
     def _f(v: object) -> float | None:
         try:
@@ -845,8 +843,16 @@ def command_topup_complete_check(config: Config) -> int:
         else:
             print(f"Topup complete: {start_soc:.0f}% → {end_soc:.0f}% (no SOC gain detected).")
     else:
-        print("Topup complete: automation resumed and returning to SBU.")
+        print("Topup complete.")
 
+    # Clear state only after a successful return to SBU so the next cron run
+    # retries the switch if the Growatt API was temporarily unavailable.
+    try:
+        rc = command_return_sbu(config)
+    except Exception:
+        logging.warning("topup-complete-check: return-sbu failed; topup state preserved for retry on next cron run")
+        raise
+    clear_topup_state()
     return rc
 
 
