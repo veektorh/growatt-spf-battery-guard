@@ -41,6 +41,14 @@ def make_config(**overrides):
         "discord_control_allowed_user_ids": (),
         "discord_control_guild_id": "",
         "discord_topup_max_minutes": 180,
+        "battery_capacity_wh": 0.0,
+        "battery_bms_cutoff_soc": 25.0,
+        "battery_charge_rate_w": 0.0,
+        "load_aware_threshold": False,
+        "battery_charge_target_soc": 0.0,
+        "auto_topup_enabled": False,
+        "runtime_alert_minutes": 0.0,
+        "runtime_alert_clear_minutes": 0.0,
     }
     values.update(overrides)
     return Config(**values)

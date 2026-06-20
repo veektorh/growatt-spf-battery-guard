@@ -242,3 +242,34 @@ def notify_failure(config: Any | None, command: str, message: str) -> None:
         record_growatt_cloud_failure(config, command, message)
         return
     send_discord_embed(config, embed_automation_failure(command, message))
+
+
+def embed_runtime_alert(runtime_min: float, load_w: float, soc: float) -> dict:
+    from growatt_guard.growatt_api import format_duration_minutes
+    fields = [
+        _f("Battery SOC", f"{soc:g}%"),
+        _f("Est. Runtime", format_duration_minutes(runtime_min)),
+        _f("Load", f"{load_w:g} W"),
+    ]
+    return _embed("⚠️ Low battery runtime", _COLOR_WARN, fields)
+
+
+def embed_runtime_alert_cleared(runtime_min: float | None, soc: float) -> dict:
+    from growatt_guard.growatt_api import format_duration_minutes
+    rt_str = format_duration_minutes(runtime_min) if runtime_min is not None else "unknown"
+    fields = [
+        _f("Battery SOC", f"{soc:g}%"),
+        _f("Est. Runtime", rt_str),
+    ]
+    return _embed("✅ Runtime alert cleared", _COLOR_OK, fields)
+
+
+def embed_auto_topup_started(soc: float, topup_min: int, hours_to_sunrise: float, load_w: float) -> dict:
+    from growatt_guard.growatt_api import format_duration_minutes
+    fields = [
+        _f("Battery SOC", f"{soc:g}%"),
+        _f("Topup duration", format_duration_minutes(topup_min)),
+        _f("Sunrise in", format_duration_minutes(hours_to_sunrise * 60)),
+        _f("Load", f"{load_w:g} W"),
+    ]
+    return _embed("⚡ Auto-topup started", _COLOR_WARN, fields)

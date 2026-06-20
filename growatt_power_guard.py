@@ -69,6 +69,7 @@ from growatt_guard.health import (
     health_result,
 )
 from growatt_guard.modes import (
+    command_auto_topup_check,
     command_battery_alert,
     command_daily_summary,
     command_estimate_charge_rate,
@@ -80,8 +81,10 @@ from growatt_guard.modes import (
     command_return_sbu,
     command_rotate_logs,
     command_run_scheduled,
+    command_runtime_alert,
     command_status,
     command_test_discord,
+    command_topup_complete_check,
     command_utility_check,
     command_watchdog_sbu,
     command_weather_threshold,
