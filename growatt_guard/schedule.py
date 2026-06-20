@@ -560,6 +560,69 @@ def _override_remove(schedule: dict[str, Any], date_str: str, job_id: str) -> in
     return 0
 
 
+_MODE_CHANGING_COMMANDS = {"preserve-battery", "utility-check", "morning-check", "return-sbu", "watchdog-sbu"}
+
+BUILTIN_OUTAGE_PROFILES: dict[str, str] = {
+    "skip-all": "Skip all scheduled automation jobs.",
+    "maintenance": "Alias for skip-all — use during planned maintenance windows.",
+    "health-only": "Replace mode-changing jobs with health-check; monitoring still runs.",
+}
+
+
+def _outage_apply_profile(
+    profile_name: str,
+    dates: list[str],
+    note: str,
+) -> int:
+    if profile_name not in BUILTIN_OUTAGE_PROFILES:
+        names = ", ".join(BUILTIN_OUTAGE_PROFILES)
+        raise schedule_error(f"Unknown profile: {profile_name!r}. Available: {names}.")
+
+    for date_str in dates:
+        _parse_override_date(date_str)
+
+    schedule = validate_schedule()
+    overrides = _load_overrides_raw()
+
+    for date_str in dates:
+        entry = overrides["dates"].setdefault(date_str, {})
+        if note and not entry.get("note"):
+            entry["note"] = note
+
+        if profile_name in ("skip-all", "maintenance"):
+            entry["skip_all"] = True
+        elif profile_name == "health-only":
+            replace_map: dict[str, Any] = entry.setdefault("replace", {})
+            for index, job in enumerate(schedule["jobs"], start=1):
+                job_id = schedule_job_id(job, index)
+                if str(job.get("command", "")).strip() in _MODE_CHANGING_COMMANDS:
+                    replace_map[job_id] = {"command": "health-check", "args": ["--notify"]}
+
+    _save_overrides(overrides, schedule)
+    date_list = ", ".join(dates)
+    print(f"Applied profile {profile_name!r} to: {date_list}.")
+    return 0
+
+
+def command_outage_profile(config: Any, args: Any) -> int:
+    subcommand = getattr(args, "outage_subcommand", None)
+
+    if subcommand == "list":
+        print("Available outage profiles:")
+        for name, description in BUILTIN_OUTAGE_PROFILES.items():
+            print(f"  {name:<16}  {description}")
+        return 0
+
+    if subcommand == "apply":
+        return _outage_apply_profile(
+            args.profile_name,
+            list(args.dates),
+            getattr(args, "note", "") or "",
+        )
+
+    raise schedule_error(f"Unknown outage-profile subcommand: {subcommand!r}")
+
+
 def command_schedule_override(config: Any, args: Any) -> int:
     subcommand = getattr(args, "override_subcommand", None)
     if not subcommand:

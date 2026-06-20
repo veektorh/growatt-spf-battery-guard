@@ -161,6 +161,17 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertEqual(args.date, "2026-07-01")
         self.assertEqual(args.job_id, "")
 
+    def test_outage_profile_apply_is_available(self):
+        args = build_parser().parse_args(
+            ["outage-profile", "apply", "skip-all", "2026-07-01", "2026-07-02", "--note", "Holiday"]
+        )
+
+        self.assertEqual(args.command, "outage-profile")
+        self.assertEqual(args.outage_subcommand, "apply")
+        self.assertEqual(args.profile_name, "skip-all")
+        self.assertEqual(args.dates, ["2026-07-01", "2026-07-02"])
+        self.assertEqual(args.note, "Holiday")
+
     def test_build_daily_summary_includes_key_metrics(self):
         status = {
             "device": {"capacity": "50 %"},

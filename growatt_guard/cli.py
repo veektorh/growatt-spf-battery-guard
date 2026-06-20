@@ -8,7 +8,7 @@ from typing import Any
 from growatt_guard.config import Config, load_config
 from growatt_guard.dashboard import DASHBOARD_FILE, MIN_DASHBOARD_REFRESH_MINUTES
 from growatt_guard.notifications import notify_failure
-from growatt_guard.schedule import command_schedule_override, command_validate_schedule
+from growatt_guard.schedule import command_outage_profile, command_schedule_override, command_validate_schedule
 
 
 def app_module() -> Any:
@@ -117,6 +117,18 @@ def build_parser() -> argparse.ArgumentParser:
         "job_id", nargs="?", default="", help="Job id to remove. If omitted, removes all overrides for the date."
     )
 
+    outage_parser = subparsers.add_parser(
+        "outage-profile", help="Apply a named outage profile (skip-all, maintenance, health-only) to one or more dates."
+    )
+    outage_sub = outage_parser.add_subparsers(dest="outage_subcommand", required=True)
+
+    outage_sub.add_parser("list", help="List available outage profiles.")
+
+    outage_apply = outage_sub.add_parser("apply", help="Apply a profile to one or more dates.")
+    outage_apply.add_argument("profile_name", help="Profile name (skip-all, maintenance, health-only).")
+    outage_apply.add_argument("dates", nargs="+", help="YYYY-MM-DD date(s) to apply the profile to.")
+    outage_apply.add_argument("--note", default="", help="Optional note stored with each override.")
+
     return parser
 
 
@@ -181,6 +193,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_schedule_preview(config, args.days)
         if command == "schedule-override":
             return command_schedule_override(config, args)
+        if command == "outage-profile":
+            return command_outage_profile(config, args)
         raise app.GrowattGuardError(f"Unknown command: {command}")
 
     if command in app.LOCKED_COMMANDS:

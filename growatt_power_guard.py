@@ -88,7 +88,9 @@ from growatt_guard.pause import (
     run_with_command_lock,
 )
 from growatt_guard.schedule import (
+    BUILTIN_OUTAGE_PROFILES,
     check_cron_schedule,
+    command_outage_profile,
     command_schedule_override,
     command_schedule_preview,
     command_validate_schedule,
