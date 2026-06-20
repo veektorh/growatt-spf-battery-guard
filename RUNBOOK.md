@@ -134,6 +134,7 @@ LOW_BATTERY_SOC=50
 EMERGENCY_SOC=30
 EMERGENCY_SOC_RECOVERY=35
 GROWATT_CLOUD_FAILURE_ALERT_THRESHOLD=3
+DASHBOARD_STALE_MINUTES=30
 GROWATT_MODE_DRIVER=spf5000
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 WEATHER_ENABLED=true
@@ -153,6 +154,7 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py weekly-summary
 .venv/bin/python growatt_power_guard.py dashboard
 .venv/bin/python growatt_power_guard.py dashboard-refresh --once
+.venv/bin/python growatt_power_guard.py dashboard-stale-alert
 ```
 
 Update the VPS from GitHub, reinstall cron, and run health check:
@@ -182,6 +184,11 @@ http://localhost:8080/dashboard.html
 ```
 
 The server serves a static file. Growatt is only called by the refresh service every 10 minutes by default.
+The dashboard page shows a freshness badge, and `growatt-dashboard-stale-alert.timer` sends Discord alerts when `dashboard.html` is older than `DASHBOARD_STALE_MINUTES`.
+
+```text
+DASHBOARD_STALE_MINUTES=30
+```
 
 Expose on a dashboard subdomain:
 

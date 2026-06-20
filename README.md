@@ -189,6 +189,7 @@ python .\growatt_power_guard.py health-check --notify
 python .\growatt_power_guard.py battery-alert
 python .\growatt_power_guard.py dashboard
 python .\growatt_power_guard.py dashboard-refresh --once
+python .\growatt_power_guard.py dashboard-stale-alert
 python .\growatt_power_guard.py serve-dashboard
 python .\growatt_power_guard.py pause --hours 6 --reason "maintenance"
 python .\growatt_power_guard.py pause-status
@@ -259,6 +260,7 @@ LOW_BATTERY_SOC=50
 EMERGENCY_SOC=30
 EMERGENCY_SOC_RECOVERY=35
 GROWATT_CLOUD_FAILURE_ALERT_THRESHOLD=3
+DASHBOARD_STALE_MINUTES=30
 DRY_RUN=true
 GROWATT_MODE_DRIVER=spf5000
 ```
@@ -384,9 +386,11 @@ This installs:
 ```text
 growatt-dashboard-refresh.service  refreshes dashboard.html every 10 minutes
 growatt-dashboard-server.service   serves the static file on 127.0.0.1:8080
+growatt-dashboard-stale-alert.timer checks dashboard freshness every 10 minutes
 ```
 
 Browser refreshes do not call Growatt. Only the refresh service calls Growatt, and only on the configured interval.
+The dashboard includes a health badge that turns stale when `dashboard.html` is older than `DASHBOARD_STALE_MINUTES`.
 
 To use a 30-minute refresh interval instead:
 
@@ -412,6 +416,20 @@ Check service status:
 ```bash
 sudo systemctl status growatt-dashboard-refresh.service
 sudo systemctl status growatt-dashboard-server.service
+sudo systemctl status growatt-dashboard-stale-alert.timer
+```
+
+Stale dashboard alerts use Discord when `DISCORD_WEBHOOK_URL` is configured and `DISCORD_NOTIFY_FAILURE=true`:
+
+```text
+DASHBOARD_STALE_MINUTES=30
+```
+
+Manual freshness check:
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py dashboard-stale-alert
 ```
 
 ## Expose Dashboard On A Domain

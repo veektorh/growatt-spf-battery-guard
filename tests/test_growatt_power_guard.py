@@ -25,6 +25,7 @@ from growatt_power_guard import (
     command_battery_alert,
     command_dashboard,
     command_dashboard_refresh,
+    command_dashboard_stale_alert,
     command_health_check,
     command_run_scheduled,
     command_watchdog_sbu,
@@ -34,6 +35,7 @@ from growatt_power_guard import (
     notify_failure,
     record_growatt_cloud_success,
     read_growatt_cloud_failure_state,
+    read_dashboard_stale_alert_state,
     read_pause_state,
     release_command_lock,
     run_with_command_lock,
@@ -70,6 +72,7 @@ def make_config(**overrides):
         "emergency_soc": 30,
         "emergency_soc_recovery": 35,
         "cloud_failure_alert_threshold": 3,
+        "dashboard_stale_minutes": 30,
         "weather_enabled": False,
         "weather_lat": None,
         "weather_lon": None,
@@ -220,6 +223,12 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertEqual(args.command, "dashboard-refresh")
         self.assertEqual(args.interval_minutes, 10)
         self.assertTrue(args.once)
+
+    def test_dashboard_stale_alert_command_is_available(self):
+        args = build_parser().parse_args(["dashboard-stale-alert", "--max-age-minutes", "20"])
+
+        self.assertEqual(args.command, "dashboard-stale-alert")
+        self.assertEqual(args.max_age_minutes, 20)
 
     def test_serve_dashboard_command_is_available(self):
         args = build_parser().parse_args(["serve-dashboard", "--host", "127.0.0.1", "--port", "8080"])
@@ -515,6 +524,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
             "growatt_power_guard.COMMAND_LOCK_FILE", Path(tmpdir) / "mode_command.lock"
         ), patch(
             "growatt_power_guard.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+        ), patch(
+            "growatt_power_guard.DASHBOARD_FILE", Path(tmpdir) / "dashboard.html"
         ), patch("growatt_power_guard.validate_schedule", return_value=schedule), patch(
             "growatt_power_guard.validate_schedule_overrides", return_value={"dates": {}}
         ), patch(
@@ -527,6 +538,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
             "growatt_power_guard.choose_preserve_threshold",
             return_value=ThresholdDecision(50, "weather disabled; using fixed threshold 50%"),
         ), patch("growatt_power_guard.read_pause_state", return_value=None), redirect_stdout(StringIO()) as stdout:
+            (Path(tmpdir) / "dashboard.html").write_text("<html></html>", encoding="utf-8")
             exit_code = command_health_check(config)
 
         self.assertEqual(exit_code, 0)
@@ -620,12 +632,17 @@ class GrowattPowerGuardTests(unittest.TestCase):
         ), patch(
             "growatt_power_guard.choose_preserve_threshold",
             return_value=ThresholdDecision(50, "weather disabled; using fixed threshold 50%"),
+        ), patch(
+            "growatt_power_guard.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
         ), patch("growatt_power_guard.read_mode_audit_rows", return_value=[]), redirect_stdout(StringIO()):
             output = Path(tmpdir) / "dashboard.html"
             self.assertEqual(command_dashboard(config, str(output)), 0)
             html = output.read_text(encoding="utf-8")
 
         self.assertIn("Growatt Dashboard", html)
+        self.assertIn("Dashboard Health", html)
+        self.assertIn("data-refresh-badge", html)
+        self.assertIn("Cloud Streak", html)
         self.assertIn("50%", html)
         self.assertIn("SBU priority", html)
 
@@ -639,6 +656,36 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         write_mock.assert_called_once_with(config, "dashboard.html")
         self.assertIn("Dashboard refreshed", stdout.getvalue())
+
+    def test_dashboard_stale_alert_sends_once_when_file_is_missing(self):
+        config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example")
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_power_guard.DASHBOARD_STALE_ALERT_FILE", Path(tmpdir) / "dashboard_stale_alert.json"
+        ), patch("growatt_power_guard.send_discord_message", return_value=True) as send_mock, redirect_stdout(StringIO()):
+            output = Path(tmpdir) / "dashboard.html"
+            self.assertEqual(command_dashboard_stale_alert(config, str(output), 30), 0)
+            self.assertEqual(command_dashboard_stale_alert(config, str(output), 30), 0)
+            state = read_dashboard_stale_alert_state()
+
+        self.assertEqual(send_mock.call_count, 1)
+        self.assertIsNotNone(state)
+        self.assertTrue(state["active"])
+
+    def test_dashboard_stale_alert_clears_after_fresh_file(self):
+        config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example")
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_power_guard.DASHBOARD_STALE_ALERT_FILE", Path(tmpdir) / "dashboard_stale_alert.json"
+        ), patch("growatt_power_guard.send_discord_message", return_value=True) as send_mock, redirect_stdout(StringIO()):
+            output = Path(tmpdir) / "dashboard.html"
+            self.assertEqual(command_dashboard_stale_alert(config, str(output), 30), 0)
+            output.write_text("<html></html>", encoding="utf-8")
+            self.assertEqual(command_dashboard_stale_alert(config, str(output), 30), 0)
+            state = read_dashboard_stale_alert_state()
+
+        self.assertEqual(send_mock.call_count, 2)
+        self.assertIsNone(state)
 
     def test_dashboard_refresh_rejects_too_fast_loop(self):
         config = make_config()
