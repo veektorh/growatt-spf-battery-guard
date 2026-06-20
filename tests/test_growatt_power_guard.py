@@ -630,7 +630,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         ), patch("growatt_guard.dashboard.validate_schedule", return_value=schedule), patch(
             "growatt_guard.dashboard.validate_schedule_overrides", return_value={"dates": {}}
         ), patch(
-            "growatt_power_guard.choose_preserve_threshold",
+            "growatt_guard.dashboard.choose_preserve_threshold",
             return_value=ThresholdDecision(50, "weather disabled; using fixed threshold 50%"),
         ), patch(
             "growatt_guard.state.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"

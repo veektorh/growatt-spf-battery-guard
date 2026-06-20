@@ -32,6 +32,7 @@ from growatt_guard.schedule import (
     validate_schedule,
     validate_schedule_overrides,
 )
+from growatt_guard.weather import choose_preserve_threshold
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -41,11 +42,11 @@ MIN_DASHBOARD_REFRESH_MINUTES = 5
 
 def app_module() -> Any:
     module = sys.modules.get("growatt_power_guard")
-    if module is not None and hasattr(module, "choose_preserve_threshold"):
+    if module is not None and hasattr(module, "GrowattGuardError"):
         return module
 
     main_module = sys.modules.get("__main__")
-    if main_module is not None and hasattr(main_module, "choose_preserve_threshold"):
+    if main_module is not None and hasattr(main_module, "GrowattGuardError"):
         return main_module
 
     import growatt_power_guard
@@ -280,11 +281,10 @@ def resolve_dashboard_output(output: str) -> Path:
 
 
 def write_dashboard(config: Any, output: str) -> Path:
-    app = app_module()
     _, _, status = load_context(config)
     schedule = validate_schedule()
     overrides = validate_schedule_overrides(schedule)
-    threshold_decision = app.choose_preserve_threshold(config)
+    threshold_decision = choose_preserve_threshold(config)
     output_path = resolve_dashboard_output(output)
     output_path.write_text(
         build_dashboard_html(status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes),
