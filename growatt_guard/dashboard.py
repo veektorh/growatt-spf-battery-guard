@@ -16,6 +16,7 @@ from growatt_guard.pvoutput import publish_pvoutput_status_from_status, read_pvo
 from growatt_guard.growatt_api import (
     estimate_charge_time,
     estimate_runtime,
+    estimate_topup_for_sunrise,
     extract_battery_status,
     extract_first_metric,
     extract_soc,
@@ -43,7 +44,7 @@ from growatt_guard.schedule import (
     validate_schedule,
     validate_schedule_overrides,
 )
-from growatt_guard.weather import choose_preserve_threshold
+from growatt_guard.weather import choose_preserve_threshold, hours_until_next_sunrise
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -247,6 +248,8 @@ def build_dashboard_html(
     stale_after_minutes: float = 30,
     battery_capacity_wh: float = 0.0,
     battery_bms_cutoff_soc: float = 25.0,
+    hours_to_sunrise: float | None = None,
+    battery_charge_rate_w: float = 0.0,
 ) -> str:
     now = dt.datetime.now()
     generated_at = now.astimezone()
@@ -284,6 +287,17 @@ def build_dashboard_html(
     _vbat = extract_first_metric(status, ("vBat", "vBat1", "vbat"))
     _vbat_n = parse_number(_vbat[0]) if _vbat else None
     vbat = f"{_vbat_n:g} V" if _vbat_n is not None else "—"
+    sunrise_display = "—"
+    topup_sunrise_display = "—"
+    if hours_to_sunrise is not None and hours_to_sunrise > 0:
+        sunrise_display = format_duration_minutes(hours_to_sunrise * 60)
+        if battery_charge_rate_w > 0 and soc_result and _pdv is not None and _pdv > 0:
+            _ts = estimate_topup_for_sunrise(
+                soc_result[0], _pdv, battery_capacity_wh, battery_bms_cutoff_soc,
+                battery_charge_rate_w, hours_to_sunrise,
+            )
+            if _ts is not None:
+                topup_sunrise_display = "not needed" if _ts == 0 else format_duration_minutes(_ts)
     pause_state = read_pause_state()
     pause = pause_message(pause_state) if pause_state else "active"
     alert_state = read_battery_alert_state()
@@ -404,6 +418,8 @@ def build_dashboard_html(
       <div class="card"><div class="label">Battery Power</div><div class="value">{esc(bat_w)}</div></div>
       <div class="card"><div class="label">Battery Voltage</div><div class="value">{esc(vbat)}</div></div>
       <div class="card"><div class="label">Est. Runtime</div><div class="value">{esc(est_runtime)}</div></div>
+      <div class="card"><div class="label">Sunrise In</div><div class="value">{esc(sunrise_display)}</div></div>
+      <div class="card"><div class="label">Topup to Sunrise</div><div class="value">{esc(topup_sunrise_display)}</div></div>
       <div class="card"><div class="label">Output Power</div><div class="value">{esc(out_w)}</div></div>
       <div class="card"><div class="label">Load</div><div class="value">{esc(load_pct)}</div></div>
       <div class="card"><div class="label">Preserve Threshold</div><div class="value">{esc(f'{threshold_decision.threshold:g}%')}</div></div>
@@ -544,11 +560,17 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
     schedule = validate_schedule()
     overrides = validate_schedule_overrides(schedule)
     threshold_decision = choose_preserve_threshold(config)
+    hrs_to_sunrise: float | None = None
+    try:
+        hrs_to_sunrise = hours_until_next_sunrise(config)
+    except Exception:  # noqa: BLE001
+        pass
     output_path = resolve_dashboard_output(output)
     output_path.write_text(
         build_dashboard_html(
             status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes,
             config.battery_capacity_wh, config.battery_bms_cutoff_soc,
+            hrs_to_sunrise, config.battery_charge_rate_w,
         ),
         encoding="utf-8",
     )

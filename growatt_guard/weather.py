@@ -15,6 +15,9 @@ from growatt_guard.state import STATE_DIR
 WEATHER_CACHE_FILE = STATE_DIR / "weather_cache.json"
 WEATHER_CACHE_TTL_SECONDS = 15 * 60
 
+SUNRISE_CACHE_FILE = STATE_DIR / "sunrise_cache.json"
+SUNRISE_CACHE_TTL_SECONDS = 6 * 3600
+
 RAINY_SEASON_MONTHS: frozenset[int] = frozenset(range(4, 11))  # April–October (Lagos)
 
 DRY_SEASON_THRESHOLDS: dict[str, float] = {
@@ -130,6 +133,68 @@ def _write_weather_cache(forecast: dict[str, Any]) -> None:
         WEATHER_CACHE_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     except OSError as exc:
         logging.warning("Could not write weather cache: %s", exc)
+
+
+def _read_sunrise_cache() -> dict[str, Any] | None:
+    if not SUNRISE_CACHE_FILE.exists():
+        return None
+    try:
+        data = json.loads(SUNRISE_CACHE_FILE.read_text(encoding="utf-8"))
+        fetched_at = dt.datetime.fromisoformat(str(data["fetched_at"]))
+        if (dt.datetime.now() - fetched_at).total_seconds() > SUNRISE_CACHE_TTL_SECONDS:
+            return None
+        return data.get("daily")
+    except (OSError, KeyError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _write_sunrise_cache(daily: dict[str, Any]) -> None:
+    try:
+        SUNRISE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"fetched_at": dt.datetime.now().isoformat(), "daily": daily}
+        SUNRISE_CACHE_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except OSError as exc:
+        logging.warning("Could not write sunrise cache: %s", exc)
+
+
+def fetch_sunrise_data(config: Any) -> dict[str, Any]:
+    if config.weather_lat is None or config.weather_lon is None:
+        raise weather_error("WEATHER_LAT and WEATHER_LON must be set to fetch sunrise data.")
+    cached = _read_sunrise_cache()
+    if cached is not None:
+        return cached
+    response = requests.get(
+        "https://api.open-meteo.com/v1/forecast",
+        params={
+            "latitude": config.weather_lat,
+            "longitude": config.weather_lon,
+            "daily": "sunrise,sunset",
+            "forecast_days": 2,
+            "timezone": config.weather_timezone,
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
+    daily = response.json().get("daily", {})
+    _write_sunrise_cache(daily)
+    return daily
+
+
+def hours_until_next_sunrise(config: Any, now: dt.datetime | None = None) -> float | None:
+    """Return fractional hours from now until the next sunrise, or None if unavailable."""
+    if not getattr(config, "weather_lat", None) or not getattr(config, "weather_lon", None):
+        return None
+    try:
+        daily = fetch_sunrise_data(config)
+        _now = now or dt.datetime.now()
+        for sr_str in daily.get("sunrise", []):
+            sr = parse_forecast_time(str(sr_str))
+            if sr > _now:
+                return (sr - _now).total_seconds() / 3600.0
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logging.debug("Could not fetch sunrise time: %s", exc)
+        return None
 
 
 def fetch_weather_forecast(config: Any) -> dict[str, Any]:

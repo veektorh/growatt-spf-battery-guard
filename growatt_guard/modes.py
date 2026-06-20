@@ -54,7 +54,7 @@ from growatt_guard.state import (
     read_pause_state,
     write_battery_alert_state,
 )
-from growatt_guard.weather import apply_load_adjustment, choose_preserve_threshold
+from growatt_guard.weather import apply_load_adjustment, choose_preserve_threshold, hours_until_next_sunrise
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 LOG_DIR = BASE_DIR / "logs"
@@ -69,16 +69,35 @@ _MODE_CHANGING_COMMANDS = {
 }
 
 
+def _sunrise_hours(config: Config) -> float | None:
+    try:
+        return hours_until_next_sunrise(config)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def command_status(config: Config) -> int:
     _, _, status = load_context(config)
-    print(summarize_status(status, config.battery_capacity_wh, config.battery_bms_cutoff_soc))
+    print(summarize_status(
+        status,
+        config.battery_capacity_wh,
+        config.battery_bms_cutoff_soc,
+        config.battery_charge_rate_w,
+        _sunrise_hours(config),
+    ))
     return 0
 
 
 def command_probe(config: Config) -> int:
     _, _, status = load_context(config)
     path = write_probe(status)
-    print(summarize_status(status, config.battery_capacity_wh, config.battery_bms_cutoff_soc))
+    print(summarize_status(
+        status,
+        config.battery_capacity_wh,
+        config.battery_bms_cutoff_soc,
+        config.battery_charge_rate_w,
+        _sunrise_hours(config),
+    ))
     print(f"Wrote redacted probe data to {path}")
     return 0
 

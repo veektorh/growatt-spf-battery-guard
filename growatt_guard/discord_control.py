@@ -125,6 +125,8 @@ def build_dashboard_embed(discord_module: Any, status_output: str, return_code: 
     runtime_min_raw = _extract(r"runtime_min=(\d+)")
     charge_min_raw = _extract(r"charge_min=(\d+)")
     vbat_raw = _extract(r"vbat=([^,]+)")
+    sunrise_h_raw = _extract(r"sunrise_h=([^,]+)")
+    topup_sunrise_raw = _extract(r"topup_sunrise_min=(\d+)")
 
     color = _COLOR_FAIL
     if return_code == 0:
@@ -167,6 +169,22 @@ def build_dashboard_embed(discord_module: Any, status_output: str, return_code: 
     embed.add_field(name="Battery", value=bat_value or "—", inline=True)
     embed.add_field(name="Output", value=f"{out_w_raw} W" if out_w_raw != "unknown" else "—", inline=True)
     embed.add_field(name="Load", value=f"{load_pct_raw}%" if load_pct_raw != "unknown" else "—", inline=True)
+
+    # Sunrise / topup-to-sunrise row
+    if sunrise_h_raw != "unknown":
+        try:
+            hrs = float(sunrise_h_raw)
+            sunrise_text = _fmt_duration(round(hrs * 60))
+            embed.add_field(name="Sunrise in", value=sunrise_text, inline=True)
+        except ValueError:
+            pass
+    if topup_sunrise_raw != "unknown":
+        try:
+            t = int(topup_sunrise_raw)
+            topup_text = "not needed" if t == 0 else _fmt_duration(t)
+            embed.add_field(name="Topup to sunrise", value=topup_text, inline=True)
+        except ValueError:
+            pass
 
     # PVOutput — from state file, no API call needed
     pvo = _read_state_file("state/pvoutput_last.json")

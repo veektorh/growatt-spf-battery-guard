@@ -17,7 +17,7 @@ from growatt_power_guard import (
     verify_mode_switch,
     command_watchdog_sbu,
 )
-from growatt_guard.growatt_api import extract_battery_status, estimate_runtime, estimate_charge_time, format_duration_minutes
+from growatt_guard.growatt_api import extract_battery_status, estimate_runtime, estimate_charge_time, estimate_topup_for_sunrise, format_duration_minutes
 
 
 class GrowattApiTests(unittest.TestCase):
@@ -483,6 +483,35 @@ class ExtractMetricsTests(unittest.TestCase):
         result = summarize_status(status)
         self.assertIn("vbat=52.3", result)
 
+    def test_summarize_status_includes_sunrise_fields(self):
+        status = {
+            "plant_id": "p1",
+            "device_sn": "SN1",
+            "device_type": "storage",
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {"bmsSoc": 62, "pDischarge": 1736, "pCharge": 0},
+            },
+        }
+        result = summarize_status(
+            status,
+            battery_capacity_wh=30_000,
+            bms_cutoff_soc=25,
+            charge_rate_w=3000,
+            hours_to_sunrise=6.0,
+        )
+        self.assertIn("sunrise_h=6.00", result)
+        self.assertIn("topup_sunrise_min=", result)
+
+    def test_summarize_status_no_sunrise_when_none(self):
+        status = {
+            "plant_id": "p1", "device_sn": "SN1", "device_type": "storage",
+            "storage_params": {"storageDetailBean": {"bmsSoc": 62}},
+        }
+        result = summarize_status(status)
+        self.assertNotIn("sunrise_h=", result)
+        self.assertNotIn("topup_sunrise_min=", result)
+
     def test_summarize_status_no_vbat_when_absent(self):
         status = {
             "plant_id": "p1",
@@ -494,6 +523,44 @@ class ExtractMetricsTests(unittest.TestCase):
         }
         result = summarize_status(status)
         self.assertNotIn("vbat=", result)
+
+
+class TopupForSunriseTests(unittest.TestCase):
+    # 30kWh capacity, 25% BMS cutoff, 3kW charge rate
+    CAPACITY = 30_000.0
+    CUTOFF = 25.0
+    CHARGE_RATE = 3_000.0
+
+    def test_no_topup_needed_when_sufficient(self):
+        # SOC=80%, load=1000W, 5h to sunrise: usable=16500Wh, need=5000Wh → 0
+        result = estimate_topup_for_sunrise(80.0, 1000.0, self.CAPACITY, self.CUTOFF, self.CHARGE_RATE, 5.0)
+        self.assertEqual(result, 0.0)
+
+    def test_topup_needed_accounts_for_charging_benefit(self):
+        # SOC=30%, load=1500W, 6h to sunrise:
+        # usable=(30-25)/100*30000=1500Wh, need=9000Wh, deficit=7500Wh
+        # topup_min = 7500/(3000+1500)*60 = 100 min
+        result = estimate_topup_for_sunrise(30.0, 1500.0, self.CAPACITY, self.CUTOFF, self.CHARGE_RATE, 6.0)
+        self.assertIsNotNone(result)
+        self.assertAlmostEqual(result, 100.0, delta=1.0)
+
+    def test_returns_none_when_no_capacity(self):
+        self.assertIsNone(estimate_topup_for_sunrise(62.0, 1000.0, 0.0, self.CUTOFF, self.CHARGE_RATE, 5.0))
+
+    def test_returns_none_when_no_charge_rate(self):
+        self.assertIsNone(estimate_topup_for_sunrise(62.0, 1000.0, self.CAPACITY, self.CUTOFF, 0.0, 5.0))
+
+    def test_returns_none_when_no_hours(self):
+        self.assertIsNone(estimate_topup_for_sunrise(62.0, 1000.0, self.CAPACITY, self.CUTOFF, self.CHARGE_RATE, 0.0))
+
+    def test_returns_none_when_no_load(self):
+        self.assertIsNone(estimate_topup_for_sunrise(62.0, 0.0, self.CAPACITY, self.CUTOFF, self.CHARGE_RATE, 5.0))
+
+    def test_at_bms_cutoff_still_computes(self):
+        # usable=0, any load → some topup needed
+        result = estimate_topup_for_sunrise(25.0, 1000.0, self.CAPACITY, self.CUTOFF, self.CHARGE_RATE, 2.0)
+        self.assertIsNotNone(result)
+        self.assertGreater(result, 0.0)
 
 
 if __name__ == "__main__":

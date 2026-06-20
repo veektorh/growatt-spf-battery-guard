@@ -277,6 +277,29 @@ def estimate_charge_time(
     return remaining_wh / p_charge_w * 60.0
 
 
+def estimate_topup_for_sunrise(
+    soc: float,
+    load_w: float,
+    battery_capacity_wh: float,
+    bms_cutoff_soc: float,
+    charge_rate_w: float,
+    hours_to_sunrise: float,
+) -> float | None:
+    """Return topup minutes needed to survive until sunrise at current load rate.
+
+    Returns 0.0 if battery is already sufficient, None if inputs are insufficient.
+    During topup each minute saves load_w Wh of discharge AND adds charge_rate_w Wh,
+    so the effective rate is (charge_rate_w + load_w) Wh per 60 minutes.
+    """
+    if battery_capacity_wh <= 0 or charge_rate_w <= 0 or hours_to_sunrise <= 0 or load_w <= 0:
+        return None
+    usable_wh = max(0.0, (soc - bms_cutoff_soc) / 100.0 * battery_capacity_wh)
+    needed_wh = load_w * hours_to_sunrise
+    if usable_wh >= needed_wh:
+        return 0.0
+    return (needed_wh - usable_wh) / (charge_rate_w + load_w) * 60.0
+
+
 def format_duration_minutes(minutes: float) -> str:
     m = round(minutes)
     if m >= 60:
@@ -367,6 +390,8 @@ def summarize_status(
     status: dict[str, Any],
     battery_capacity_wh: float = 0.0,
     bms_cutoff_soc: float = 25.0,
+    charge_rate_w: float = 0.0,
+    hours_to_sunrise: float | None = None,
 ) -> str:
     soc_result = extract_soc(status)
     parts = [
@@ -419,6 +444,14 @@ def summarize_status(
         n = parse_number(_vbat[0])
         if n is not None:
             parts.append(f"vbat={n:g}")
+    if hours_to_sunrise is not None and hours_to_sunrise > 0:
+        parts.append(f"sunrise_h={hours_to_sunrise:.2f}")
+        if charge_rate_w > 0 and soc_result is not None and bat_w_val is not None and bat_w_val > 0:
+            topup = estimate_topup_for_sunrise(
+                soc_result[0], bat_w_val, battery_capacity_wh, bms_cutoff_soc, charge_rate_w, hours_to_sunrise
+            )
+            if topup is not None:
+                parts.append(f"topup_sunrise_min={topup:.0f}")
     return ", ".join(parts)
 
 
