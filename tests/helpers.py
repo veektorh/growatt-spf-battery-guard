@@ -47,6 +47,7 @@ def make_config(**overrides):
         "load_aware_threshold": False,
         "battery_charge_target_soc": 0.0,
         "auto_topup_enabled": False,
+        "auto_topup_min_hours_to_sunrise": 4.0,
         "runtime_alert_minutes": 0.0,
         "runtime_alert_clear_minutes": 0.0,
     }

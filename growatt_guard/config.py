@@ -63,6 +63,7 @@ class Config:
     load_aware_threshold: bool = False
     battery_charge_target_soc: float = 0.0
     auto_topup_enabled: bool = False
+    auto_topup_min_hours_to_sunrise: float = 4.0
     runtime_alert_minutes: float = 0.0
     runtime_alert_clear_minutes: float = 0.0
 
@@ -194,6 +195,7 @@ def load_config() -> Config:
         load_aware_threshold=str_to_bool(env("LOAD_AWARE_THRESHOLD"), default=False),
         battery_charge_target_soc=float(env("BATTERY_CHARGE_TARGET_SOC", "0")),
         auto_topup_enabled=str_to_bool(env("AUTO_TOPUP_ENABLED"), default=False),
+        auto_topup_min_hours_to_sunrise=float(env("AUTO_TOPUP_MIN_HOURS_TO_SUNRISE", "4")),
         runtime_alert_minutes=float(env("RUNTIME_ALERT_MINUTES", "0")),
         runtime_alert_clear_minutes=float(env("RUNTIME_ALERT_CLEAR_MINUTES", "0")),
     )

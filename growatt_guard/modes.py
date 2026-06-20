@@ -701,6 +701,11 @@ def command_auto_topup_check(config: Config) -> int:
     if hrs is None or hrs <= 0:
         print("Sunrise unavailable or already past; skipping auto-topup.")
         return 0
+    if config.auto_topup_min_hours_to_sunrise > 0 and hrs < config.auto_topup_min_hours_to_sunrise:
+        print(
+            f"Too close to sunrise ({hrs:.1f}h < {config.auto_topup_min_hours_to_sunrise:g}h cutoff); skipping auto-topup."
+        )
+        return 0
 
     api, device, status = load_context(config)
     soc_result = extract_soc(status)

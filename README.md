@@ -164,9 +164,12 @@ Enable auto-topup to automatically charge from Utility at night when the battery
 
 ```text
 AUTO_TOPUP_ENABLED=true
+AUTO_TOPUP_MIN_HOURS_TO_SUNRISE=4
 ```
 
 Requires `BATTERY_CAPACITY_WH`, `BATTERY_CHARGE_RATE_W`, `WEATHER_LAT`, and `WEATHER_LON`.
+
+`AUTO_TOPUP_MIN_HOURS_TO_SUNRISE` prevents late-night fires: if sunrise is less than 4 hours away, `auto-topup-check` exits immediately. With a 06:30 sunrise that means no new topups after ~02:30. Set to `0` to disable the cutoff.
 
 Add these two cron jobs (e.g. every 15 min from 22:00–05:00):
 
