@@ -311,9 +311,9 @@ class GrowattPowerGuardTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir, patch("growatt_guard.audit.LOG_DIR", Path(tmpdir)), patch(
             "growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
         ), patch(
-            "growatt_power_guard.load_context",
+            "growatt_guard.modes.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), {"storage_params": {"outputConfig": "0"}}),
-        ), patch("growatt_power_guard.set_mode") as set_mode_mock, redirect_stdout(StringIO()):
+        ), patch("growatt_guard.modes.set_mode") as set_mode_mock, redirect_stdout(StringIO()):
             self.assertEqual(command_watchdog_sbu(config), 0)
 
         set_mode_mock.assert_not_called()
@@ -324,10 +324,10 @@ class GrowattPowerGuardTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir, patch("growatt_guard.audit.LOG_DIR", Path(tmpdir)), patch(
             "growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
         ), patch(
-            "growatt_power_guard.load_context",
+            "growatt_guard.modes.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), {"storage_params": {"outputConfig": "2"}}),
-        ), patch("growatt_power_guard.set_mode", return_value={"success": True}) as set_mode_mock, patch(
-            "growatt_power_guard.logging.warning"
+        ), patch("growatt_guard.modes.set_mode", return_value={"success": True}) as set_mode_mock, patch(
+            "logging.warning"
         ), redirect_stdout(StringIO()):
             self.assertEqual(command_watchdog_sbu(config), 0)
 
@@ -438,9 +438,9 @@ class GrowattPowerGuardTests(unittest.TestCase):
         }
         overrides = {"dates": {dt.date.today().isoformat(): {"skip": ["morning-preserve"], "note": "test skip"}}}
 
-        with patch("growatt_power_guard.validate_schedule", return_value=schedule), patch(
-            "growatt_power_guard.validate_schedule_overrides", return_value=overrides
-        ), patch("growatt_power_guard.dispatch_command") as dispatch_mock, redirect_stdout(StringIO()) as stdout:
+        with patch("growatt_guard.modes.validate_schedule", return_value=schedule), patch(
+            "growatt_guard.modes.validate_schedule_overrides", return_value=overrides
+        ), patch("growatt_guard.modes.dispatch_command") as dispatch_mock, redirect_stdout(StringIO()) as stdout:
             self.assertEqual(command_run_scheduled(config, "morning-preserve"), 0)
 
         dispatch_mock.assert_not_called()
@@ -460,9 +460,9 @@ class GrowattPowerGuardTests(unittest.TestCase):
             }
         }
 
-        with patch("growatt_power_guard.validate_schedule", return_value=schedule), patch(
-            "growatt_power_guard.validate_schedule_overrides", return_value=overrides
-        ), patch("growatt_power_guard.dispatch_command", return_value=0) as dispatch_mock:
+        with patch("growatt_guard.modes.validate_schedule", return_value=schedule), patch(
+            "growatt_guard.modes.validate_schedule_overrides", return_value=overrides
+        ), patch("growatt_guard.modes.dispatch_command", return_value=0) as dispatch_mock:
             self.assertEqual(command_run_scheduled(config, "morning-preserve"), 0)
 
         dispatched_args = dispatch_mock.call_args.args[1]
@@ -525,19 +525,19 @@ class GrowattPowerGuardTests(unittest.TestCase):
         ), patch(
             "growatt_guard.state.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
         ), patch(
-            "growatt_power_guard.DASHBOARD_FILE", Path(tmpdir) / "dashboard.html"
-        ), patch("growatt_power_guard.validate_schedule", return_value=schedule), patch(
-            "growatt_power_guard.validate_schedule_overrides", return_value={"dates": {}}
+            "growatt_guard.health.DASHBOARD_FILE", Path(tmpdir) / "dashboard.html"
+        ), patch("growatt_guard.health.validate_schedule", return_value=schedule), patch(
+            "growatt_guard.health.validate_schedule_overrides", return_value={"dates": {}}
         ), patch(
-            "growatt_power_guard.check_cron_schedule",
+            "growatt_guard.health.check_cron_schedule",
             return_value=[HealthCheckItem("Cron jobs", "OK", "1 scheduled job installed.")],
         ), patch(
-            "growatt_power_guard.load_context",
+            "growatt_guard.health.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
         ), patch(
-            "growatt_power_guard.choose_preserve_threshold",
+            "growatt_guard.health.choose_preserve_threshold",
             return_value=ThresholdDecision(50, "weather disabled; using fixed threshold 50%"),
-        ), patch("growatt_power_guard.read_pause_state", return_value=None), redirect_stdout(StringIO()) as stdout:
+        ), patch("growatt_guard.health.read_pause_state", return_value=None), redirect_stdout(StringIO()) as stdout:
             (Path(tmpdir) / "dashboard.html").write_text("<html></html>", encoding="utf-8")
             exit_code = command_health_check(config)
 
@@ -551,9 +551,9 @@ class GrowattPowerGuardTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir, patch("growatt_guard.state.STATE_DIR", Path(tmpdir)), patch(
             "growatt_guard.state.BATTERY_ALERT_FILE", Path(tmpdir) / "battery_alert.json"
         ), patch(
-            "growatt_power_guard.load_context",
+            "growatt_guard.modes.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
-        ), patch("growatt_power_guard.send_discord_message", return_value=True) as send_mock, redirect_stdout(StringIO()):
+        ), patch("growatt_guard.modes.send_discord_message", return_value=True) as send_mock, redirect_stdout(StringIO()):
             self.assertEqual(command_battery_alert(config), 0)
             self.assertEqual(command_battery_alert(config), 0)
 
