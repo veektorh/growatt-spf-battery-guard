@@ -3,7 +3,6 @@ from __future__ import annotations
 import datetime as dt
 import html
 import http.server
-import json
 import logging
 import socketserver
 import sys
@@ -11,11 +10,20 @@ import time
 from pathlib import Path
 from typing import Any
 
+from growatt_guard.state import (
+    clear_dashboard_stale_alert_state,
+    pause_message,
+    read_battery_alert_state,
+    read_dashboard_stale_alert_state,
+    read_growatt_cloud_failure_state,
+    read_pause_state,
+    utc_now,
+    write_dashboard_stale_alert_state,
+)
+
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DASHBOARD_FILE = BASE_DIR / "dashboard.html"
-STATE_DIR = BASE_DIR / "state"
-DASHBOARD_STALE_ALERT_FILE = STATE_DIR / "dashboard_stale_alert.json"
 MIN_DASHBOARD_REFRESH_MINUTES = 5
 
 
@@ -35,26 +43,6 @@ def app_module() -> Any:
 
 def esc(value: Any) -> str:
     return html.escape(str(value), quote=True)
-
-
-def read_dashboard_stale_alert_state() -> dict[str, Any] | None:
-    if not DASHBOARD_STALE_ALERT_FILE.exists():
-        return None
-    try:
-        return json.loads(DASHBOARD_STALE_ALERT_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        logging.warning("Ignoring invalid dashboard stale alert state: %s", exc)
-        return None
-
-
-def write_dashboard_stale_alert_state(state: dict[str, Any]) -> None:
-    STATE_DIR.mkdir(exist_ok=True)
-    DASHBOARD_STALE_ALERT_FILE.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
-
-
-def clear_dashboard_stale_alert_state() -> None:
-    if DASHBOARD_STALE_ALERT_FILE.exists():
-        DASHBOARD_STALE_ALERT_FILE.unlink()
 
 
 def format_duration(seconds: float | None) -> str:
@@ -84,7 +72,7 @@ def dashboard_freshness(
     if stale_minutes <= 0:
         raise app_module().GrowattGuardError("Dashboard stale threshold must be greater than 0 minutes.")
 
-    now = now or app_module().utc_now()
+    now = now or utc_now()
     if now.tzinfo is None:
         now = now.replace(tzinfo=dt.timezone.utc)
     else:
@@ -135,11 +123,11 @@ def build_dashboard_html(
     soc = f"{soc_result[0]:g}%" if soc_result else "Not found"
     output_source = app.extract_spf_output_source(status)
     mode = f"{output_source[1]} [{output_source[0]}]" if output_source else "Not found"
-    pause_state = app.read_pause_state()
-    pause = app.pause_message(pause_state) if pause_state else "active"
-    alert_state = app.read_battery_alert_state()
+    pause_state = read_pause_state()
+    pause = pause_message(pause_state) if pause_state else "active"
+    alert_state = read_battery_alert_state()
     alert = "active" if alert_state and alert_state.get("active") else "clear"
-    cloud_state = app.read_growatt_cloud_failure_state()
+    cloud_state = read_growatt_cloud_failure_state()
     cloud_streak = int(cloud_state.get("count", 0)) if cloud_state else 0
     today_override = app.today_schedule_override(overrides, now.date())
     override_note = str(today_override.get("note", "")).strip() or "none"
@@ -341,7 +329,7 @@ def command_dashboard_stale_alert(config: Any, output: str, max_age_minutes: flo
                 if not app.send_discord_message(config, message):
                     raise app.GrowattGuardError("Dashboard stale alert could not be sent to Discord.")
                 state["notified"] = True
-                state["last_alert_at"] = app.utc_now().isoformat()
+                state["last_alert_at"] = utc_now().isoformat()
                 write_dashboard_stale_alert_state(state)
             print(f"Dashboard stale alert already active: {freshness['reason']}.")
             return 0
@@ -356,8 +344,8 @@ def command_dashboard_stale_alert(config: Any, output: str, max_age_minutes: flo
             {
                 "active": True,
                 "notified": notified,
-                "first_detected_at": app.utc_now().isoformat(),
-                "last_alert_at": app.utc_now().isoformat() if notified else "",
+                "first_detected_at": utc_now().isoformat(),
+                "last_alert_at": utc_now().isoformat() if notified else "",
                 "path": freshness["path"],
                 "reason": freshness["reason"],
                 "stale_minutes": stale_minutes,
@@ -424,4 +412,3 @@ def command_serve_dashboard(config: Any, host: str, port: int, output: str) -> i
         print(f"Serving {output_path} at http://{host}:{port}/dashboard.html", flush=True)
         server.serve_forever()
     return 0
-

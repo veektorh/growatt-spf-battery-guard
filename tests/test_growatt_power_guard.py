@@ -264,7 +264,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         )
 
         with TemporaryDirectory() as tmpdir, patch(
-            "growatt_guard.notifications.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+            "growatt_guard.state.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
         ), patch("growatt_guard.notifications.send_discord_message", return_value=True) as send_mock:
             notify_failure(config, "status", "Growatt login failed: temporary cloud error")
             notify_failure(config, "status", "Growatt login failed: temporary cloud error")
@@ -285,7 +285,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         )
 
         with TemporaryDirectory() as tmpdir, patch(
-            "growatt_guard.notifications.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+            "growatt_guard.state.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
         ), patch("growatt_guard.notifications.send_discord_message", return_value=True) as send_mock:
             notify_failure(config, "status", "Growatt login failed: temporary cloud error")
             notify_failure(config, "status", "Growatt login failed: temporary cloud error")
@@ -299,7 +299,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example")
 
         with TemporaryDirectory() as tmpdir, patch(
-            "growatt_guard.notifications.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+            "growatt_guard.state.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
         ), patch("growatt_guard.notifications.send_discord_message", return_value=True) as send_mock:
             notify_failure(config, "validate-schedule", "schedule.json is invalid")
 
@@ -520,10 +520,10 @@ class GrowattPowerGuardTests(unittest.TestCase):
         status = {"device": {"capacity": "50%"}, "storage_params": {"outputConfig": "0"}}
         schedule = {"timezone": "Africa/Lagos", "jobs": [{"cron": "30 6 * * *", "command": "preserve-battery"}]}
 
-        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.PAUSE_FILE", Path(tmpdir) / "pause.json"), patch(
-            "growatt_power_guard.COMMAND_LOCK_FILE", Path(tmpdir) / "mode_command.lock"
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.state.PAUSE_FILE", Path(tmpdir) / "pause.json"), patch(
+            "growatt_guard.state.COMMAND_LOCK_FILE", Path(tmpdir) / "mode_command.lock"
         ), patch(
-            "growatt_guard.notifications.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+            "growatt_guard.state.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
         ), patch(
             "growatt_power_guard.DASHBOARD_FILE", Path(tmpdir) / "dashboard.html"
         ), patch("growatt_power_guard.validate_schedule", return_value=schedule), patch(
@@ -548,8 +548,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
         config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example")
         status = {"device": {"capacity": "29%"}, "storage_params": {"outputConfig": "0"}}
 
-        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.STATE_DIR", Path(tmpdir)), patch(
-            "growatt_power_guard.BATTERY_ALERT_FILE", Path(tmpdir) / "battery_alert.json"
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.state.STATE_DIR", Path(tmpdir)), patch(
+            "growatt_guard.state.BATTERY_ALERT_FILE", Path(tmpdir) / "battery_alert.json"
         ), patch(
             "growatt_power_guard.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
@@ -633,7 +633,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
             "growatt_power_guard.choose_preserve_threshold",
             return_value=ThresholdDecision(50, "weather disabled; using fixed threshold 50%"),
         ), patch(
-            "growatt_guard.notifications.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+            "growatt_guard.state.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
         ), patch("growatt_power_guard.read_mode_audit_rows", return_value=[]), redirect_stdout(StringIO()):
             output = Path(tmpdir) / "dashboard.html"
             self.assertEqual(command_dashboard(config, str(output)), 0)
@@ -661,7 +661,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example")
 
         with TemporaryDirectory() as tmpdir, patch(
-            "growatt_guard.dashboard.DASHBOARD_STALE_ALERT_FILE", Path(tmpdir) / "dashboard_stale_alert.json"
+            "growatt_guard.state.DASHBOARD_STALE_ALERT_FILE", Path(tmpdir) / "dashboard_stale_alert.json"
         ), patch("growatt_power_guard.send_discord_message", return_value=True) as send_mock, redirect_stdout(StringIO()):
             output = Path(tmpdir) / "dashboard.html"
             self.assertEqual(command_dashboard_stale_alert(config, str(output), 30), 0)
@@ -676,7 +676,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example")
 
         with TemporaryDirectory() as tmpdir, patch(
-            "growatt_guard.dashboard.DASHBOARD_STALE_ALERT_FILE", Path(tmpdir) / "dashboard_stale_alert.json"
+            "growatt_guard.state.DASHBOARD_STALE_ALERT_FILE", Path(tmpdir) / "dashboard_stale_alert.json"
         ), patch("growatt_power_guard.send_discord_message", return_value=True) as send_mock, redirect_stdout(StringIO()):
             output = Path(tmpdir) / "dashboard.html"
             self.assertEqual(command_dashboard_stale_alert(config, str(output), 30), 0)
@@ -695,8 +695,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
     def test_command_lock_skips_when_busy(self):
         config = make_config(discord_notify_skip=False)
-        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.STATE_DIR", Path(tmpdir)), patch(
-            "growatt_power_guard.COMMAND_LOCK_FILE", Path(tmpdir) / "mode_command.lock"
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.state.STATE_DIR", Path(tmpdir)), patch(
+            "growatt_guard.state.COMMAND_LOCK_FILE", Path(tmpdir) / "mode_command.lock"
         ), redirect_stdout(StringIO()) as stdout:
             token = acquire_command_lock("preserve-battery")
             self.assertIsNotNone(token)
@@ -757,8 +757,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertEqual(decision.weather_category, "sunny")
 
     def test_write_and_read_pause_state(self):
-        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.STATE_DIR", Path(tmpdir)), patch(
-            "growatt_power_guard.PAUSE_FILE", Path(tmpdir) / "automation_pause.json"
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.state.STATE_DIR", Path(tmpdir)), patch(
+            "growatt_guard.state.PAUSE_FILE", Path(tmpdir) / "automation_pause.json"
         ):
             state = write_pause_state(1, "testing")
             read_back = read_pause_state()
@@ -769,8 +769,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
     def test_ensure_not_paused_returns_true_when_paused(self):
         config = make_config(discord_notify_skip=False)
-        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.STATE_DIR", Path(tmpdir)), patch(
-            "growatt_power_guard.PAUSE_FILE", Path(tmpdir) / "automation_pause.json"
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.state.STATE_DIR", Path(tmpdir)), patch(
+            "growatt_guard.state.PAUSE_FILE", Path(tmpdir) / "automation_pause.json"
         ), redirect_stdout(StringIO()):
             write_pause_state(1, "testing")
             self.assertTrue(ensure_not_paused(config, "watchdog-sbu"))

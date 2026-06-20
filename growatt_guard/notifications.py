@@ -1,21 +1,16 @@
 from __future__ import annotations
 
-import datetime as dt
-import json
 import logging
-from pathlib import Path
 from typing import Any
 
 import requests
 
-
-BASE_DIR = Path(__file__).resolve().parents[1]
-STATE_DIR = BASE_DIR / "state"
-GROWATT_CLOUD_FAILURE_FILE = STATE_DIR / "growatt_cloud_failures.json"
-
-
-def utc_now() -> dt.datetime:
-    return dt.datetime.now(dt.timezone.utc)
+from growatt_guard.state import (
+    clear_growatt_cloud_failure_state,
+    read_growatt_cloud_failure_state,
+    utc_now,
+    write_growatt_cloud_failure_state,
+)
 
 
 def truncate_discord_message(message: str) -> str:
@@ -77,26 +72,6 @@ def is_growatt_cloud_failure(message: str) -> bool:
     return any(pattern in lower for pattern in GROWATT_CLOUD_FAILURE_PATTERNS)
 
 
-def read_growatt_cloud_failure_state() -> dict[str, Any] | None:
-    if not GROWATT_CLOUD_FAILURE_FILE.exists():
-        return None
-    try:
-        return json.loads(GROWATT_CLOUD_FAILURE_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        logging.warning("Ignoring invalid Growatt cloud failure state: %s", exc)
-        return None
-
-
-def write_growatt_cloud_failure_state(state: dict[str, Any]) -> None:
-    STATE_DIR.mkdir(exist_ok=True)
-    GROWATT_CLOUD_FAILURE_FILE.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
-
-
-def clear_growatt_cloud_failure_state() -> None:
-    if GROWATT_CLOUD_FAILURE_FILE.exists():
-        GROWATT_CLOUD_FAILURE_FILE.unlink()
-
-
 def record_growatt_cloud_failure(config: Any, command: str, message: str) -> None:
     state = read_growatt_cloud_failure_state() or {}
     count = int(state.get("count", 0)) + 1
@@ -147,4 +122,3 @@ def notify_failure(config: Any | None, command: str, message: str) -> None:
         record_growatt_cloud_failure(config, command, message)
         return
     send_discord_message(config, f"Growatt automation failed during `{command}`.\n{message}")
-

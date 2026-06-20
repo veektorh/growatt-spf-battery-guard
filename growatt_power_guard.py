@@ -15,6 +15,7 @@ from typing import Any
 
 import requests
 
+import growatt_guard.state as state_files
 from growatt_guard.dashboard import (
     DASHBOARD_FILE,
     MIN_DASHBOARD_REFRESH_MINUTES,
@@ -31,6 +32,21 @@ from growatt_guard.notifications import (
     record_growatt_cloud_success,
     send_discord_message,
     truncate_discord_message,
+)
+from growatt_guard.state import (
+    acquire_command_lock,
+    clear_battery_alert_state,
+    clear_pause_state,
+    command_lock_is_stale,
+    format_local_time,
+    pause_message,
+    read_battery_alert_state,
+    read_command_lock_state,
+    read_pause_state,
+    release_command_lock,
+    utc_now,
+    write_battery_alert_state,
+    write_pause_state,
 )
 
 try:
@@ -50,11 +66,6 @@ LOG_FILE = LOG_DIR / "growatt_power_guard.log"
 MODE_AUDIT_FILE = LOG_DIR / "mode_decisions.csv"
 SCHEDULE_FILE = BASE_DIR / "schedule.json"
 SCHEDULE_OVERRIDES_FILE = BASE_DIR / "schedule_overrides.json"
-STATE_DIR = BASE_DIR / "state"
-PAUSE_FILE = STATE_DIR / "automation_pause.json"
-BATTERY_ALERT_FILE = STATE_DIR / "battery_alert.json"
-COMMAND_LOCK_FILE = STATE_DIR / "mode_command.lock"
-COMMAND_LOCK_STALE_SECONDS = 45 * 60
 
 SOC_KEYS = (
     "SOC",
@@ -247,47 +258,6 @@ def setup_logging(verbose: bool) -> None:
     root.addHandler(console_handler)
 
 
-def utc_now() -> dt.datetime:
-    return dt.datetime.now(dt.timezone.utc)
-
-
-def parse_utc_datetime(value: str) -> dt.datetime:
-    parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=dt.timezone.utc)
-    return parsed.astimezone(dt.timezone.utc)
-
-
-def read_pause_state(now: dt.datetime | None = None) -> dict[str, Any] | None:
-    if not PAUSE_FILE.exists():
-        return None
-    now = now or utc_now()
-    try:
-        state = json.loads(PAUSE_FILE.read_text(encoding="utf-8"))
-        until = parse_utc_datetime(str(state["paused_until"]))
-    except (OSError, KeyError, ValueError, json.JSONDecodeError) as exc:
-        logging.warning("Ignoring invalid pause state: %s", exc)
-        return None
-    if until <= now:
-        try:
-            PAUSE_FILE.unlink()
-        except OSError:
-            pass
-        return None
-    state["paused_until_dt"] = until
-    return state
-
-
-def format_local_time(value: dt.datetime) -> str:
-    return value.astimezone().strftime("%Y-%m-%d %H:%M %Z")
-
-
-def pause_message(state: dict[str, Any]) -> str:
-    until = state["paused_until_dt"]
-    reason = state.get("reason") or "no reason provided"
-    return f"automation paused until {format_local_time(until)} ({reason})"
-
-
 def ensure_not_paused(config: Config, command: str) -> bool:
     state = read_pause_state()
     if not state:
@@ -299,79 +269,6 @@ def ensure_not_paused(config: Config, command: str) -> bool:
         send_discord_message(config, message)
     print(message)
     return True
-
-
-def write_pause_state(hours: float, reason: str) -> dict[str, Any]:
-    if hours <= 0:
-        raise GrowattGuardError("--hours must be greater than 0.")
-    until = utc_now() + dt.timedelta(hours=hours)
-    state = {
-        "paused_until": until.isoformat(),
-        "reason": reason,
-        "created_at": utc_now().isoformat(),
-    }
-    STATE_DIR.mkdir(exist_ok=True)
-    PAUSE_FILE.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
-    state["paused_until_dt"] = until
-    return state
-
-
-def read_command_lock_state() -> dict[str, Any] | None:
-    if not COMMAND_LOCK_FILE.exists():
-        return None
-    try:
-        return json.loads(COMMAND_LOCK_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        logging.warning("Ignoring invalid command lock state: %s", exc)
-        return None
-
-
-def command_lock_is_stale() -> bool:
-    if not COMMAND_LOCK_FILE.exists():
-        return False
-    try:
-        age_seconds = dt.datetime.now().timestamp() - COMMAND_LOCK_FILE.stat().st_mtime
-    except OSError:
-        return False
-    return age_seconds > COMMAND_LOCK_STALE_SECONDS
-
-
-def acquire_command_lock(command: str) -> str | None:
-    STATE_DIR.mkdir(exist_ok=True)
-    token = f"{os.getpid()}-{utc_now().timestamp()}"
-    payload = {
-        "token": token,
-        "pid": os.getpid(),
-        "command": command,
-        "created_at": utc_now().isoformat(),
-    }
-
-    for _ in range(2):
-        try:
-            flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
-            fd = os.open(str(COMMAND_LOCK_FILE), flags)
-        except FileExistsError:
-            if command_lock_is_stale():
-                try:
-                    COMMAND_LOCK_FILE.unlink()
-                except OSError:
-                    pass
-                continue
-            return None
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
-        return token
-    return None
-
-
-def release_command_lock(token: str) -> None:
-    state = read_command_lock_state()
-    if state and state.get("token") != token:
-        return
-    try:
-        COMMAND_LOCK_FILE.unlink()
-    except FileNotFoundError:
-        pass
 
 
 def run_with_command_lock(config: Config, command: str, action) -> int:
@@ -390,31 +287,6 @@ def run_with_command_lock(config: Config, command: str, action) -> int:
         return action()
     finally:
         release_command_lock(token)
-
-
-def read_battery_alert_state() -> dict[str, Any] | None:
-    if not BATTERY_ALERT_FILE.exists():
-        return None
-    try:
-        return json.loads(BATTERY_ALERT_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        logging.warning("Ignoring invalid battery alert state: %s", exc)
-        return None
-
-
-def write_battery_alert_state(soc: float) -> None:
-    state = {
-        "active": True,
-        "last_soc": soc,
-        "last_alert_at": utc_now().isoformat(),
-    }
-    STATE_DIR.mkdir(exist_ok=True)
-    BATTERY_ALERT_FILE.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
-
-
-def clear_battery_alert_state() -> None:
-    if BATTERY_ALERT_FILE.exists():
-        BATTERY_ALERT_FILE.unlink()
 
 
 def parse_forecast_time(value: str) -> dt.datetime:
@@ -1529,6 +1401,8 @@ def command_battery_alert(config: Config) -> int:
 
 
 def command_pause(config: Config, hours: float, reason: str) -> int:
+    if hours <= 0:
+        raise GrowattGuardError("--hours must be greater than 0.")
     state = write_pause_state(hours, reason)
     message = f"Growatt automation paused until {format_local_time(state['paused_until_dt'])}."
     if reason:
@@ -1540,8 +1414,7 @@ def command_pause(config: Config, hours: float, reason: str) -> int:
 
 def command_resume(config: Config) -> int:
     was_paused = read_pause_state() is not None
-    if PAUSE_FILE.exists():
-        PAUSE_FILE.unlink()
+    clear_pause_state()
     message = "Growatt automation resumed." if was_paused else "Growatt automation was not paused."
     send_discord_message(config, message)
     print(message)
@@ -1799,7 +1672,7 @@ def command_health_check(config: Config, notify: bool = False) -> int:
     pause_state = read_pause_state()
     if pause_state:
         checks.append(HealthCheckItem("Pause state", "WARN", pause_message(pause_state)))
-    elif PAUSE_FILE.exists():
+    elif state_files.PAUSE_FILE.exists():
         checks.append(HealthCheckItem("Pause state", "WARN", "pause file exists but could not be read; automation is active."))
     else:
         checks.append(HealthCheckItem("Pause state", "OK", "automation is active."))
