@@ -24,6 +24,18 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py watchdog-sbu
 .venv/bin/python growatt_power_guard.py daily-summary
 .venv/bin/python growatt_power_guard.py rotate-logs
+.venv/bin/python growatt_power_guard.py validate-schedule
+```
+
+## Change Schedule
+
+Edit `schedule.json`, then validate and reinstall:
+
+```bash
+cd ~/automation
+nano schedule.json
+.venv/bin/python growatt_power_guard.py validate-schedule
+./install_cloud_cron.sh
 ```
 
 ## Verify Cron
@@ -70,6 +82,7 @@ Reinstall the current schedule:
 
 ```bash
 cd ~/automation
+.venv/bin/python growatt_power_guard.py validate-schedule
 ./install_cloud_cron.sh
 ```
 

@@ -1,6 +1,8 @@
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from growatt_power_guard import (
@@ -13,6 +15,8 @@ from growatt_power_guard import (
     set_mode,
     build_parser,
     command_watchdog_sbu,
+    validate_schedule,
+    GrowattGuardError,
     send_discord_message,
     truncate_discord_message,
 )
@@ -115,6 +119,11 @@ class GrowattPowerGuardTests(unittest.TestCase):
         args = build_parser().parse_args(["rotate-logs"])
 
         self.assertEqual(args.command, "rotate-logs")
+
+    def test_validate_schedule_command_is_available(self):
+        args = build_parser().parse_args(["validate-schedule"])
+
+        self.assertEqual(args.command, "validate-schedule")
 
     def test_truncate_discord_message_keeps_short_messages(self):
         self.assertEqual(truncate_discord_message("hello"), "hello")
@@ -241,6 +250,23 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertIn("Output source: SBU priority [0]", summary)
         self.assertIn("PV power: 1234.0 W", summary)
         self.assertIn("Successful mode responses: 2", summary)
+
+    def test_validate_schedule_accepts_current_file(self):
+        schedule = validate_schedule()
+
+        self.assertEqual(schedule["timezone"], "Africa/Lagos")
+        self.assertGreaterEqual(len(schedule["jobs"]), 1)
+
+    def test_validate_schedule_rejects_unknown_command(self):
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "schedule.json"
+            path.write_text(
+                '{"timezone":"Africa/Lagos","jobs":[{"cron":"0 1 * * *","command":"bad-command"}]}',
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(GrowattGuardError):
+                validate_schedule(path)
 
 
 if __name__ == "__main__":

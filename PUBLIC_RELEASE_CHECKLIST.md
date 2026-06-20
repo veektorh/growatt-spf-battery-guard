@@ -49,6 +49,7 @@ RUNBOOK.md
 PUBLIC_RELEASE_CHECKLIST.md
 .env.example
 .gitignore
+schedule.json
 install_cloud_cron.sh
 install_growatt_schedule.ps1
 tests/

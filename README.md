@@ -124,6 +124,14 @@ The automation should therefore:
 00:10 daily       rotate old generated logs/probes
 ```
 
+The cloud cron installer reads these jobs from [schedule.json](schedule.json). To change outage times, edit `schedule.json`, validate it, then reinstall cron:
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py validate-schedule
+./install_cloud_cron.sh
+```
+
 ## Run manually
 
 ```powershell
@@ -132,6 +140,7 @@ python .\growatt_power_guard.py return-sbu
 python .\growatt_power_guard.py watchdog-sbu
 python .\growatt_power_guard.py daily-summary
 python .\growatt_power_guard.py rotate-logs
+python .\growatt_power_guard.py validate-schedule
 ```
 
 ## Schedule on Windows
@@ -206,16 +215,17 @@ Test it:
 .venv/bin/python growatt_power_guard.py watchdog-sbu
 .venv/bin/python growatt_power_guard.py daily-summary
 .venv/bin/python growatt_power_guard.py rotate-logs
+.venv/bin/python growatt_power_guard.py validate-schedule
 ```
 
 After the dry-run output is correct, set `DRY_RUN=false`, then install the cloud cron schedule:
 
 ```bash
-chmod +x install_cloud_cron.sh
+.venv/bin/python growatt_power_guard.py validate-schedule
 ./install_cloud_cron.sh
 ```
 
-Verify the four scheduled jobs:
+Verify the scheduled jobs:
 
 ```bash
 crontab -l | grep growatt-power-guard
@@ -273,6 +283,7 @@ Reinstall the current schedule:
 
 ```bash
 cd ~/automation
+.venv/bin/python growatt_power_guard.py validate-schedule
 ./install_cloud_cron.sh
 ```
 

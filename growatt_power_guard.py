@@ -27,6 +27,7 @@ except ImportError:  # pragma: no cover - handled at runtime for friendlier outp
 BASE_DIR = Path(__file__).resolve().parent
 LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "growatt_power_guard.log"
+SCHEDULE_FILE = BASE_DIR / "schedule.json"
 
 SOC_KEYS = (
     "SOC",
@@ -48,6 +49,15 @@ SPF_OUTPUT_SOURCE = {
 }
 
 DEVICE_TYPE_PRIORITY = ("storage", "mix", "sph", "tlx", "inverter")
+SCHEDULE_COMMANDS = {
+    "preserve-battery",
+    "utility-check",
+    "morning-check",
+    "return-sbu",
+    "watchdog-sbu",
+    "daily-summary",
+    "rotate-logs",
+}
 
 
 class GrowattGuardError(RuntimeError):
@@ -789,6 +799,40 @@ def command_rotate_logs(config: Config) -> int:
     return 0
 
 
+def validate_schedule(path: Path = SCHEDULE_FILE) -> dict[str, Any]:
+    if not path.exists():
+        raise GrowattGuardError(f"Schedule file not found: {path}")
+    try:
+        schedule = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise GrowattGuardError(f"Invalid schedule JSON: {exc}") from exc
+
+    timezone = schedule.get("timezone")
+    jobs = schedule.get("jobs")
+    if not isinstance(timezone, str) or not timezone.strip():
+        raise GrowattGuardError("schedule.json must contain a non-empty timezone.")
+    if not isinstance(jobs, list) or not jobs:
+        raise GrowattGuardError("schedule.json must contain at least one job.")
+
+    for index, job in enumerate(jobs, start=1):
+        if not isinstance(job, dict):
+            raise GrowattGuardError(f"Schedule job {index} must be an object.")
+        cron = str(job.get("cron", "")).strip()
+        command = str(job.get("command", "")).strip()
+        if len(cron.split()) != 5:
+            raise GrowattGuardError(f"Schedule job {index} has invalid cron expression: {cron!r}")
+        if command not in SCHEDULE_COMMANDS:
+            raise GrowattGuardError(f"Schedule job {index} has unsupported command: {command!r}")
+    return schedule
+
+
+def command_validate_schedule(config: Config | None = None) -> int:
+    _ = config
+    schedule = validate_schedule()
+    print(f"Schedule OK: {len(schedule['jobs'])} jobs in {schedule['timezone']}.")
+    return 0
+
+
 def command_test_discord(config: Config) -> int:
     if not config.discord_webhook_url:
         raise GrowattGuardError("DISCORD_WEBHOOK_URL is not configured in .env.")
@@ -812,6 +856,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("watchdog-sbu", help="Verify output source is SBU; retry SBU once if needed.")
     subparsers.add_parser("daily-summary", help="Post/print a daily Growatt and automation summary.")
     subparsers.add_parser("rotate-logs", help="Delete old generated probe/log files according to LOG_RETENTION_DAYS.")
+    subparsers.add_parser("validate-schedule", help="Validate schedule.json.")
     subparsers.add_parser("test-discord", help="Send a test Discord webhook message.")
     return parser
 
@@ -823,6 +868,8 @@ def main(argv: list[str] | None = None) -> int:
     config: Config | None = None
 
     try:
+        if args.command == "validate-schedule":
+            return command_validate_schedule()
         config = load_config()
         logging.info("Command=%s dry_run=%s low_soc=%s", args.command, config.dry_run, config.low_battery_soc)
         if args.command == "status":
