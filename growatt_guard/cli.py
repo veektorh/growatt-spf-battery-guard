@@ -75,6 +75,10 @@ def build_parser() -> argparse.ArgumentParser:
     pause_parser.add_argument("--reason", default="", help="Optional reason stored in pause state and Discord alert.")
     subparsers.add_parser("resume", help="Resume scheduled mode-changing automation.")
     subparsers.add_parser("pause-status", help="Show whether automation is currently paused.")
+    preview_parser = subparsers.add_parser(
+        "schedule-preview", help="Print upcoming scheduled jobs for the next N days, including overrides."
+    )
+    preview_parser.add_argument("--days", type=int, default=7, help="Number of days to preview (default 7).")
     return parser
 
 
@@ -131,6 +135,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_resume(config)
         if command == "pause-status":
             return app.command_pause_status(config)
+        if command == "schedule-preview":
+            return app.command_schedule_preview(config, args.days)
         raise app.GrowattGuardError(f"Unknown command: {command}")
 
     if command in app.LOCKED_COMMANDS:

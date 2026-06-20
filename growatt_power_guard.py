@@ -86,6 +86,7 @@ from growatt_guard.pause import (
 )
 from growatt_guard.schedule import (
     check_cron_schedule,
+    command_schedule_preview,
     command_validate_schedule,
     find_schedule_job,
     next_scheduled_runs,

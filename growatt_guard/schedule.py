@@ -331,3 +331,82 @@ def command_validate_schedule(config: Any | None = None) -> int:
     if overrides.get("dates"):
         print(f"Schedule overrides OK: {len(overrides['dates'])} date override(s).")
     return 0
+
+
+def _cron_interval_label(cron: str) -> str | None:
+    """Return 'every N min' if the cron fires on a repeating sub-hourly interval, else None."""
+    parts = cron.strip().split()
+    if len(parts) != 5:
+        return None
+    minute_field, hour_field = parts[0], parts[1]
+    if minute_field.startswith("*/") and hour_field == "*":
+        try:
+            return f"every {int(minute_field[2:])} min"
+        except ValueError:
+            return None
+    return None
+
+
+def command_schedule_preview(config: Any, days: int = 7, today: dt.date | None = None) -> int:
+    _ = config
+    schedule = validate_schedule()
+    overrides = validate_schedule_overrides(schedule)
+
+    today = today or dt.date.today()
+    timezone = schedule.get("timezone", "")
+    print(f"Schedule preview — {days} day(s) from {today} [{timezone}]")
+
+    for day_offset in range(days):
+        date = today + dt.timedelta(days=day_offset)
+        day_override = overrides.get("dates", {}).get(date.isoformat(), {})
+        skip_all = bool(day_override.get("skip_all", False))
+        skip_ids = set(day_override.get("skip", []))
+        replace_map = day_override.get("replace", {}) if isinstance(day_override.get("replace"), dict) else {}
+        note = str(day_override.get("note", "")).strip()
+
+        # Collect firing times per job across this calendar day
+        job_fires: dict[str, list[dt.datetime]] = {}
+        start = dt.datetime.combine(date, dt.time(0, 0))
+        cursor = start
+        while cursor < start + dt.timedelta(days=1):
+            for job in schedule["jobs"]:
+                if cron_matches(str(job["cron"]), cursor):
+                    job_id = job.get("id", "")
+                    job_fires.setdefault(job_id, []).append(cursor)
+            cursor += dt.timedelta(minutes=1)
+
+        jobs_on_day = [job for job in schedule["jobs"] if job.get("id", "") in job_fires]
+        if not jobs_on_day:
+            continue
+
+        header = f"\n{date.strftime('%a %Y-%m-%d')}"
+        if skip_all:
+            header += "  [skip-all]"
+        if note:
+            header += f"  — {note}"
+        print(header)
+
+        for job in jobs_on_day:
+            job_id = job.get("id", "")
+            fires = job_fires[job_id]
+            command_str = " ".join(schedule_job_tokens(job, 0))
+
+            interval_label = _cron_interval_label(str(job["cron"]))
+            if interval_label:
+                time_str = interval_label
+                count_suffix = f"  x{len(fires)}/day"
+            else:
+                time_str = fires[0].strftime("%H:%M")
+                count_suffix = ""
+
+            if skip_all or job_id in skip_ids:
+                status_suffix = "  [SKIP]"
+            elif job_id in replace_map:
+                repl_str = " ".join(schedule_job_tokens(replace_map[job_id], 0))
+                status_suffix = f"  [-> {repl_str}]"
+            else:
+                status_suffix = ""
+
+            print(f"  {time_str:<16}  {command_str:<32}  ({job_id}){count_suffix}{status_suffix}")
+
+    return 0

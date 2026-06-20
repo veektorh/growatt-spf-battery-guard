@@ -7,6 +7,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from growatt_guard.schedule import command_schedule_preview
 from growatt_power_guard import (
     Config,
     DeviceRef,
@@ -774,6 +775,67 @@ class GrowattPowerGuardTests(unittest.TestCase):
         ), redirect_stdout(StringIO()):
             write_pause_state(1, "testing")
             self.assertTrue(ensure_not_paused(config, "watchdog-sbu"))
+
+    def test_schedule_preview_command_is_available(self):
+        args = build_parser().parse_args(["schedule-preview", "--days", "3"])
+
+        self.assertEqual(args.command, "schedule-preview")
+        self.assertEqual(args.days, 3)
+
+    def test_schedule_preview_shows_fixed_and_interval_jobs(self):
+        config = make_config()
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"},
+                {"id": "battery-check", "cron": "*/30 * * * *", "command": "battery-alert"},
+            ],
+        }
+        overrides = {"dates": {}}
+
+        with patch("growatt_guard.schedule.validate_schedule", return_value=schedule), patch(
+            "growatt_guard.schedule.validate_schedule_overrides", return_value=overrides
+        ), redirect_stdout(StringIO()) as stdout:
+            result = command_schedule_preview(config, days=1, today=dt.date(2026, 6, 20))
+
+        self.assertEqual(result, 0)
+        output = stdout.getvalue()
+        self.assertIn("2026-06-20", output)
+        self.assertIn("06:30", output)
+        self.assertIn("preserve-battery", output)
+        self.assertIn("every 30 min", output)
+        self.assertIn("battery-alert", output)
+        self.assertIn("x48/day", output)
+
+    def test_schedule_preview_marks_skipped_and_replaced_jobs(self):
+        config = make_config()
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"},
+                {"id": "morning-health", "cron": "10 6 * * *", "command": "health-check", "args": ["--notify"]},
+            ],
+        }
+        overrides = {
+            "dates": {
+                "2026-06-20": {
+                    "note": "adjusted day",
+                    "skip": ["morning-preserve"],
+                    "replace": {"morning-health": {"command": "health-check", "args": ["--notify"]}},
+                }
+            }
+        }
+
+        with patch("growatt_guard.schedule.validate_schedule", return_value=schedule), patch(
+            "growatt_guard.schedule.validate_schedule_overrides", return_value=overrides
+        ), redirect_stdout(StringIO()) as stdout:
+            result = command_schedule_preview(config, days=1, today=dt.date(2026, 6, 20))
+
+        self.assertEqual(result, 0)
+        output = stdout.getvalue()
+        self.assertIn("adjusted day", output)
+        self.assertIn("[SKIP]", output)
+        self.assertIn("[-> health-check --notify]", output)
 
 
 if __name__ == "__main__":
