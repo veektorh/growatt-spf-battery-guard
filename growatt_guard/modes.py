@@ -31,6 +31,7 @@ from growatt_guard.notifications import (
     embed_mode_switch_sbu,
     embed_mode_switch_utility,
     embed_preserve_skipped,
+    embed_summary,
     embed_watchdog_failed,
     embed_watchdog_repaired,
     send_discord_embed,
@@ -367,7 +368,7 @@ def command_daily_summary(config: Config) -> int:
     _, _, status = load_context(config)
     summary = build_daily_summary(status)
     if config.discord_webhook_url:
-        send_discord_message(config, summary)
+        send_discord_embed(config, embed_summary("Daily Summary", summary))
     print(summary)
     return 0
 
@@ -375,7 +376,7 @@ def command_daily_summary(config: Config) -> int:
 def command_weekly_summary(config: Config) -> int:
     summary = build_weekly_summary()
     if config.discord_webhook_url:
-        send_discord_message(config, summary)
+        send_discord_embed(config, embed_summary("Weekly Summary", summary))
     print(summary)
     return 0
 
@@ -383,7 +384,7 @@ def command_weekly_summary(config: Config) -> int:
 def command_monthly_summary(config: Config) -> int:
     summary = build_monthly_summary()
     if config.discord_webhook_url:
-        send_discord_message(config, summary)
+        send_discord_embed(config, embed_summary("Monthly Summary", summary))
     print(summary)
     return 0
 

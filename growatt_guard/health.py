@@ -278,6 +278,11 @@ def command_health_check(config: Config, notify: bool = False) -> int:
                 {"name": f"[{c.status}] {c.name}", "value": " ".join(str(c.detail).split())[:1024] or "—", "inline": False}
                 for c in checks
             ]
+            _MAX_FIELDS = 24
+            if len(embed_fields) > _MAX_FIELDS:
+                overflow = len(embed_fields) - _MAX_FIELDS
+                embed_fields = embed_fields[:_MAX_FIELDS]
+                embed_fields.append({"name": "⚠️ Truncated", "value": f"{overflow} more check(s) not shown.", "inline": False})
             embed = {
                 "title": f"Growatt health — {result}",
                 "color": color,

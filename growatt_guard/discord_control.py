@@ -167,17 +167,21 @@ def build_dashboard_embed(discord_module: Any, status_output: str, return_code: 
 
     # Topup — from state file
     topup = read_topup_state()
-    if topup and topup_is_active():
-        try:
-            paused_until = parse_utc_datetime(str(topup["paused_until"]))
-            remaining = max(0, int((paused_until - dt.datetime.now(dt.timezone.utc)).total_seconds() // 60))
-            embed.add_field(
-                name="Topup ⚡",
-                value=f"{topup.get('minutes', '?')} min total · ~{remaining} min remaining",
-                inline=True,
-            )
-        except (KeyError, ValueError):
-            embed.add_field(name="Topup ⚡", value="active", inline=True)
+    if topup:
+        if topup_is_active():
+            try:
+                paused_until = parse_utc_datetime(str(topup["paused_until"]))
+                remaining = max(0, int((paused_until - dt.datetime.now(dt.timezone.utc)).total_seconds() // 60))
+                embed.add_field(
+                    name="Topup ⚡",
+                    value=f"{topup.get('minutes', '?')} min total · ~{remaining} min remaining",
+                    inline=True,
+                )
+            except (KeyError, ValueError):
+                embed.add_field(name="Topup ⚡", value="active", inline=True)
+        else:
+            reason = topup.get("reason", "topup")
+            embed.add_field(name="Topup ⚡", value=f"interrupted · {reason}", inline=True)
 
     embed.timestamp = dt.datetime.now(dt.timezone.utc)
     return embed

@@ -160,6 +160,18 @@ def embed_cloud_recovered(count: int) -> dict:
     return _embed("✅ Growatt cloud recovered", _COLOR_OK, [_f("Consecutive failures", str(count))])
 
 
+def embed_automation_failure(command: str, message: str) -> dict:
+    fields = [
+        _f("Command", command),
+        _f("Error", message[:1024], inline=False),
+    ]
+    return _embed(f"❌ Automation error: {command}", _COLOR_FAIL, fields)
+
+
+def embed_summary(title: str, text: str) -> dict:
+    return _embed(title, _COLOR_OK, [], description=text[:4096])
+
+
 GROWATT_CLOUD_FAILURE_PATTERNS = (
     "growatt login failed",
     "login succeeded but no user id",
@@ -229,4 +241,4 @@ def notify_failure(config: Any | None, command: str, message: str) -> None:
     if is_growatt_cloud_failure(message):
         record_growatt_cloud_failure(config, command, message)
         return
-    send_discord_message(config, f"Growatt automation failed during `{command}`.\n{message}")
+    send_discord_embed(config, embed_automation_failure(command, message))
