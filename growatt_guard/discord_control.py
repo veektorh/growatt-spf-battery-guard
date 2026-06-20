@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import json
 import re
 import sys
 from pathlib import Path
@@ -11,6 +12,7 @@ from growatt_guard.config import Config
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.state import (
     clear_topup_state,
+    parse_utc_datetime,
     read_topup_state,
     topup_is_active,
     utc_now,
@@ -27,6 +29,16 @@ _COLOR_WARN = 0xFEE75C
 _COLOR_FAIL = 0xED4245
 _STATUS_ICON = {"OK": "✅", "WARN": "⚠️", "FAIL": "❌"}
 _CHECK_RE = re.compile(r"^\[(OK|WARN|FAIL)\]\s+([^:]+):\s+(.+)$")
+
+
+def _read_state_file(relative_path: str) -> dict[str, Any] | None:
+    path = BASE_DIR / relative_path
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def _result_color(status: str) -> int:
@@ -87,6 +99,86 @@ def build_status_embed(discord_module: Any, output: str, return_code: int) -> An
     embed.add_field(name="​", value="​", inline=True)
     embed.add_field(name="Plant", value=plant, inline=True)
     embed.add_field(name="Device", value=device, inline=True)
+    embed.timestamp = dt.datetime.now(dt.timezone.utc)
+    return embed
+
+
+def build_dashboard_embed(discord_module: Any, status_output: str, return_code: int) -> Any:
+    def _extract(pattern: str) -> str:
+        m = re.search(pattern, status_output)
+        return m.group(1).strip() if m else "unknown"
+
+    soc_raw = _extract(r"soc=([^,]+)")
+    output_raw = _extract(r"output=([^,]+)")
+    soc_clean = re.sub(r"\s*\([^)]+\)", "", soc_raw).strip()
+    output_clean = re.sub(r"\s*\([^)]+\)", "", output_raw).strip()
+
+    color = _COLOR_FAIL
+    if return_code == 0:
+        try:
+            soc_val = float(soc_clean.rstrip("%"))
+            color = _COLOR_OK if soc_val >= 60 else (_COLOR_WARN if soc_val >= 30 else _COLOR_FAIL)
+        except ValueError:
+            color = _COLOR_WARN
+
+    embed = discord_module.Embed(title="Growatt Dashboard", color=color)
+    embed.add_field(name="Battery SOC", value=soc_clean or "unknown", inline=True)
+    embed.add_field(name="Output Mode", value=output_clean or "unknown", inline=True)
+    embed.add_field(name="​", value="​", inline=True)
+
+    # PVOutput — from state file, no API call needed
+    pvo = _read_state_file("state/pvoutput_last.json")
+    if pvo:
+        try:
+            uploaded_at = dt.datetime.fromisoformat(str(pvo.get("uploaded_at", "")))
+            age_min = int((dt.datetime.now() - uploaded_at).total_seconds() // 60)
+            fields = pvo.get("fields", {})
+            v1 = fields.get("v1")
+            v2 = fields.get("v2")
+            parts = []
+            if v1 is not None:
+                parts.append(f"{int(v1) / 1000:.1f} kWh")
+            if v2 is not None:
+                parts.append(f"{v2} W PV")
+            pvo_text = (", ".join(parts) + f" · {age_min} min ago") if parts else f"{age_min} min ago"
+            pvo_label = "PVOutput ⚠️" if age_min > 20 else "PVOutput"
+            embed.add_field(name=pvo_label, value=pvo_text, inline=True)
+        except (ValueError, TypeError):
+            embed.add_field(name="PVOutput", value="state unreadable", inline=True)
+    else:
+        embed.add_field(name="PVOutput", value="no uploads yet", inline=True)
+
+    # Automation pause — from state file
+    pause = _read_state_file("state/automation_pause.json")
+    automation_label = "Automation"
+    automation_value = "active"
+    if pause:
+        try:
+            paused_until = parse_utc_datetime(str(pause["paused_until"]))
+            now_utc = dt.datetime.now(dt.timezone.utc)
+            if now_utc < paused_until:
+                remaining = int((paused_until - now_utc).total_seconds() // 60)
+                reason = pause.get("reason", "")
+                automation_value = f"paused ~{remaining} min" + (f" · {reason}" if reason else "")
+                automation_label = "Automation ⚠️"
+        except (KeyError, ValueError):
+            pass
+    embed.add_field(name=automation_label, value=automation_value, inline=True)
+
+    # Topup — from state file
+    topup = read_topup_state()
+    if topup and topup_is_active():
+        try:
+            paused_until = parse_utc_datetime(str(topup["paused_until"]))
+            remaining = max(0, int((paused_until - dt.datetime.now(dt.timezone.utc)).total_seconds() // 60))
+            embed.add_field(
+                name="Topup ⚡",
+                value=f"{topup.get('minutes', '?')} min total · ~{remaining} min remaining",
+                inline=True,
+            )
+        except (KeyError, ValueError):
+            embed.add_field(name="Topup ⚡", value="active", inline=True)
+
     embed.timestamp = dt.datetime.now(dt.timezone.utc)
     return embed
 
@@ -215,6 +307,18 @@ def command_serve_discord_bot(config: Config) -> int:
                 await interaction.followup.send(embed=embed)
             except Exception:
                 await interaction.followup.send(command_result_text("health-check", return_code, output))
+        await _guarded(config, interaction, action)
+
+    @tree.command(name="growatt_dashboard", description="Show key metrics at a glance.", **command_scope)
+    async def growatt_dashboard(interaction: discord.Interaction) -> None:
+        async def action() -> None:
+            await interaction.response.defer(thinking=True)
+            return_code, output = await run_guard_command(["status"], timeout_seconds=60)
+            try:
+                embed = build_dashboard_embed(discord, output, return_code)
+                await interaction.followup.send(embed=embed)
+            except Exception:
+                await interaction.followup.send(command_result_text("dashboard", return_code, output))
         await _guarded(config, interaction, action)
 
     @tree.command(name="growatt_refresh", description="Refresh dashboard and PVOutput.", **command_scope)
