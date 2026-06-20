@@ -191,6 +191,44 @@ def build_weekly_summary(now: dt.datetime | None = None) -> str:
     return "\n".join(lines)
 
 
+def build_monthly_summary(now: dt.datetime | None = None) -> str:
+    now = now or dt.datetime.now()
+    since = now - dt.timedelta(days=30)
+    rows = read_mode_audit_rows(since=since)
+    preserve_rows = [row for row in rows if row.get("command") == "preserve-battery"]
+    preserve_socs = [soc for row in preserve_rows if (soc := parse_audit_float(row, "soc")) is not None]
+    utility_switches = [row for row in rows if row.get("action") == "switch-to-utility"]
+    preserve_no_changes = [row for row in rows if row.get("command") == "preserve-battery" and row.get("action") == "no-change"]
+    return_sbu = [row for row in rows if row.get("action") == "switch-to-sbu"]
+    watchdog_repairs = [row for row in rows if row.get("action") == "repair-sbu"]
+    failures = [row for row in rows if row.get("action", "").endswith("-failed") or row.get("result") == "error"]
+    last_row = rows[-1] if rows else None
+
+    avg_soc = average(preserve_socs)
+    lines = [
+        f"Growatt monthly performance - {since.strftime('%Y-%m-%d')} to {now.strftime('%Y-%m-%d')}",
+        f"Audit rows: {len(rows)}",
+        f"Preserve-battery checks: {len(preserve_rows)}",
+        f"Utility switches: {len(utility_switches)}",
+        f"No-change preserve checks: {len(preserve_no_changes)}",
+        f"Return-SBU switches: {len(return_sbu)}",
+        f"Watchdog repairs: {len(watchdog_repairs)}",
+        f"Failures: {len(failures)}",
+    ]
+    if avg_soc is not None:
+        lines.append(f"Average preserve-check SOC: {avg_soc:g}%")
+        lines.append(f"Lowest preserve-check SOC: {min(preserve_socs):g}%")
+    else:
+        lines.append("Average preserve-check SOC: not enough data")
+    if last_row:
+        lines.append(
+            "Last action: "
+            f"{last_row.get('timestamp', '')} {last_row.get('command', '')} "
+            f"{last_row.get('action', '')} SOC={last_row.get('soc', '')}%"
+        )
+    return "\n".join(lines)
+
+
 def build_daily_summary(status: dict[str, Any]) -> str:
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"Growatt daily summary - {now}"]

@@ -38,6 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("watchdog-sbu", help="Verify output source is SBU; retry SBU once if needed.")
     subparsers.add_parser("daily-summary", help="Post/print a daily Growatt and automation summary.")
     subparsers.add_parser("weekly-summary", help="Post/print a weekly automation performance summary.")
+    subparsers.add_parser("monthly-summary", help="Post/print a 30-day automation performance summary.")
     subparsers.add_parser("rotate-logs", help="Delete old generated probe/log files according to LOG_RETENTION_DAYS.")
     subparsers.add_parser("weather-threshold", help="Print the current weather-aware preserve-battery threshold.")
     subparsers.add_parser("battery-alert", help="Send a Discord alert if battery SOC is below EMERGENCY_SOC.")
@@ -111,6 +112,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_daily_summary(config)
         if command == "weekly-summary":
             return app.command_weekly_summary(config)
+        if command == "monthly-summary":
+            return app.command_monthly_summary(config)
         if command == "rotate-logs":
             return app.command_rotate_logs(config)
         if command == "weather-threshold":

@@ -7,6 +7,7 @@ from pathlib import Path
 from growatt_guard.audit import (
     append_mode_audit,
     build_daily_summary,
+    build_monthly_summary,
     build_weekly_summary,
 )
 from growatt_guard.cli import dispatch_command, parse_command_tokens
@@ -267,6 +268,14 @@ def command_daily_summary(config: Config) -> int:
 
 def command_weekly_summary(config: Config) -> int:
     summary = build_weekly_summary()
+    if config.discord_webhook_url:
+        send_discord_message(config, summary)
+    print(summary)
+    return 0
+
+
+def command_monthly_summary(config: Config) -> int:
+    summary = build_monthly_summary()
     if config.discord_webhook_url:
         send_discord_message(config, summary)
     print(summary)

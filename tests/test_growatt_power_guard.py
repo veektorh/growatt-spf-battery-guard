@@ -49,6 +49,11 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(args.command, "weekly-summary")
 
+    def test_monthly_summary_command_is_available(self):
+        args = build_parser().parse_args(["monthly-summary"])
+
+        self.assertEqual(args.command, "monthly-summary")
+
     def test_rotate_logs_command_is_available(self):
         args = build_parser().parse_args(["rotate-logs"])
 
@@ -262,6 +267,27 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertIn("timestamp,command,soc,threshold,weather_category", content)
         self.assertIn("preserve-battery,49,50,rainy/cloudy", content)
         self.assertIn("switch-to-utility", content)
+
+    def test_monthly_summary_uses_audit_rows(self):
+        from growatt_power_guard import build_monthly_summary
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"):
+            audit_path = Path(tmpdir) / "mode_decisions.csv"
+            audit_path.write_text(
+                "\n".join(
+                    [
+                        "timestamp,command,soc,threshold,weather_category,previous_mode,action,dry_run,result,note",
+                        "2026-06-01T06:30:00,preserve-battery,47,50,rainy/cloudy,SBU priority [0],switch-to-utility,false,ok,",
+                        "2026-06-15T06:30:00,preserve-battery,55,50,normal,SBU priority [0],no-change,false,skipped,",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            summary = build_monthly_summary(dt.datetime(2026, 6, 20, 12, 0))
+
+        self.assertIn("monthly performance", summary)
+        self.assertIn("Utility switches: 1", summary)
+        self.assertIn("Average preserve-check SOC: 51%", summary)
 
     def test_weekly_summary_uses_audit_rows(self):
         with TemporaryDirectory() as tmpdir, patch("growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"):

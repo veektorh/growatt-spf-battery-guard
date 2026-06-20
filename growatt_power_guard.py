@@ -7,6 +7,7 @@ from growatt_guard.audit import (
     MODE_AUDIT_FILE,
     append_mode_audit,
     build_daily_summary,
+    build_monthly_summary,
     build_weekly_summary,
     read_mode_audit_rows,
     summarize_today_log_counts,
@@ -57,6 +58,7 @@ from growatt_guard.health import (
 from growatt_guard.modes import (
     command_battery_alert,
     command_daily_summary,
+    command_monthly_summary,
     command_morning_check,
     command_preserve_battery,
     command_probe,

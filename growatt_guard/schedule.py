@@ -22,6 +22,7 @@ SCHEDULE_COMMANDS = {
     "return-sbu",
     "watchdog-sbu",
     "daily-summary",
+    "monthly-summary",
     "rotate-logs",
     "health-check",
     "battery-alert",
