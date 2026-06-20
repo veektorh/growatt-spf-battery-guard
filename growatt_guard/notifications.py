@@ -12,6 +12,26 @@ from growatt_guard.state import (
     write_growatt_cloud_failure_state,
 )
 
+_COLOR_OK = 0x57F287
+_COLOR_WARN = 0xFEE75C
+_COLOR_FAIL = 0xED4245
+
+
+def _f(name: str, value: str, inline: bool = True) -> dict:
+    return {"name": name, "value": str(value) or "—", "inline": inline}
+
+
+def _embed(title: str, color: int, fields: list[dict], description: str = "") -> dict:
+    result: dict[str, Any] = {
+        "title": title,
+        "color": color,
+        "fields": fields,
+        "timestamp": utc_now().isoformat(),
+    }
+    if description:
+        result["description"] = description
+    return result
+
 
 def truncate_discord_message(message: str) -> str:
     if len(message) <= 1900:
@@ -19,29 +39,125 @@ def truncate_discord_message(message: str) -> str:
     return message[:1890] + "...[truncated]"
 
 
-def send_discord_message(config: Any, message: str) -> bool:
-    if not config.discord_webhook_url:
-        return False
-
-    payload = {
-        "username": "Growatt Guard",
-        "content": truncate_discord_message(message),
-    }
-    headers = {
-        "User-Agent": "growatt-spf-battery-guard/1.0",
-    }
-
+def _post_webhook(config: Any, payload: dict) -> bool:
+    headers = {"User-Agent": "growatt-spf-battery-guard/1.0"}
     try:
         response = requests.post(config.discord_webhook_url, json=payload, headers=headers, timeout=10)
     except requests.RequestException as exc:
-        response = getattr(exc, "response", None)
-        body = f": {response.text[:500]}" if response is not None and response.text else ""
+        body = ""
+        resp = getattr(exc, "response", None)
+        if resp is not None and resp.text:
+            body = f": {resp.text[:500]}"
         logging.warning("Discord notification failed: %s%s", exc, body)
         return False
     if response.status_code >= 300:
         logging.warning("Discord webhook returned HTTP %s: %s", response.status_code, response.text[:500])
         return False
     return True
+
+
+def send_discord_message(config: Any, message: str) -> bool:
+    if not config.discord_webhook_url:
+        return False
+    return _post_webhook(config, {"username": "Growatt Guard", "content": truncate_discord_message(message)})
+
+
+def send_discord_embed(config: Any, embed: dict) -> bool:
+    if not config.discord_webhook_url:
+        return False
+    return _post_webhook(config, {"username": "Growatt Guard", "embeds": [embed]})
+
+
+# --- Pre-built embed builders ---
+
+def embed_mode_switch_utility(
+    soc: float | None,
+    previous_mode: str,
+    threshold: float | None = None,
+    weather_category: str = "",
+    reason: str = "",
+) -> dict:
+    fields = []
+    if soc is not None:
+        fields.append(_f("Battery SOC", f"{soc:g}%"))
+    if threshold is not None:
+        thr = f"{threshold:g}%" + (f" ({weather_category})" if weather_category else "")
+        fields.append(_f("Threshold", thr))
+    fields.append(_f("Mode", f"{previous_mode} → Utility first" if previous_mode else "→ Utility first"))
+    if reason:
+        fields.append(_f("Reason", reason, inline=False))
+    return _embed("Switched to Utility first", _COLOR_WARN, fields)
+
+
+def embed_mode_switch_sbu(soc: float | None, previous_mode: str) -> dict:
+    fields = []
+    if soc is not None:
+        fields.append(_f("Battery SOC", f"{soc:g}%"))
+    fields.append(_f("Mode", f"{previous_mode} → SBU priority" if previous_mode else "→ SBU priority"))
+    return _embed("Returned to SBU priority", _COLOR_OK, fields)
+
+
+def embed_mode_not_confirmed(command: str, expected_mode: str) -> dict:
+    fields = [
+        _f("Command", command),
+        _f("Expected", expected_mode),
+        _f("Detail", "Switch command accepted but outputConfig did not update on re-read — check the inverter.", inline=False),
+    ]
+    return _embed("⚠️ Switch not confirmed", _COLOR_FAIL, fields)
+
+
+def embed_preserve_skipped(soc: float, threshold: float, weather_category: str, reason: str) -> dict:
+    thr = f"{threshold:g}%" + (f" ({weather_category})" if weather_category else "")
+    fields = [
+        _f("Battery SOC", f"{soc:g}%"),
+        _f("Threshold", thr),
+        _f("Reason", reason, inline=False),
+    ]
+    return _embed("SOC above threshold — no switch", _COLOR_OK, fields)
+
+
+def embed_watchdog_repaired(soc: float | None, previous_mode: str) -> dict:
+    fields = []
+    if soc is not None:
+        fields.append(_f("Battery SOC", f"{soc:g}%"))
+    fields.append(_f("Was", previous_mode or "unknown"))
+    fields.append(_f("Repaired to", "SBU priority"))
+    return _embed("⚠️ SBU watchdog repaired", _COLOR_WARN, fields)
+
+
+def embed_watchdog_failed(detail: str) -> dict:
+    return _embed("❌ SBU watchdog failed", _COLOR_FAIL, [_f("Detail", detail, inline=False)])
+
+
+def embed_battery_alert(soc: float, threshold: float, output_mode: str) -> dict:
+    fields = [
+        _f("Battery SOC", f"{soc:g}%"),
+        _f("Threshold", f"{threshold:g}%"),
+        _f("Output mode", output_mode),
+    ]
+    return _embed("🔋 Emergency: low battery", _COLOR_FAIL, fields)
+
+
+def embed_battery_cleared(soc: float, recovery_soc: float, output_mode: str) -> dict:
+    fields = [
+        _f("Battery SOC", f"{soc:g}%"),
+        _f("Recovery threshold", f"{recovery_soc:g}%"),
+        _f("Output mode", output_mode),
+    ]
+    return _embed("✅ Battery alert cleared", _COLOR_OK, fields)
+
+
+def embed_cloud_failure(command: str, count: int, threshold: int, message: str) -> dict:
+    fields = [
+        _f("Command", command),
+        _f("Failures", f"{count}/{threshold}"),
+        _f("Latest error", message[:500], inline=False),
+    ]
+    return _embed("⚠️ Growatt cloud failures", _COLOR_FAIL, fields)
+
+
+def embed_cloud_recovered(count: int) -> dict:
+    return _embed("✅ Growatt cloud recovered", _COLOR_OK, [_f("Consecutive failures", str(count))])
 
 
 GROWATT_CLOUD_FAILURE_PATTERNS = (
@@ -90,12 +206,7 @@ def record_growatt_cloud_failure(config: Any, command: str, message: str) -> Non
     )
 
     if count >= threshold and not alerted:
-        alert = (
-            "Growatt cloud appears flaky.\n"
-            f"`{command}` has failed `{count}` consecutive time(s); alert threshold is `{threshold}`.\n"
-            f"Latest error: {message}"
-        )
-        if send_discord_message(config, alert):
+        if send_discord_embed(config, embed_cloud_failure(command, count, threshold, message)):
             state["alerted"] = True
 
     write_growatt_cloud_failure_state(state)
@@ -109,10 +220,7 @@ def record_growatt_cloud_success(config: Any) -> None:
     was_alerted = bool(state.get("alerted"))
     clear_growatt_cloud_failure_state()
     if was_alerted and config.discord_notify_failure:
-        send_discord_message(
-            config,
-            f"Growatt cloud recovered after `{count}` consecutive failure(s). Automation reads are working again.",
-        )
+        send_discord_embed(config, embed_cloud_recovered(count))
 
 
 def notify_failure(config: Any | None, command: str, message: str) -> None:

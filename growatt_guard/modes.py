@@ -24,7 +24,18 @@ from growatt_guard.growatt_api import (
     verify_mode_switch,
     write_probe,
 )
-from growatt_guard.notifications import send_discord_message
+from growatt_guard.notifications import (
+    embed_battery_alert,
+    embed_battery_cleared,
+    embed_mode_not_confirmed,
+    embed_mode_switch_sbu,
+    embed_mode_switch_utility,
+    embed_preserve_skipped,
+    embed_watchdog_failed,
+    embed_watchdog_repaired,
+    send_discord_embed,
+    send_discord_message,
+)
 from growatt_guard.pause import ensure_not_paused
 from growatt_guard.schedule import (
     find_schedule_job,
@@ -129,15 +140,9 @@ def command_preserve_battery(config: Config) -> int:
             note=f"SOC from {path}",
         )
         if config.discord_notify_success and not config.dry_run:
-            send_discord_message(
-                config,
-                (
-                    "Growatt preserve-battery action completed.\n"
-                    f"SOC `{soc:g}%` is below threshold `{threshold:g}%`; "
-                    "switched to `Utility first`.\n"
-                    f"Reason: {threshold_decision.reason}."
-                ),
-            )
+            send_discord_embed(config, embed_mode_switch_utility(
+                soc, previous_mode, threshold, threshold_decision.weather_category, threshold_decision.reason,
+            ))
         print(f"SOC {soc:g}% < {threshold:g}%; Utility command result: {result}")
         print(f"Threshold reason: {threshold_decision.reason}")
         if not config.dry_run:
@@ -145,10 +150,7 @@ def command_preserve_battery(config: Config) -> int:
             if confirmed is False:
                 logging.warning("preserve-battery: Utility switch not confirmed by re-read.")
                 if config.discord_notify_failure:
-                    send_discord_message(
-                        config,
-                        "Growatt preserve-battery: switch command accepted but outputConfig did not update to Utility on re-read. Please check the inverter.",
-                    )
+                    send_discord_embed(config, embed_mode_not_confirmed("preserve-battery", "Utility first"))
     else:
         logging.info("Battery SOC %.1f%% is not below %.1f%%; leaving SBU as-is.", soc, threshold)
         append_mode_audit(
@@ -163,14 +165,9 @@ def command_preserve_battery(config: Config) -> int:
             note=f"SOC from {path}",
         )
         if config.discord_notify_skip:
-            send_discord_message(
-                config,
-                (
-                    "Growatt preserve-battery check skipped.\n"
-                    f"SOC `{soc:g}%` is at or above threshold `{threshold:g}%`; no switch needed.\n"
-                    f"Reason: {threshold_decision.reason}."
-                ),
-            )
+            send_discord_embed(config, embed_preserve_skipped(
+                soc, threshold, threshold_decision.weather_category, threshold_decision.reason,
+            ))
         print(f"SOC {soc:g}% >= {threshold:g}%; no switch needed.")
         print(f"Threshold reason: {threshold_decision.reason}")
     return 0
@@ -227,20 +224,14 @@ def command_force_utility(config: Config, reason: str = "") -> int:
         note=reason,
     )
     if config.discord_notify_success and not config.dry_run:
-        message = "Growatt force-utility action completed.\nSwitched to `Utility first`."
-        if reason:
-            message += f"\nReason: {reason}."
-        send_discord_message(config, message)
+        send_discord_embed(config, embed_mode_switch_utility(soc, previous_mode, reason=reason))
     print(f"Utility command result: {result}")
     if not config.dry_run:
         confirmed = verify_mode_switch(api, device, "utility")
         if confirmed is False:
             logging.warning("force-utility: Utility switch not confirmed by re-read.")
             if config.discord_notify_failure:
-                send_discord_message(
-                    config,
-                    "Growatt force-utility: switch command accepted but outputConfig did not update to Utility on re-read. Please check the inverter.",
-                )
+                send_discord_embed(config, embed_mode_not_confirmed("force-utility", "Utility first"))
     return 0
 
 
@@ -289,17 +280,14 @@ def command_return_sbu(config: Config) -> int:
         result=result,
     )
     if config.discord_notify_success and not config.dry_run:
-        send_discord_message(config, "Growatt return-sbu action completed.\nSwitched to `SBU priority`.")
+        send_discord_embed(config, embed_mode_switch_sbu(soc, previous_mode))
     print(f"SBU command result: {result}")
     if not config.dry_run:
         confirmed = verify_mode_switch(api, device, "sbu")
         if confirmed is False:
             logging.warning("return-sbu: SBU switch not confirmed by re-read.")
             if config.discord_notify_failure:
-                send_discord_message(
-                    config,
-                    "Growatt return-sbu: switch command accepted but outputConfig did not update to SBU on re-read. Please check the inverter.",
-                )
+                send_discord_embed(config, embed_mode_not_confirmed("return-sbu", "SBU priority"))
     return 0
 
 
@@ -323,7 +311,7 @@ def command_watchdog_sbu(config: Config) -> int:
             note=message,
         )
         if config.discord_notify_failure:
-            send_discord_message(config, f"Growatt SBU watchdog could not verify mode.\n{message}")
+            send_discord_embed(config, embed_watchdog_failed(message))
         raise GrowattGuardError(message)
 
     raw, label, path = output_source
@@ -370,7 +358,7 @@ def command_watchdog_sbu(config: Config) -> int:
         f"Growatt response: `{result}`"
     )
     if config.discord_notify_failure and not config.dry_run:
-        send_discord_message(config, message)
+        send_discord_embed(config, embed_watchdog_repaired(soc, previous_mode))
     print(message)
     return 0
 
@@ -451,7 +439,7 @@ def command_battery_alert(config: Config) -> int:
             f"Current output source: `{previous_mode}`.\n"
             f"SOC source: `{path}`."
         )
-        if not send_discord_message(config, message):
+        if not send_discord_embed(config, embed_battery_alert(soc, config.emergency_soc, previous_mode)):
             raise GrowattGuardError("Emergency battery alert could not be sent to Discord.")
         write_battery_alert_state(soc)
         print(f"Emergency battery alert sent: SOC {soc:g}% < {config.emergency_soc:g}%.")
@@ -465,7 +453,7 @@ def command_battery_alert(config: Config) -> int:
             f"Current output source: `{previous_mode}`."
         )
         if config.discord_webhook_url:
-            send_discord_message(config, message)
+            send_discord_embed(config, embed_battery_cleared(soc, recovery_soc, previous_mode))
         print(f"Emergency battery alert cleared: SOC {soc:g}% >= {recovery_soc:g}%.")
         return 0
 

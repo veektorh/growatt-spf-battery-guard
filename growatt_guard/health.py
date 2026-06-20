@@ -9,7 +9,7 @@ from growatt_guard.config import Config
 from growatt_guard.dashboard import DASHBOARD_FILE, dashboard_freshness
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import extract_soc, extract_spf_output_source, load_context
-from growatt_guard.notifications import read_growatt_cloud_failure_state, send_discord_message
+from growatt_guard.notifications import read_growatt_cloud_failure_state, send_discord_embed, send_discord_message
 from growatt_guard.pvoutput import read_pvoutput_state
 from growatt_guard.schedule import (
     check_cron_schedule,
@@ -271,10 +271,23 @@ def command_health_check(config: Config, notify: bool = False) -> int:
     if notify:
         if not config.discord_webhook_url:
             checks.append(HealthCheckItem("Discord report", "FAIL", "DISCORD_WEBHOOK_URL is not configured."))
-        elif send_discord_message(config, format_health_report(checks)):
-            checks.append(HealthCheckItem("Discord report", "OK", "health report sent."))
         else:
-            checks.append(HealthCheckItem("Discord report", "FAIL", "Discord webhook rejected the health report."))
+            result = health_result(checks)
+            color = 0x57F287 if result == "OK" else (0xFEE75C if result == "WARN" else 0xED4245)
+            embed_fields = [
+                {"name": f"[{c.status}] {c.name}", "value": " ".join(str(c.detail).split())[:1024] or "—", "inline": False}
+                for c in checks
+            ]
+            embed = {
+                "title": f"Growatt health — {result}",
+                "color": color,
+                "fields": embed_fields,
+                "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
+            }
+            if send_discord_embed(config, embed):
+                checks.append(HealthCheckItem("Discord report", "OK", "health report sent."))
+            else:
+                checks.append(HealthCheckItem("Discord report", "FAIL", "Discord webhook rejected the health report."))
 
     print(format_health_report(checks))
     return 1 if health_result(checks) == "FAIL" else 0
