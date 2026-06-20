@@ -20,6 +20,13 @@ from growatt_guard.state import (
     utc_now,
     write_dashboard_stale_alert_state,
 )
+from growatt_guard.schedule import (
+    next_scheduled_runs,
+    schedule_job_tokens,
+    today_schedule_override,
+    validate_schedule,
+    validate_schedule_overrides,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -129,11 +136,11 @@ def build_dashboard_html(
     alert = "active" if alert_state and alert_state.get("active") else "clear"
     cloud_state = read_growatt_cloud_failure_state()
     cloud_streak = int(cloud_state.get("count", 0)) if cloud_state else 0
-    today_override = app.today_schedule_override(overrides, now.date())
+    today_override = today_schedule_override(overrides, now.date())
     override_note = str(today_override.get("note", "")).strip() or "none"
     skipped = ", ".join(today_override.get("skip", [])) if isinstance(today_override.get("skip", []), list) else ""
     last_actions = app.read_mode_audit_rows(limit=8, newest_first=True)
-    next_runs = app.next_scheduled_runs(schedule, now=now, limit=8)
+    next_runs = next_scheduled_runs(schedule, now=now, limit=8)
     stale_minutes_text = f"{stale_after_minutes:g}"
 
     next_rows = "\n".join(
@@ -141,7 +148,7 @@ def build_dashboard_html(
         f"<td>{esc(run_at.strftime('%Y-%m-%d %H:%M'))}</td>"
         f"<td>{esc(job.get('id', ''))}</td>"
         f"<td>{esc(job.get('name', ''))}</td>"
-        f"<td>{esc(' '.join(app.schedule_job_tokens(job)))}</td>"
+        f"<td>{esc(' '.join(schedule_job_tokens(job)))}</td>"
         "</tr>"
         for run_at, job in next_runs
     )
@@ -270,8 +277,8 @@ def resolve_dashboard_output(output: str) -> Path:
 def write_dashboard(config: Any, output: str) -> Path:
     app = app_module()
     _, _, status = app.load_context(config)
-    schedule = app.validate_schedule()
-    overrides = app.validate_schedule_overrides(schedule)
+    schedule = validate_schedule()
+    overrides = validate_schedule_overrides(schedule)
     threshold_decision = app.choose_preserve_threshold(config)
     output_path = resolve_dashboard_output(output)
     output_path.write_text(

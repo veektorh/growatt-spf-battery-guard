@@ -507,8 +507,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
             ]
         )
 
-        with patch("growatt_power_guard.os.name", "posix"), patch(
-            "growatt_power_guard.subprocess.run",
+        with patch("growatt_guard.schedule.os.name", "posix"), patch(
+            "growatt_guard.schedule.subprocess.run",
             return_value=subprocess.CompletedProcess(["crontab", "-l"], 0, stdout=crontab, stderr=""),
         ):
             checks = check_cron_schedule(schedule)
@@ -627,8 +627,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir, patch(
             "growatt_power_guard.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
-        ), patch("growatt_power_guard.validate_schedule", return_value=schedule), patch(
-            "growatt_power_guard.validate_schedule_overrides", return_value={"dates": {}}
+        ), patch("growatt_guard.dashboard.validate_schedule", return_value=schedule), patch(
+            "growatt_guard.dashboard.validate_schedule_overrides", return_value={"dates": {}}
         ), patch(
             "growatt_power_guard.choose_preserve_threshold",
             return_value=ThresholdDecision(50, "weather disabled; using fixed threshold 50%"),
