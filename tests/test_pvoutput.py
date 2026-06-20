@@ -22,7 +22,7 @@ def _make_status(**overrides):
         "outPutPower": 800.0,
         "pCharge": 400.0,
         "pDischarge": 0.0,
-        "eChargeToday": 3.5,
+        "epvToday": 3.5,
     }
     bean.update(overrides.pop("bean", {}))
     status = {
@@ -46,7 +46,7 @@ class ExtractPvoutputFieldsTests(unittest.TestCase):
         self.assertEqual(fields["d"], "20260620")
         self.assertEqual(fields["t"], "14:30")
         self.assertEqual(fields["v2"], 1200)  # ppv (W)
-        self.assertEqual(fields["v1"], 3500)  # eChargeToday 3.5 kWh → 3500 Wh
+        self.assertEqual(fields["v1"], 3500)  # epvToday 3.5 kWh → 3500 Wh
         self.assertEqual(fields["v4"], 800)   # outPutPower (W)
         self.assertEqual(fields["v6"], 231.4) # vGrid (V)
 
@@ -57,15 +57,15 @@ class ExtractPvoutputFieldsTests(unittest.TestCase):
         self.assertEqual(fields["v8"], 400)   # pCharge (W)
         self.assertEqual(fields["v9"], 0)     # pDischarge (W)
 
-    def test_prefers_epv_today_over_echarge_today(self):
-        status = _make_status(bean={"ppv": 500.0, "epvToday": 2.1, "eChargeToday": 5.0})
+    def test_prefers_epv_today_over_epv_today_total(self):
+        status = _make_status(bean={"ppv": 500.0, "epvToday": 2.1, "epvTodayTotal": 5.0})
         fields = extract_pvoutput_fields(status, now=FIXED_NOW)
-        self.assertEqual(fields["v1"], 2100)  # epvToday wins
+        self.assertEqual(fields["v1"], 2100)  # epvToday wins over epvTodayTotal
 
     def test_missing_pv_power_omits_v2(self):
         status = {
             "device": {"capacity": "65 %"},
-            "storage_params": {"storageBean": {"eChargeToday": 1.0}},
+            "storage_params": {"storageBean": {"epvToday": 1.0}},
         }
         fields = extract_pvoutput_fields(status, now=FIXED_NOW)
         self.assertNotIn("v2", fields)
@@ -87,7 +87,7 @@ class ExtractPvoutputFieldsTests(unittest.TestCase):
         self.assertNotIn("v7", fields)
 
     def test_zero_pv_power_included(self):
-        status = _make_status(bean={"ppv": 0.0, "eChargeToday": 0.0})
+        status = _make_status(bean={"ppv": 0.0, "epvToday": 0.0})
         fields = extract_pvoutput_fields(status, now=FIXED_NOW)
         self.assertEqual(fields["v2"], 0)
         self.assertEqual(fields["v1"], 0)
