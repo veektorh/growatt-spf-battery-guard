@@ -80,7 +80,7 @@ class GrowattApiTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir, patch("growatt_guard.audit.LOG_DIR", Path(tmpdir)), patch(
             "growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
-        ), patch(
+        ), patch("growatt_guard.state.PAUSE_FILE", Path(tmpdir) / "pause.json"), patch(
             "growatt_guard.modes.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), {"storage_params": {"outputConfig": "0"}}),
         ), patch("growatt_guard.modes.set_mode") as set_mode_mock, redirect_stdout(StringIO()):
@@ -93,7 +93,7 @@ class GrowattApiTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir, patch("growatt_guard.audit.LOG_DIR", Path(tmpdir)), patch(
             "growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
-        ), patch(
+        ), patch("growatt_guard.state.PAUSE_FILE", Path(tmpdir) / "pause.json"), patch(
             "growatt_guard.modes.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), {"storage_params": {"outputConfig": "2"}}),
         ), patch("growatt_guard.modes.set_mode", return_value={"success": True}) as set_mode_mock, patch(
