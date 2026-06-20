@@ -10,7 +10,7 @@ This automates battery-preservation mode switching for a Growatt SPF 6000 ES on 
 - `battery-alert` sends a throttled Discord warning if SOC drops below `EMERGENCY_SOC`.
 - `runtime-alert` sends a Discord warning when estimated battery runtime drops below a configured threshold.
 - `watchdog-sbu` repairs a missed SBU switch; with `BATTERY_CHARGE_TARGET_SOC` set it waits until charging is complete before repairing.
-- `auto-topup-check` fires a timed Utility top-up at night when the battery won't survive until sunrise; `topup-complete-check` resumes automation once it finishes.
+- `auto-topup-check` fires a timed Utility top-up at night when the battery won't survive until sunrise; `topup-complete-check` resumes automation once it finishes and reports the implied AC charge rate so you can tune `BATTERY_CHARGE_RATE_W` over time.
 - Weather-aware thresholds reduce utility use on good solar days.
 - Season profiles automatically lower thresholds in the dry season (November–March) when solar is stronger.
 
@@ -148,6 +148,8 @@ To measure the actual charge rate from your inverter:
 
 Run this while on Utility (charging). The command reads SOC before and after the wait and prints an estimate.
 
+You can also let auto-topup measure it passively: each time `topup-complete-check` completes a topup it compares starting and ending SOC to back-calculate the implied rate and prints it. If the implied rate differs from `BATTERY_CHARGE_RATE_W` by 10% or more, the output suggests an updated value and a Discord embed is sent.
+
 ### Charge Ceiling
 
 To stop `watchdog-sbu` from returning to SBU while the battery is still charging toward a useful level, set a target SOC:
@@ -236,6 +238,7 @@ preserve-battery switches to Utility first
 return-sbu switches to SBU priority
 watchdog-sbu repairs a missed SBU switch
 auto-topup-check starts a night topup when battery won't reach sunrise
+topup-complete-check resumes automation after topup, with SOC delta and implied charge rate
 daily-summary posts the end-of-day summary
 weekly-summary posts the weekly performance report
 monthly-summary posts the 30-day performance summary
@@ -347,6 +350,10 @@ python .\growatt_power_guard.py validate-schedule
 python .\growatt_power_guard.py health-check
 python .\growatt_power_guard.py health-check --notify
 python .\growatt_power_guard.py battery-alert
+python .\growatt_power_guard.py runtime-alert
+python .\growatt_power_guard.py auto-topup-check
+python .\growatt_power_guard.py topup-complete-check
+python .\growatt_power_guard.py estimate-charge-rate --wait-seconds 900
 python .\growatt_power_guard.py dashboard
 python .\growatt_power_guard.py dashboard-refresh --once
 python .\growatt_power_guard.py observability-refresh
@@ -447,6 +454,10 @@ Test it:
 .venv/bin/python growatt_power_guard.py health-check
 .venv/bin/python growatt_power_guard.py health-check --notify
 .venv/bin/python growatt_power_guard.py battery-alert
+.venv/bin/python growatt_power_guard.py runtime-alert
+.venv/bin/python growatt_power_guard.py auto-topup-check
+.venv/bin/python growatt_power_guard.py topup-complete-check
+.venv/bin/python growatt_power_guard.py estimate-charge-rate --wait-seconds 900
 .venv/bin/python growatt_power_guard.py dashboard
 .venv/bin/python growatt_power_guard.py dashboard-refresh --once
 .venv/bin/python growatt_power_guard.py observability-refresh

@@ -167,6 +167,7 @@ BATTERY_CHARGE_TARGET_SOC=0
 
 # Auto-topup: charge at night when battery won't last until sunrise (requires weather)
 AUTO_TOPUP_ENABLED=false
+AUTO_TOPUP_MIN_HOURS_TO_SUNRISE=4    # skip topup if sunrise is less than N hours away (0 = disabled)
 
 # Low runtime alert: Discord alert when estimated runtime drops below this (0 = disabled)
 RUNTIME_ALERT_MINUTES=0
