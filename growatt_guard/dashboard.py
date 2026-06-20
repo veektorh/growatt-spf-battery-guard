@@ -10,6 +10,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+from growatt_guard.growatt_api import (
+    extract_soc,
+    extract_spf_output_source,
+    load_context,
+)
 from growatt_guard.state import (
     clear_dashboard_stale_alert_state,
     pause_message,
@@ -36,11 +41,11 @@ MIN_DASHBOARD_REFRESH_MINUTES = 5
 
 def app_module() -> Any:
     module = sys.modules.get("growatt_power_guard")
-    if module is not None and hasattr(module, "load_context"):
+    if module is not None and hasattr(module, "choose_preserve_threshold"):
         return module
 
     main_module = sys.modules.get("__main__")
-    if main_module is not None and hasattr(main_module, "load_context"):
+    if main_module is not None and hasattr(main_module, "choose_preserve_threshold"):
         return main_module
 
     import growatt_power_guard
@@ -126,9 +131,9 @@ def build_dashboard_html(
     now = dt.datetime.now()
     generated_at = now.astimezone()
     generated_at_iso = generated_at.isoformat(timespec="seconds")
-    soc_result = app.extract_soc(status)
+    soc_result = extract_soc(status)
     soc = f"{soc_result[0]:g}%" if soc_result else "Not found"
-    output_source = app.extract_spf_output_source(status)
+    output_source = extract_spf_output_source(status)
     mode = f"{output_source[1]} [{output_source[0]}]" if output_source else "Not found"
     pause_state = read_pause_state()
     pause = pause_message(pause_state) if pause_state else "active"
@@ -276,7 +281,7 @@ def resolve_dashboard_output(output: str) -> Path:
 
 def write_dashboard(config: Any, output: str) -> Path:
     app = app_module()
-    _, _, status = app.load_context(config)
+    _, _, status = load_context(config)
     schedule = validate_schedule()
     overrides = validate_schedule_overrides(schedule)
     threshold_decision = app.choose_preserve_threshold(config)

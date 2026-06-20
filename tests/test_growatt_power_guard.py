@@ -625,7 +625,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         }
 
         with TemporaryDirectory() as tmpdir, patch(
-            "growatt_power_guard.load_context",
+            "growatt_guard.dashboard.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
         ), patch("growatt_guard.dashboard.validate_schedule", return_value=schedule), patch(
             "growatt_guard.dashboard.validate_schedule_overrides", return_value={"dates": {}}
