@@ -6,6 +6,7 @@ from unittest.mock import patch
 from growatt_power_guard import (
     Config,
     DeviceRef,
+    build_daily_summary,
     extract_soc,
     extract_spf_output_source,
     render_params,
@@ -67,6 +68,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
             discord_notify_success=True,
             discord_notify_skip=False,
             discord_notify_failure=True,
+            log_retention_days=30,
         )
         device = DeviceRef("plant123", "SN123", "storage", {})
 
@@ -104,6 +106,16 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(args.command, "watchdog-sbu")
 
+    def test_daily_summary_command_is_available(self):
+        args = build_parser().parse_args(["daily-summary"])
+
+        self.assertEqual(args.command, "daily-summary")
+
+    def test_rotate_logs_command_is_available(self):
+        args = build_parser().parse_args(["rotate-logs"])
+
+        self.assertEqual(args.command, "rotate-logs")
+
     def test_truncate_discord_message_keeps_short_messages(self):
         self.assertEqual(truncate_discord_message("hello"), "hello")
 
@@ -128,6 +140,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
             discord_notify_success=True,
             discord_notify_skip=False,
             discord_notify_failure=True,
+            log_retention_days=30,
         )
 
         class Response:
@@ -159,6 +172,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
             discord_notify_success=True,
             discord_notify_skip=False,
             discord_notify_failure=True,
+            log_retention_days=30,
         )
 
         with patch(
@@ -187,6 +201,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
             discord_notify_success=True,
             discord_notify_skip=False,
             discord_notify_failure=True,
+            log_retention_days=30,
         )
 
         with patch(
@@ -198,6 +213,34 @@ class GrowattPowerGuardTests(unittest.TestCase):
             self.assertEqual(command_watchdog_sbu(config), 0)
 
         set_mode_mock.assert_called_once()
+
+    def test_build_daily_summary_includes_key_metrics(self):
+        status = {
+            "device": {"capacity": "50 %"},
+            "storage_params": {
+                "storageBean": {
+                    "outputConfig": "0",
+                    "ppvText": "1234.0 W",
+                    "vGrid": 230.5,
+                    "outPutPower": 900,
+                    "eChargeTodayText": "4.2 kWh",
+                }
+            },
+        }
+
+        with patch("growatt_power_guard.summarize_today_log_counts", return_value={
+            "success": 2,
+            "failure": 0,
+            "watchdog_repairs": 1,
+            "preserve_actions": 1,
+            "return_sbu_actions": 1,
+        }):
+            summary = build_daily_summary(status)
+
+        self.assertIn("Battery SOC: 50%", summary)
+        self.assertIn("Output source: SBU priority [0]", summary)
+        self.assertIn("PV power: 1234.0 W", summary)
+        self.assertIn("Successful mode responses: 2", summary)
 
 
 if __name__ == "__main__":

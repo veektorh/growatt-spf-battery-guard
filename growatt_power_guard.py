@@ -72,6 +72,7 @@ class Config:
     discord_notify_success: bool
     discord_notify_skip: bool
     discord_notify_failure: bool
+    log_retention_days: int
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,7 @@ def load_config() -> Config:
         discord_notify_success=str_to_bool(env("DISCORD_NOTIFY_SUCCESS"), default=True),
         discord_notify_skip=str_to_bool(env("DISCORD_NOTIFY_SKIP"), default=False),
         discord_notify_failure=str_to_bool(env("DISCORD_NOTIFY_FAILURE"), default=True),
+        log_retention_days=int(env("LOG_RETENTION_DAYS", "30")),
     )
 
 
@@ -338,6 +340,53 @@ def extract_spf_output_source(data: dict[str, Any]) -> tuple[str, str, str] | No
 
 def output_source_label(raw: str) -> str:
     return SPF_OUTPUT_SOURCE.get(raw, f"Unknown ({raw})")
+
+
+def extract_first_metric(data: dict[str, Any], keys: tuple[str, ...]) -> tuple[Any, str] | None:
+    for wanted_key in keys:
+        for path, value in deep_values(data):
+            if path.split(".")[-1] == wanted_key and value not in (None, ""):
+                return value, path
+    return None
+
+
+def format_metric(data: dict[str, Any], label: str, keys: tuple[str, ...], unit: str = "") -> str | None:
+    result = extract_first_metric(data, keys)
+    if not result:
+        return None
+    value, _ = result
+    if isinstance(value, str) and re.search(r"[a-zA-Z%]", value):
+        return f"{label}: {value}"
+    return f"{label}: {value}{unit}"
+
+
+def summarize_today_log_counts() -> dict[str, int]:
+    today = dt.datetime.now().strftime("%Y-%m-%d")
+    counts = {
+        "success": 0,
+        "failure": 0,
+        "watchdog_repairs": 0,
+        "preserve_actions": 0,
+        "return_sbu_actions": 0,
+    }
+    if not LOG_FILE.exists():
+        return counts
+
+    for line in LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.startswith(today):
+            continue
+        lower = line.lower()
+        if "inv_set_success" in lower or "mode response" in lower:
+            counts["success"] += 1
+        if " error " in lower or " failed" in lower or "unhandled error" in lower:
+            counts["failure"] += 1
+        if "watchdog detected" in lower or "watchdog repaired" in lower:
+            counts["watchdog_repairs"] += 1
+        if "switching to utility" in lower:
+            counts["preserve_actions"] += 1
+        if "sbu mode response" in lower:
+            counts["return_sbu_actions"] += 1
+    return counts
 
 
 def read_device_status(api, device: DeviceRef) -> dict[str, Any]:
@@ -671,6 +720,75 @@ def command_watchdog_sbu(config: Config) -> int:
     return 0
 
 
+def build_daily_summary(status: dict[str, Any]) -> str:
+    now = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+    lines = [f"Growatt daily summary - {now}"]
+
+    soc_result = extract_soc(status)
+    if soc_result:
+        soc, _ = soc_result
+        lines.append(f"Battery SOC: {soc:g}%")
+
+    output_source = extract_spf_output_source(status)
+    if output_source:
+        raw, label, _ = output_source
+        lines.append(f"Output source: {label} [{raw}]")
+
+    metric_specs = [
+        ("PV power", ("ppvText", "ppv"), " W"),
+        ("Grid voltage", ("vGridText", "vGrid"), " V"),
+        ("Output power", ("outPutPowerText", "outPutPower", "activePower"), " W"),
+        ("Battery charge power", ("pChargeText", "pCharge"), " W"),
+        ("Battery discharge power", ("pDischargeText", "pDischarge"), " W"),
+        ("Energy charged today", ("eChargeTodayText", "eChargeToday"), " kWh"),
+        ("AC charge today", ("eacChargeToday", "eacChargeTodayText"), " kWh"),
+        ("Energy discharged today", ("eDischargeTodayText", "eDischargeToday"), " kWh"),
+    ]
+    for label, keys, unit in metric_specs:
+        formatted = format_metric(status, label, keys, unit)
+        if formatted:
+            lines.append(formatted)
+
+    counts = summarize_today_log_counts()
+    lines.extend(
+        [
+            "",
+            "Automation today:",
+            f"Successful mode responses: {counts['success']}",
+            f"Failures/errors: {counts['failure']}",
+            f"Preserve-battery actions: {counts['preserve_actions']}",
+            f"Return-SBU actions: {counts['return_sbu_actions']}",
+            f"Watchdog repairs: {counts['watchdog_repairs']}",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def command_daily_summary(config: Config) -> int:
+    _, _, status = load_context(config)
+    summary = build_daily_summary(status)
+    if config.discord_webhook_url:
+        send_discord_message(config, summary)
+    print(summary)
+    return 0
+
+
+def command_rotate_logs(config: Config) -> int:
+    cutoff = dt.datetime.now() - dt.timedelta(days=config.log_retention_days)
+    removed = 0
+    LOG_DIR.mkdir(exist_ok=True)
+    for path in LOG_DIR.iterdir():
+        if not path.is_file():
+            continue
+        if path.name in {"growatt_power_guard.log", "cron.log"}:
+            continue
+        if path.stat().st_mtime < cutoff.timestamp():
+            path.unlink()
+            removed += 1
+    print(f"Removed {removed} old log/probe files older than {config.log_retention_days} days.")
+    return 0
+
+
 def command_test_discord(config: Config) -> int:
     if not config.discord_webhook_url:
         raise GrowattGuardError("DISCORD_WEBHOOK_URL is not configured in .env.")
@@ -692,6 +810,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("morning-check", help="Alias for preserve-battery.")
     subparsers.add_parser("return-sbu", help="Switch back to SBU.")
     subparsers.add_parser("watchdog-sbu", help="Verify output source is SBU; retry SBU once if needed.")
+    subparsers.add_parser("daily-summary", help="Post/print a daily Growatt and automation summary.")
+    subparsers.add_parser("rotate-logs", help="Delete old generated probe/log files according to LOG_RETENTION_DAYS.")
     subparsers.add_parser("test-discord", help="Send a test Discord webhook message.")
     return parser
 
@@ -719,6 +839,10 @@ def main(argv: list[str] | None = None) -> int:
             return command_return_sbu(config)
         if args.command == "watchdog-sbu":
             return command_watchdog_sbu(config)
+        if args.command == "daily-summary":
+            return command_daily_summary(config)
+        if args.command == "rotate-logs":
+            return command_rotate_logs(config)
         if args.command == "test-discord":
             return command_test_discord(config)
         parser.error(f"Unknown command: {args.command}")

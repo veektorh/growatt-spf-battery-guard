@@ -97,6 +97,7 @@ Notifications are sent when:
 preserve-battery switches to Utility first
 return-sbu switches to SBU priority
 watchdog-sbu repairs a missed SBU switch
+daily-summary posts the end-of-day summary
 any command fails, if DISCORD_NOTIFY_FAILURE=true
 checks are skipped, only if DISCORD_NOTIFY_SKIP=true
 ```
@@ -119,6 +120,8 @@ The automation should therefore:
 14:30 weekdays    preserve-battery if SOC is below 50%
 15:25 weekdays    return to SBU before the 15:30 outage
 15:31 weekdays    verify SBU and retry once if needed
+21:00 daily       post Discord daily summary
+00:10 daily       rotate old generated logs/probes
 ```
 
 ## Run manually
@@ -127,6 +130,8 @@ The automation should therefore:
 python .\growatt_power_guard.py preserve-battery
 python .\growatt_power_guard.py return-sbu
 python .\growatt_power_guard.py watchdog-sbu
+python .\growatt_power_guard.py daily-summary
+python .\growatt_power_guard.py rotate-logs
 ```
 
 ## Schedule on Windows
@@ -146,6 +151,8 @@ schtasks /Create /F /TN "Growatt SBU Watchdog Morning" /SC DAILY /ST 08:01 /TR "
 schtasks /Create /F /TN "Growatt Utility Check Afternoon" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py preserve-battery"
 schtasks /Create /F /TN "Growatt SBU Before Afternoon Outage" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:25 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py return-sbu"
 schtasks /Create /F /TN "Growatt SBU Watchdog Afternoon" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:31 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py watchdog-sbu"
+schtasks /Create /F /TN "Growatt Daily Summary" /SC DAILY /ST 21:00 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py daily-summary"
+schtasks /Create /F /TN "Growatt Log Rotation" /SC DAILY /ST 00:10 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py rotate-logs"
 ```
 
 Logs are written to:
@@ -197,6 +204,8 @@ Test it:
 .venv/bin/python growatt_power_guard.py preserve-battery
 .venv/bin/python growatt_power_guard.py return-sbu
 .venv/bin/python growatt_power_guard.py watchdog-sbu
+.venv/bin/python growatt_power_guard.py daily-summary
+.venv/bin/python growatt_power_guard.py rotate-logs
 ```
 
 After the dry-run output is correct, set `DRY_RUN=false`, then install the cloud cron schedule:
@@ -233,6 +242,13 @@ Watch recent automation logs:
 ```bash
 tail -n 120 ~/automation/logs/growatt_power_guard.log
 tail -n 120 ~/automation/logs/cron.log
+```
+
+Post a manual Discord daily summary:
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py daily-summary
 ```
 
 Change the battery preservation threshold:

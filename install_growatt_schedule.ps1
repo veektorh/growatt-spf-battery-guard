@@ -68,4 +68,14 @@ Register-GrowattTask `
     -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "15:31") `
     -Command "watchdog-sbu"
 
+Register-GrowattTask `
+    -Name "Daily Summary" `
+    -ScheduleArgs @("/SC", "DAILY", "/ST", "21:00") `
+    -Command "daily-summary"
+
+Register-GrowattTask `
+    -Name "Log Rotation" `
+    -ScheduleArgs @("/SC", "DAILY", "/ST", "00:10") `
+    -Command "rotate-logs"
+
 Write-Host "Done."

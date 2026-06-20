@@ -9,6 +9,8 @@
 14:30 weekdays    preserve-battery if SOC is below 50%
 15:25 weekdays    return to SBU before the 15:30 outage
 15:31 weekdays    verify SBU and retry once if needed
+21:00 daily       post Discord daily summary
+00:10 daily       rotate old generated logs/probes
 ```
 
 ## Key Commands
@@ -20,6 +22,8 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py preserve-battery
 .venv/bin/python growatt_power_guard.py return-sbu
 .venv/bin/python growatt_power_guard.py watchdog-sbu
+.venv/bin/python growatt_power_guard.py daily-summary
+.venv/bin/python growatt_power_guard.py rotate-logs
 ```
 
 ## Verify Cron
@@ -37,6 +41,8 @@ Expected jobs:
 30 14 * * 1-5
 25 15 * * 1-5
 31 15 * * 1-5
+0 21 * * *
+10 0 * * *
 ```
 
 ## Logs
