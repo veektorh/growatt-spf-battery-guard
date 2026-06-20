@@ -2,14 +2,14 @@
 
 [![CI](https://github.com/veektorh/growatt-spf-battery-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/veektorh/growatt-spf-battery-guard/actions/workflows/ci.yml)
 
-This automates the rainy-season routine for a Growatt SPF 6000 ES on ShinePhone:
+This automates battery-preservation mode switching for a Growatt SPF 6000 ES on ShinePhone. It runs year-round with season-aware thresholds:
 
-- `preserve-battery` runs before known outage windows.
-- It reads battery SOC from Growatt/ShinePhone.
-- If SOC is below `LOW_BATTERY_SOC`, it switches to Utility while estate power is available.
-- `return-sbu` runs a few minutes before each outage and switches back to SBU.
+- `preserve-battery` runs before known outage windows and switches to Utility when SOC is below threshold.
+- `return-sbu` runs a few minutes before each outage and switches back to SBU priority.
 - `health-check --notify` reports VPS/cron/Growatt readiness before the day starts.
 - `battery-alert` sends a throttled Discord warning if SOC drops below `EMERGENCY_SOC`.
+- Weather-aware thresholds reduce utility use on good solar days.
+- Season profiles automatically lower thresholds in the dry season (November–March) when solar is stronger.
 
 The script starts in `DRY_RUN=true` mode. In dry-run it logs in and prepares the command, but does not change the inverter.
 
@@ -99,6 +99,24 @@ LOW_BATTERY_SOC_NORMAL=45
 LOW_BATTERY_SOC_SUNNY=40
 ```
 
+### Season Profiles
+
+Enable season profiles to automatically lower thresholds during the dry season (November–March for Lagos), when solar irradiance is higher and the battery tops up faster:
+
+```text
+SEASON_PROFILES_ENABLED=true
+```
+
+When enabled, the dry-season thresholds are:
+
+```text
+rainy/cloudy -> 45%
+normal       -> 40%
+sunny        -> 35%
+```
+
+The rainy season (April–October) uses the `LOW_BATTERY_SOC` / `LOW_BATTERY_SOC_NORMAL` / `LOW_BATTERY_SOC_SUNNY` values from `.env` unchanged. Season adjustment is applied on top of the weather-aware threshold at run time, so no schedule changes are needed.
+
 Test the current dynamic threshold:
 
 ```bash
@@ -142,13 +160,16 @@ preserve-battery switches to Utility first
 return-sbu switches to SBU priority
 watchdog-sbu repairs a missed SBU switch
 daily-summary posts the end-of-day summary
+weekly-summary posts the weekly performance report
+monthly-summary posts the 30-day performance summary
 health-check --notify posts readiness diagnostics
 battery-alert detects or clears an emergency SOC episode
-weekly-summary posts the weekly performance report
 Growatt cloud failures alert after repeated consecutive failures
 other command failures alert immediately, if DISCORD_NOTIFY_FAILURE=true
 checks are skipped, only if DISCORD_NOTIFY_SKIP=true
 ```
+
+All Discord notifications are sent as rich embeds with colour-coded severity.
 
 ## Discord Control Bot
 
@@ -184,15 +205,16 @@ cd ~/automation
 Available slash commands:
 
 ```text
-/growatt_status
-/growatt_health
-/growatt_refresh
-/growatt_pause
-/growatt_resume
-/growatt_sbu
-/growatt_utility
-/growatt_preserve
-/growatt_topup
+/growatt_status      — run the status command and show key metrics
+/growatt_health      — run the health check and show results
+/growatt_dashboard   — show live SOC, output mode, battery power, load, PVOutput at a glance
+/growatt_refresh     — force an immediate dashboard refresh
+/growatt_pause       — pause scheduled mode-changing automation
+/growatt_resume      — resume automation after a pause
+/growatt_sbu         — manually switch to SBU priority
+/growatt_utility     — manually switch to Utility first
+/growatt_preserve    — run preserve-battery immediately
+/growatt_topup       — charge from grid for N minutes, then return to SBU
 ```
 
 `/growatt_topup minutes:60` pauses scheduled mode-changing automation, switches to Utility first, waits, resumes automation, then returns to SBU.
@@ -239,6 +261,7 @@ python .\growatt_power_guard.py return-sbu
 python .\growatt_power_guard.py watchdog-sbu
 python .\growatt_power_guard.py daily-summary
 python .\growatt_power_guard.py weekly-summary
+python .\growatt_power_guard.py monthly-summary
 python .\growatt_power_guard.py rotate-logs
 python .\growatt_power_guard.py weather-threshold
 python .\growatt_power_guard.py validate-schedule

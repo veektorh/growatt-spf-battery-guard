@@ -38,7 +38,7 @@ growatt_guard.state
   Owns local JSON state and lock files under state/.
 
 growatt_guard.notifications
-  Owns Discord delivery and Growatt cloud failure streak notifications.
+  Owns Discord delivery (embed-based) and Growatt cloud failure streak notifications.
 
 growatt_guard.audit
   Owns logs/mode_decisions.csv, daily summaries, weekly summaries, and log counters.
@@ -116,6 +116,7 @@ Discord control commands:
 ```text
 /growatt_status
 /growatt_health
+/growatt_dashboard
 /growatt_refresh
 /growatt_pause
 /growatt_resume

@@ -27,6 +27,7 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py watchdog-sbu
 .venv/bin/python growatt_power_guard.py daily-summary
 .venv/bin/python growatt_power_guard.py weekly-summary
+.venv/bin/python growatt_power_guard.py monthly-summary
 .venv/bin/python growatt_power_guard.py rotate-logs
 .venv/bin/python growatt_power_guard.py weather-threshold
 .venv/bin/python growatt_power_guard.py validate-schedule
@@ -205,6 +206,10 @@ If a separate 10-minute `pvoutput-upload` cron job exists, remove it after insta
 
 The control bot is optional and separate from the send-only Discord webhook. It should only be invited to a private control channel and allowlisted to your Discord user ID.
 
+Available slash commands: `/growatt_status`, `/growatt_health`, `/growatt_dashboard`, `/growatt_refresh`, `/growatt_pause`, `/growatt_resume`, `/growatt_sbu`, `/growatt_utility`, `/growatt_preserve`, `/growatt_topup`.
+
+`/growatt_dashboard` shows live SOC, output mode, battery power, load, and PVOutput at a glance without running a full status command in the channel.
+
 Install or restart it:
 
 ```bash
@@ -269,7 +274,7 @@ cd ~/automation
 
 ## Discord Alerts
 
-The automation can post to Discord on successful mode switches, health reports, emergency battery alerts, weekly summaries, repeated Growatt cloud failures, recoveries, and other failures.
+The automation can post to Discord on successful mode switches, health reports, emergency battery alerts, daily/weekly/monthly summaries, repeated Growatt cloud failures, recoveries, and other failures. All notifications use rich embeds with colour-coded severity.
 
 ```text
 DISCORD_NOTIFY_SUCCESS=true

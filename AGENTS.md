@@ -28,12 +28,12 @@ This project automates battery-preservation mode switching for a Growatt SPF inv
 - `growatt_guard/health.py`: `health-check` command and health report formatting.
 - `growatt_guard/dashboard.py`: static dashboard generation, observability refresh loop, stale alert, and static server.
 - `growatt_guard/pvoutput.py`: PVOutput field extraction, upload, retry without extended fields, and upload state.
-- `growatt_guard/discord_control.py`: optional private Discord control bot; keep commands allowlisted and route writes through existing CLI commands.
+- `growatt_guard/discord_control.py`: optional private Discord control bot; keep commands allowlisted and route writes through existing CLI commands. `/growatt_dashboard` renders a live embed from `status` subprocess output without posting raw text to the channel.
 - `growatt_guard/audit.py`: mode decision CSV audit trail, daily summary, weekly summary, and log counters.
-- `growatt_guard/notifications.py`: Discord notifications and Growatt cloud failure streak tracking.
+- `growatt_guard/notifications.py`: Discord embed delivery and Growatt cloud failure streak tracking. All notifications use `send_discord_embed`; `send_discord_message` is for plain-text test messages only.
 - `growatt_guard/state.py`: local state files, pause state, alert state, command locks, and timestamps.
-- `growatt_guard/weather.py`: Open-Meteo forecast fetch and weather-aware threshold decisions.
-- `tests/test_growatt_power_guard.py`: unittest coverage for command behavior, parsing, scheduling, dashboard, alerts, and safety paths.
+- `growatt_guard/weather.py`: Open-Meteo forecast fetch, weather-aware threshold decisions, and season profiles (rainy April–October / dry November–March for Lagos). Enable with `SEASON_PROFILES_ENABLED=true`.
+- `tests/`: unittest coverage split across modules — `test_growatt_power_guard.py` (integration/command behavior), `test_notifications.py` (embed builders), `test_growatt_api.py` (API extraction helpers), `test_schedule.py` (schedule logic), `test_dashboard.py` (dashboard generation), `test_cli.py` (CLI parsing), and others.
 - `schedule.json`: source of truth for cloud cron jobs.
 - `schedule_overrides.example.json`: public-safe template for temporary local date overrides.
 - `RUNBOOK.md`: operations guide for the VPS.
