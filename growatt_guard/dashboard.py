@@ -7,6 +7,7 @@ import json
 import logging
 import socketserver
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -566,14 +567,25 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
     except Exception:  # noqa: BLE001
         pass
     output_path = resolve_dashboard_output(output)
-    output_path.write_text(
-        build_dashboard_html(
-            status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes,
-            config.battery_capacity_wh, config.battery_bms_cutoff_soc,
-            hrs_to_sunrise, config.battery_charge_rate_w,
-        ),
-        encoding="utf-8",
+    html_content = build_dashboard_html(
+        status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes,
+        config.battery_capacity_wh, config.battery_bms_cutoff_soc,
+        hrs_to_sunrise, config.battery_charge_rate_w,
     )
+    # Atomic write: temp file in same directory then rename to avoid serving
+    # a partially written file when the browser auto-refreshes mid-write.
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=output_path.parent,
+        prefix=".dash_tmp_", suffix=".html", delete=False,
+    )
+    try:
+        tmp.write(html_content)
+        tmp.flush()
+        tmp.close()
+        Path(tmp.name).replace(output_path)
+    except Exception:
+        Path(tmp.name).unlink(missing_ok=True)
+        raise
     return output_path
 
 
