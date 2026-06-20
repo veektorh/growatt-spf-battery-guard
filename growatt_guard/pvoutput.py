@@ -14,8 +14,10 @@ from growatt_guard.state import read_json_state, write_json_state
 PVOUTPUT_URL = "https://pvoutput.org/service/r2/addstatus.jsp"
 PVOUTPUT_STATE_FILE = Path(__file__).resolve().parents[1] / "state" / "pvoutput_last.json"
 
-# Keys tried in order; first non-empty value wins
-_V1_KEYS = ("epvToday", "ePvToday", "epvTodayTotal", "eacChargeToday", "eChargeToday")
+# Keys tried in order; first non-empty value wins.
+# v1 must be PV generation energy — charge-energy fields (eacChargeToday, eChargeToday)
+# are intentionally excluded because they include grid charging and would underreport PV.
+_V1_KEYS = ("epvToday", "ePvToday", "epvTodayTotal", "epv1Today", "epv2Today")
 _V2_KEYS = ("ppv", "ppvText", "pPv1", "pPv2")
 _V4_KEYS = ("outPutPower", "outPutPowerText", "activePower", "outPower")
 _V6_KEYS = ("vGrid", "vGridText", "vAc1", "vac1")
@@ -39,11 +41,21 @@ def _pvoutput_error(message: str) -> Exception:
     return app_module().GrowattGuardError(message)
 
 
-def _extract_float(status: dict[str, Any], keys: tuple[str, ...]) -> float | None:
+def _extract_float_with_key(
+    status: dict[str, Any], keys: tuple[str, ...]
+) -> tuple[float, str] | None:
     result = extract_first_metric(status, keys)
     if result is None:
         return None
-    return parse_number(result[0])
+    value = parse_number(result[0])
+    if value is None:
+        return None
+    return value, result[1].split(".")[-1]
+
+
+def _extract_float(status: dict[str, Any], keys: tuple[str, ...]) -> float | None:
+    result = _extract_float_with_key(status, keys)
+    return result[0] if result is not None else None
 
 
 def extract_pvoutput_fields(
@@ -68,9 +80,12 @@ def extract_pvoutput_fields(
         fields["v2"] = int(pv_power)
 
     # v1: energy generated today (Wh) — Growatt stores kWh, convert to Wh
-    kwh = _extract_float(status, _V1_KEYS)
-    if kwh is not None and kwh >= 0:
-        fields["v1"] = int(kwh * 1000)
+    v1_result = _extract_float_with_key(status, _V1_KEYS)
+    if v1_result is not None:
+        kwh, v1_key = v1_result
+        if kwh >= 0:
+            fields["v1"] = int(kwh * 1000)
+            fields["_v1_key"] = v1_key
 
     # v4: current output / consumption power (W)
     output_power = _extract_float(status, _V4_KEYS)
@@ -127,7 +142,7 @@ def upload_pvoutput_status(config: Any, fields: dict[str, Any]) -> bool:
     if not config.pvoutput_api_key or not config.pvoutput_system_id:
         raise _pvoutput_error("PVOUTPUT_API_KEY and PVOUTPUT_SYSTEM_ID must be set in .env.")
 
-    params = {k: str(v) for k, v in fields.items()}
+    params = {k: str(v) for k, v in fields.items() if not k.startswith("_")}
 
     try:
         response = _do_post(config, params)
@@ -187,17 +202,23 @@ def command_pvoutput_upload(config: Any) -> int:
             "Run 'probe' to inspect available fields."
         )
 
+    _skip = {"d", "t"}
+    _api_fields = {k: v for k, v in fields.items() if not k.startswith("_") and k not in _skip}
+    _debug_fields = {k: v for k, v in fields.items() if k.startswith("_")}
+
     if config.dry_run:
-        field_summary = ", ".join(f"{k}={v}" for k, v in sorted(fields.items()) if k not in ("d", "t"))
-        print(f"DRY_RUN: would upload to PVOutput: {field_summary}")
+        summary = ", ".join(f"{k}={v}" for k, v in sorted(_api_fields.items()))
+        debug = ", ".join(f"{k}={v}" for k, v in sorted(_debug_fields.items()))
+        print(f"DRY_RUN: would upload to PVOutput: {summary}" + (f" ({debug})" if debug else ""))
         return 0
 
     now = dt.datetime.now()
     ok = upload_pvoutput_status(config, fields)
     if ok:
         write_pvoutput_state(fields, now=now)
-        field_summary = ", ".join(f"{k}={v}" for k, v in sorted(fields.items()) if k not in ("d", "t"))
-        print(f"PVOutput OK: {field_summary}")
+        summary = ", ".join(f"{k}={v}" for k, v in sorted(_api_fields.items()))
+        debug = ", ".join(f"{k}={v}" for k, v in sorted(_debug_fields.items()))
+        print(f"PVOutput OK: {summary}" + (f" ({debug})" if debug else ""))
         return 0
 
     raise _pvoutput_error("PVOutput upload failed; check logs for details.")
