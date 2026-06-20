@@ -38,16 +38,21 @@ echo "Installing cron schedule..."
 ./install_cloud_cron.sh
 
 echo "Restarting long-lived processes..."
+DASHBOARD_SERVICE=0
 if command -v systemctl >/dev/null 2>&1 && systemctl cat growatt-dashboard-refresh.service >/dev/null 2>&1; then
+  DASHBOARD_SERVICE=1
+  sudo systemctl stop growatt-dashboard-refresh.service || true
+fi
+if pkill -f "growatt_power_guard.py dashboard-refresh" 2>/dev/null; then
+  echo "Stopped legacy dashboard-refresh process."
+fi
+if [[ "${DASHBOARD_SERVICE}" == "0" ]] && pkill -f "growatt_power_guard.py observability-refresh" 2>/dev/null; then
+  echo "Stopped observability-refresh."
+fi
+if [[ "${DASHBOARD_SERVICE}" == "1" ]]; then
   echo "Reinstalling dashboard services..."
   ./install_dashboard_service.sh
 else
-  if pkill -f "growatt_power_guard.py dashboard-refresh" 2>/dev/null; then
-    echo "Stopped dashboard-refresh."
-  fi
-  if pkill -f "growatt_power_guard.py observability-refresh" 2>/dev/null; then
-    echo "Stopped observability-refresh."
-  fi
   nohup "${PYTHON_BIN}" growatt_power_guard.py observability-refresh --loop --interval-minutes 10 >> "${ROOT}/logs/cron.log" 2>&1 &
   echo "Started observability-refresh (PID $!)."
 fi

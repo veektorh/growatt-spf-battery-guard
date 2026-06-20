@@ -12,6 +12,8 @@
 15:31 weekdays    verify SBU and retry once if needed
 21:00 daily       post Discord daily summary
 */30 always       alert once if battery SOC drops below 30%
+*/15 22-23,0-2   start night auto-topup only if needed
+*/15 22-23,0-6   complete an expired auto-topup and return to SBU
 21:10 Sundays     post weekly performance summary
 00:10 daily       rotate old generated logs/probes
 ```
@@ -99,6 +101,8 @@ Expected jobs:
 31 15 * * 1-5
 0 21 * * *
 */30 * * * *
+*/15 22-23,0-2 * * *
+*/15 22-23,0-6 * * *
 10 21 * * 0
 10 0 * * *
 ```
@@ -190,6 +194,25 @@ Update the VPS from GitHub, reinstall cron, and run health check:
 ```bash
 cd ~/automation
 ./update_server.sh
+```
+
+If Discord reports `Schedule job ... has unsupported command` after an update, the VPS is running a stale Python process or mismatched files. Run:
+
+```bash
+cd ~/automation
+git pull --ff-only
+.venv/bin/python growatt_power_guard.py --help | grep auto-topup-check
+.venv/bin/python growatt_power_guard.py validate-schedule
+sudo systemctl restart growatt-dashboard-refresh.service growatt-dashboard-server.service growatt-dashboard-stale-alert.timer
+./install_cloud_cron.sh
+```
+
+If the failure message still says `dashboard-refresh`, check for an old background loop and stop it:
+
+```bash
+pgrep -af "growatt_power_guard.py"
+pkill -f "growatt_power_guard.py dashboard-refresh"
+sudo systemctl restart growatt-dashboard-refresh.service
 ```
 
 Install safe dashboard services:
