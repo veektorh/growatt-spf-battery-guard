@@ -1,5 +1,7 @@
 # Growatt SPF Battery Preservation Guard
 
+[![CI](https://github.com/veektorh/growatt-spf-battery-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/veektorh/growatt-spf-battery-guard/actions/workflows/ci.yml)
+
 This automates the rainy-season routine for a Growatt SPF 6000 ES on ShinePhone:
 
 - `preserve-battery` runs before known outage windows.
