@@ -28,6 +28,8 @@ BASE_DIR = Path(__file__).resolve().parent
 LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "growatt_power_guard.log"
 SCHEDULE_FILE = BASE_DIR / "schedule.json"
+STATE_DIR = BASE_DIR / "state"
+PAUSE_FILE = STATE_DIR / "automation_pause.json"
 
 SOC_KEYS = (
     "SOC",
@@ -58,6 +60,7 @@ SCHEDULE_COMMANDS = {
     "daily-summary",
     "rotate-logs",
 }
+PAUSABLE_COMMANDS = {"preserve-battery", "utility-check", "morning-check", "return-sbu", "watchdog-sbu"}
 
 
 class GrowattGuardError(RuntimeError):
@@ -231,6 +234,75 @@ def notify_failure(config: Config | None, command: str, message: str) -> None:
     if config is None or not config.discord_notify_failure or command == "test-discord":
         return
     send_discord_message(config, f"Growatt automation failed during `{command}`.\n{message}")
+
+
+def utc_now() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc)
+
+
+def parse_utc_datetime(value: str) -> dt.datetime:
+    parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def read_pause_state(now: dt.datetime | None = None) -> dict[str, Any] | None:
+    if not PAUSE_FILE.exists():
+        return None
+    now = now or utc_now()
+    try:
+        state = json.loads(PAUSE_FILE.read_text(encoding="utf-8"))
+        until = parse_utc_datetime(str(state["paused_until"]))
+    except (OSError, KeyError, ValueError, json.JSONDecodeError) as exc:
+        logging.warning("Ignoring invalid pause state: %s", exc)
+        return None
+    if until <= now:
+        try:
+            PAUSE_FILE.unlink()
+        except OSError:
+            pass
+        return None
+    state["paused_until_dt"] = until
+    return state
+
+
+def format_local_time(value: dt.datetime) -> str:
+    return value.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+
+
+def pause_message(state: dict[str, Any]) -> str:
+    until = state["paused_until_dt"]
+    reason = state.get("reason") or "no reason provided"
+    return f"automation paused until {format_local_time(until)} ({reason})"
+
+
+def ensure_not_paused(config: Config, command: str) -> bool:
+    state = read_pause_state()
+    if not state:
+        return False
+
+    message = f"Skipped `{command}` because {pause_message(state)}."
+    logging.info(message)
+    if config.discord_notify_skip:
+        send_discord_message(config, message)
+    print(message)
+    return True
+
+
+def write_pause_state(hours: float, reason: str) -> dict[str, Any]:
+    if hours <= 0:
+        raise GrowattGuardError("--hours must be greater than 0.")
+    until = utc_now() + dt.timedelta(hours=hours)
+    state = {
+        "paused_until": until.isoformat(),
+        "reason": reason,
+        "created_at": utc_now().isoformat(),
+    }
+    STATE_DIR.mkdir(exist_ok=True)
+    PAUSE_FILE.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+    state["paused_until_dt"] = until
+    return state
 
 
 def parse_forecast_time(value: str) -> dt.datetime:
@@ -795,6 +867,9 @@ def command_probe(config: Config) -> int:
 
 
 def command_preserve_battery(config: Config) -> int:
+    if ensure_not_paused(config, "preserve-battery"):
+        return 0
+
     api, device, status = load_context(config)
     soc_result = extract_soc(status)
     if not soc_result:
@@ -845,6 +920,9 @@ def command_morning_check(config: Config) -> int:
 
 
 def command_return_sbu(config: Config) -> int:
+    if ensure_not_paused(config, "return-sbu"):
+        return 0
+
     api, device, _ = load_context(config)
     result = set_mode(api, config, device, "sbu")
     if config.discord_notify_success and not config.dry_run:
@@ -854,6 +932,9 @@ def command_return_sbu(config: Config) -> int:
 
 
 def command_watchdog_sbu(config: Config) -> int:
+    if ensure_not_paused(config, "watchdog-sbu"):
+        return 0
+
     api, device, status = load_context(config)
     output_source = extract_spf_output_source(status)
     if not output_source:
@@ -884,6 +965,10 @@ def command_watchdog_sbu(config: Config) -> int:
 def build_daily_summary(status: dict[str, Any]) -> str:
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"Growatt daily summary - {now}"]
+
+    state = read_pause_state()
+    if state:
+        lines.append(f"Automation pause: {pause_message(state)}")
 
     soc_result = extract_soc(status)
     if soc_result:
@@ -958,6 +1043,36 @@ def command_weather_threshold(config: Config) -> int:
     return 0
 
 
+def command_pause(config: Config, hours: float, reason: str) -> int:
+    state = write_pause_state(hours, reason)
+    message = f"Growatt automation paused until {format_local_time(state['paused_until_dt'])}."
+    if reason:
+        message += f"\nReason: {reason}"
+    send_discord_message(config, message)
+    print(message)
+    return 0
+
+
+def command_resume(config: Config) -> int:
+    was_paused = read_pause_state() is not None
+    if PAUSE_FILE.exists():
+        PAUSE_FILE.unlink()
+    message = "Growatt automation resumed." if was_paused else "Growatt automation was not paused."
+    send_discord_message(config, message)
+    print(message)
+    return 0
+
+
+def command_pause_status(config: Config) -> int:
+    _ = config
+    state = read_pause_state()
+    if not state:
+        print("Growatt automation is active.")
+        return 0
+    print(f"Growatt automation is paused: {pause_message(state)}.")
+    return 0
+
+
 def validate_schedule(path: Path = SCHEDULE_FILE) -> dict[str, Any]:
     if not path.exists():
         raise GrowattGuardError(f"Schedule file not found: {path}")
@@ -1018,6 +1133,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("weather-threshold", help="Print the current weather-aware preserve-battery threshold.")
     subparsers.add_parser("validate-schedule", help="Validate schedule.json.")
     subparsers.add_parser("test-discord", help="Send a test Discord webhook message.")
+    pause_parser = subparsers.add_parser("pause", help="Pause scheduled mode-changing automation.")
+    pause_parser.add_argument("--hours", type=float, required=True, help="How long to pause automation for.")
+    pause_parser.add_argument("--reason", default="", help="Optional reason stored in pause state and Discord alert.")
+    subparsers.add_parser("resume", help="Resume scheduled mode-changing automation.")
+    subparsers.add_parser("pause-status", help="Show whether automation is currently paused.")
     return parser
 
 
@@ -1054,6 +1174,12 @@ def main(argv: list[str] | None = None) -> int:
             return command_weather_threshold(config)
         if args.command == "test-discord":
             return command_test_discord(config)
+        if args.command == "pause":
+            return command_pause(config, args.hours, args.reason)
+        if args.command == "resume":
+            return command_resume(config)
+        if args.command == "pause-status":
+            return command_pause_status(config)
         parser.error(f"Unknown command: {args.command}")
         return 2
     except GrowattGuardError as exc:

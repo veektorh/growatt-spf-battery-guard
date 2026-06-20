@@ -3,6 +3,7 @@
 .env.*.local
 .venv/
 logs/
+state/
 growatt-probe-*.json
 __pycache__/
 tests/__pycache__/

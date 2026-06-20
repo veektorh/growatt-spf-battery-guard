@@ -26,6 +26,20 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py rotate-logs
 .venv/bin/python growatt_power_guard.py weather-threshold
 .venv/bin/python growatt_power_guard.py validate-schedule
+.venv/bin/python growatt_power_guard.py pause --hours 6 --reason "maintenance"
+.venv/bin/python growatt_power_guard.py pause-status
+.venv/bin/python growatt_power_guard.py resume
+```
+
+## Pause Automation
+
+Pause mode prevents scheduled mode changes while still allowing read-only checks and summaries:
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py pause --hours 6 --reason "maintenance"
+.venv/bin/python growatt_power_guard.py pause-status
+.venv/bin/python growatt_power_guard.py resume
 ```
 
 ## Change Schedule

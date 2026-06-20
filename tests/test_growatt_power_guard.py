@@ -16,8 +16,11 @@ from growatt_power_guard import (
     set_mode,
     build_parser,
     command_watchdog_sbu,
+    ensure_not_paused,
+    read_pause_state,
     validate_schedule,
     GrowattGuardError,
+    write_pause_state,
     send_discord_message,
     truncate_discord_message,
     analyze_weather_window,
@@ -148,6 +151,17 @@ class GrowattPowerGuardTests(unittest.TestCase):
         args = build_parser().parse_args(["weather-threshold"])
 
         self.assertEqual(args.command, "weather-threshold")
+
+    def test_pause_commands_are_available(self):
+        pause_args = build_parser().parse_args(["pause", "--hours", "2", "--reason", "maintenance"])
+        resume_args = build_parser().parse_args(["resume"])
+        status_args = build_parser().parse_args(["pause-status"])
+
+        self.assertEqual(pause_args.command, "pause")
+        self.assertEqual(pause_args.hours, 2)
+        self.assertEqual(pause_args.reason, "maintenance")
+        self.assertEqual(resume_args.command, "resume")
+        self.assertEqual(status_args.command, "pause-status")
 
     def test_truncate_discord_message_keeps_short_messages(self):
         self.assertEqual(truncate_discord_message("hello"), "hello")
@@ -288,6 +302,25 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(decision.threshold, 40)
         self.assertEqual(decision.weather_category, "sunny")
+
+    def test_write_and_read_pause_state(self):
+        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.STATE_DIR", Path(tmpdir)), patch(
+            "growatt_power_guard.PAUSE_FILE", Path(tmpdir) / "automation_pause.json"
+        ):
+            state = write_pause_state(1, "testing")
+            read_back = read_pause_state()
+
+        self.assertEqual(state["reason"], "testing")
+        self.assertIsNotNone(read_back)
+        self.assertEqual(read_back["reason"], "testing")
+
+    def test_ensure_not_paused_returns_true_when_paused(self):
+        config = make_config(discord_notify_skip=False)
+        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.STATE_DIR", Path(tmpdir)), patch(
+            "growatt_power_guard.PAUSE_FILE", Path(tmpdir) / "automation_pause.json"
+        ), redirect_stdout(StringIO()):
+            write_pause_state(1, "testing")
+            self.assertTrue(ensure_not_paused(config, "watchdog-sbu"))
 
 
 if __name__ == "__main__":

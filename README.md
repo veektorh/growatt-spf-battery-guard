@@ -172,6 +172,9 @@ python .\growatt_power_guard.py daily-summary
 python .\growatt_power_guard.py rotate-logs
 python .\growatt_power_guard.py weather-threshold
 python .\growatt_power_guard.py validate-schedule
+python .\growatt_power_guard.py pause --hours 6 --reason "maintenance"
+python .\growatt_power_guard.py pause-status
+python .\growatt_power_guard.py resume
 ```
 
 ## Schedule on Windows
@@ -249,6 +252,19 @@ Test it:
 .venv/bin/python growatt_power_guard.py weather-threshold
 .venv/bin/python growatt_power_guard.py validate-schedule
 ```
+
+## Pause Or Resume Automation
+
+Pause only affects mode-changing commands: `preserve-battery`, `return-sbu`, and `watchdog-sbu`. Read-only commands such as `status`, `daily-summary`, and `weather-threshold` still run.
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py pause --hours 6 --reason "inverter maintenance"
+.venv/bin/python growatt_power_guard.py pause-status
+.venv/bin/python growatt_power_guard.py resume
+```
+
+Pause state is stored locally under `state/`, which should not be committed.
 
 After the dry-run output is correct, set `DRY_RUN=false`, then install the cloud cron schedule:
 
@@ -342,6 +358,7 @@ Do not publish:
 ```text
 .env
 logs/
+state/
 growatt-probe-*.json
 ```
 

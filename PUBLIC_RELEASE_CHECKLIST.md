@@ -10,6 +10,7 @@ Do not commit these files or folders:
 .env
 logs/
 growatt-probe-*.json
+state/
 .venv/
 __pycache__/
 ```
