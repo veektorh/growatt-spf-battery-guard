@@ -34,6 +34,10 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py health-check
 .venv/bin/python growatt_power_guard.py health-check --notify
 .venv/bin/python growatt_power_guard.py battery-alert
+.venv/bin/python growatt_power_guard.py runtime-alert
+.venv/bin/python growatt_power_guard.py auto-topup-check
+.venv/bin/python growatt_power_guard.py topup-complete-check
+.venv/bin/python growatt_power_guard.py estimate-charge-rate --wait-seconds 900
 .venv/bin/python growatt_power_guard.py dashboard
 .venv/bin/python growatt_power_guard.py pause --hours 6 --reason "maintenance"
 .venv/bin/python growatt_power_guard.py pause-status
@@ -148,6 +152,21 @@ DISCORD_CONTROL_GUILD_ID=your_server_id
 WEATHER_ENABLED=true
 WEATHER_LAT=your_latitude
 WEATHER_LON=your_longitude
+
+# Battery capacity (required for runtime estimates, topup, and alerts)
+BATTERY_CAPACITY_WH=30000
+BATTERY_BMS_CUTOFF_SOC=25
+BATTERY_CHARGE_RATE_W=3000
+
+# Charge ceiling: hold off SBU repair until SOC reaches this level (0 = disabled)
+BATTERY_CHARGE_TARGET_SOC=0
+
+# Auto-topup: charge at night when battery won't last until sunrise (requires weather)
+AUTO_TOPUP_ENABLED=false
+
+# Low runtime alert: Discord alert when estimated runtime drops below this (0 = disabled)
+RUNTIME_ALERT_MINUTES=0
+RUNTIME_ALERT_CLEAR_MINUTES=0
 ```
 
 ## Diagnostics
@@ -206,7 +225,7 @@ If a separate 10-minute `pvoutput-upload` cron job exists, remove it after insta
 
 The control bot is optional and separate from the send-only Discord webhook. It should only be invited to a private control channel and allowlisted to your Discord user ID.
 
-Available slash commands: `/growatt_status`, `/growatt_health`, `/growatt_dashboard`, `/growatt_refresh`, `/growatt_pause`, `/growatt_resume`, `/growatt_sbu`, `/growatt_utility`, `/growatt_preserve`, `/growatt_topup`.
+Available slash commands: `/growatt_status`, `/growatt_health`, `/growatt_dashboard`, `/growatt_refresh`, `/growatt_pause`, `/growatt_resume`, `/growatt_sbu`, `/growatt_utility`, `/growatt_preserve`, `/growatt_topup`, `/growatt_topup_cancel`.
 
 `/growatt_dashboard` shows live SOC, output mode, battery power, load, and PVOutput at a glance without running a full status command in the channel.
 

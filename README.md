@@ -8,6 +8,9 @@ This automates battery-preservation mode switching for a Growatt SPF 6000 ES on 
 - `return-sbu` runs a few minutes before each outage and switches back to SBU priority.
 - `health-check --notify` reports VPS/cron/Growatt readiness before the day starts.
 - `battery-alert` sends a throttled Discord warning if SOC drops below `EMERGENCY_SOC`.
+- `runtime-alert` sends a Discord warning when estimated battery runtime drops below a configured threshold.
+- `watchdog-sbu` repairs a missed SBU switch; with `BATTERY_CHARGE_TARGET_SOC` set it waits until charging is complete before repairing.
+- `auto-topup-check` fires a timed Utility top-up at night when the battery won't survive until sunrise; `topup-complete-check` resumes automation once it finishes.
 - Weather-aware thresholds reduce utility use on good solar days.
 - Season profiles automatically lower thresholds in the dry season (November–March) when solar is stronger.
 
@@ -123,6 +126,76 @@ Test the current dynamic threshold:
 python growatt_power_guard.py weather-threshold
 ```
 
+## Battery Capacity & Runtime
+
+Set your battery specs so the automation can estimate runtime, time topups accurately, and send low-runtime alerts:
+
+```text
+BATTERY_CAPACITY_WH=30000
+BATTERY_BMS_CUTOFF_SOC=25
+BATTERY_CHARGE_RATE_W=3000
+```
+
+`BATTERY_CAPACITY_WH` is the total nameplate capacity (e.g. 2 × 15 kWh = 30 000 Wh).
+`BATTERY_BMS_CUTOFF_SOC` is the SOC at which the BMS cuts off — runtime and topup estimates use this as the floor.
+`BATTERY_CHARGE_RATE_W` is the AC charger output. Required for topup duration estimates and auto-topup.
+
+To measure the actual charge rate from your inverter:
+
+```bash
+.venv/bin/python growatt_power_guard.py estimate-charge-rate --wait-seconds 900
+```
+
+Run this while on Utility (charging). The command reads SOC before and after the wait and prints an estimate.
+
+### Charge Ceiling
+
+To stop `watchdog-sbu` from returning to SBU while the battery is still charging toward a useful level, set a target SOC:
+
+```text
+BATTERY_CHARGE_TARGET_SOC=75
+```
+
+`watchdog-sbu` will hold on Utility until SOC reaches 75%, then repair to SBU normally. Set to `0` to disable.
+
+### Auto-Topup at Night
+
+Enable auto-topup to automatically charge from Utility at night when the battery won't survive until sunrise:
+
+```text
+AUTO_TOPUP_ENABLED=true
+```
+
+Requires `BATTERY_CAPACITY_WH`, `BATTERY_CHARGE_RATE_W`, `WEATHER_LAT`, and `WEATHER_LON`.
+
+Add these two cron jobs (e.g. every 15 min from 22:00–05:00):
+
+```text
+*/15 22-23,0-4 * * *  auto-topup-check   # starts a topup if needed, exits immediately
+*/15 22-23,0-4 * * *  topup-complete-check  # resumes automation once the topup window expires
+```
+
+`auto-topup-check` is non-blocking: it evaluates whether a topup is needed, starts one if so (pausing automation, switching to Utility, writing state), and exits in seconds. `topup-complete-check` detects when the window has elapsed, resumes automation, and calls `return-sbu`.
+
+The Discord control bot also accepts `/growatt_topup_cancel` to abort a running topup early.
+
+### Low Runtime Alert
+
+Send a Discord alert when estimated battery runtime drops below a threshold:
+
+```text
+RUNTIME_ALERT_MINUTES=90
+RUNTIME_ALERT_CLEAR_MINUTES=120
+```
+
+`RUNTIME_ALERT_MINUTES` triggers the alert. `RUNTIME_ALERT_CLEAR_MINUTES` clears it when runtime recovers (defaults to 1.5× the alert threshold if unset). State is tracked so the alert fires once and clears once, with no repeat spam.
+
+Add a cron job (e.g. every 15 min):
+
+```text
+*/15 * * * *   runtime-alert
+```
+
 ## Discord Notifications
 
 Discord notifications are optional. Create a webhook in your Discord server:
@@ -159,11 +232,13 @@ Notifications are sent when:
 preserve-battery switches to Utility first
 return-sbu switches to SBU priority
 watchdog-sbu repairs a missed SBU switch
+auto-topup-check starts a night topup when battery won't reach sunrise
 daily-summary posts the end-of-day summary
 weekly-summary posts the weekly performance report
 monthly-summary posts the 30-day performance summary
 health-check --notify posts readiness diagnostics
 battery-alert detects or clears an emergency SOC episode
+runtime-alert sends and clears a low-runtime warning
 Growatt cloud failures alert after repeated consecutive failures
 other command failures alert immediately, if DISCORD_NOTIFY_FAILURE=true
 checks are skipped, only if DISCORD_NOTIFY_SKIP=true
@@ -214,10 +289,11 @@ Available slash commands:
 /growatt_sbu         — manually switch to SBU priority
 /growatt_utility     — manually switch to Utility first
 /growatt_preserve    — run preserve-battery immediately
-/growatt_topup       — charge from grid for N minutes, then return to SBU
+/growatt_topup        — charge from grid for N minutes (or to a target SOC), then return to SBU
+/growatt_topup_cancel — abort a running topup early and return to SBU
 ```
 
-`/growatt_topup minutes:60` pauses scheduled mode-changing automation, switches to Utility first, waits, resumes automation, then returns to SBU.
+`/growatt_topup minutes:60` (or `target_soc:80`) pauses scheduled mode-changing automation, switches to Utility, waits, resumes automation, then returns to SBU.
 
 ## Current Light Schedule
 
