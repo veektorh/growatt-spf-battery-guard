@@ -6,6 +6,8 @@ This automates the rainy-season routine for a Growatt SPF 6000 ES on ShinePhone:
 - It reads battery SOC from Growatt/ShinePhone.
 - If SOC is below `LOW_BATTERY_SOC`, it switches to Utility while estate power is available.
 - `return-sbu` runs a few minutes before each outage and switches back to SBU.
+- `health-check --notify` reports VPS/cron/Growatt readiness before the day starts.
+- `battery-alert` sends a throttled Discord warning if SOC drops below `EMERGENCY_SOC`.
 
 The script starts in `DRY_RUN=true` mode. In dry-run it logs in and prepares the command, but does not change the inverter.
 
@@ -24,6 +26,7 @@ Fill in:
 GROWATT_USERNAME=...
 GROWATT_PASSWORD=...
 LOW_BATTERY_SOC=50
+EMERGENCY_SOC=30
 DRY_RUN=true
 ```
 
@@ -128,6 +131,8 @@ preserve-battery switches to Utility first
 return-sbu switches to SBU priority
 watchdog-sbu repairs a missed SBU switch
 daily-summary posts the end-of-day summary
+health-check --notify posts readiness diagnostics
+battery-alert detects or clears an emergency SOC episode
 any command fails, if DISCORD_NOTIFY_FAILURE=true
 checks are skipped, only if DISCORD_NOTIFY_SKIP=true
 ```
@@ -144,6 +149,7 @@ Weekends: 08:00-10:30
 The automation should therefore:
 
 ```text
+06:10 daily       post Discord health report
 06:30 daily       preserve-battery if SOC is below 50%
 07:55 daily       return to SBU before the 08:00 outage
 08:01 daily       verify SBU and retry once if needed
@@ -151,6 +157,7 @@ The automation should therefore:
 15:25 weekdays    return to SBU before the 15:30 outage
 15:31 weekdays    verify SBU and retry once if needed
 21:00 daily       post Discord daily summary
+*/30 always       alert once if battery SOC drops below 30%
 00:10 daily       rotate old generated logs/probes
 ```
 
@@ -173,6 +180,8 @@ python .\growatt_power_guard.py rotate-logs
 python .\growatt_power_guard.py weather-threshold
 python .\growatt_power_guard.py validate-schedule
 python .\growatt_power_guard.py health-check
+python .\growatt_power_guard.py health-check --notify
+python .\growatt_power_guard.py battery-alert
 python .\growatt_power_guard.py pause --hours 6 --reason "maintenance"
 python .\growatt_power_guard.py pause-status
 python .\growatt_power_guard.py resume
@@ -189,6 +198,7 @@ powershell -ExecutionPolicy Bypass -File .\install_growatt_schedule.ps1
 Or create them manually:
 
 ```powershell
+schtasks /Create /F /TN "Growatt Morning Health Report" /SC DAILY /ST 06:10 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py health-check --notify"
 schtasks /Create /F /TN "Growatt Utility Check Morning" /SC DAILY /ST 06:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py preserve-battery"
 schtasks /Create /F /TN "Growatt SBU Before Morning Outage" /SC DAILY /ST 07:55 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py return-sbu"
 schtasks /Create /F /TN "Growatt SBU Watchdog Morning" /SC DAILY /ST 08:01 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py watchdog-sbu"
@@ -196,6 +206,7 @@ schtasks /Create /F /TN "Growatt Utility Check Afternoon" /SC WEEKLY /D MON,TUE,
 schtasks /Create /F /TN "Growatt SBU Before Afternoon Outage" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:25 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py return-sbu"
 schtasks /Create /F /TN "Growatt SBU Watchdog Afternoon" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:31 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py watchdog-sbu"
 schtasks /Create /F /TN "Growatt Daily Summary" /SC DAILY /ST 21:00 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py daily-summary"
+schtasks /Create /F /TN "Growatt Emergency Battery Alert" /SC MINUTE /MO 30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py battery-alert"
 schtasks /Create /F /TN "Growatt Log Rotation" /SC DAILY /ST 00:10 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py rotate-logs"
 ```
 
@@ -236,6 +247,8 @@ GROWATT_PASSWORD=...
 GROWATT_PLANT_ID=your_plant_id
 GROWATT_DEVICE_SN=your_device_sn
 LOW_BATTERY_SOC=50
+EMERGENCY_SOC=30
+EMERGENCY_SOC_RECOVERY=35
 DRY_RUN=true
 GROWATT_MODE_DRIVER=spf5000
 ```
@@ -254,11 +267,12 @@ Test it:
 .venv/bin/python growatt_power_guard.py validate-schedule
 .venv/bin/python growatt_power_guard.py health-check
 .venv/bin/python growatt_power_guard.py health-check --notify
+.venv/bin/python growatt_power_guard.py battery-alert
 ```
 
 ## Pause Or Resume Automation
 
-Pause only affects mode-changing commands: `preserve-battery`, `return-sbu`, and `watchdog-sbu`. Read-only commands such as `status`, `daily-summary`, `weather-threshold`, and `health-check` still run.
+Pause only affects mode-changing commands: `preserve-battery`, `return-sbu`, and `watchdog-sbu`. Read-only commands such as `status`, `daily-summary`, `weather-threshold`, `health-check`, and `battery-alert` still run.
 
 ```bash
 cd ~/automation
@@ -287,6 +301,7 @@ Cron logs go to:
 ```text
 ~/automation/logs/cron.log
 ~/automation/logs/growatt_power_guard.log
+~/automation/logs/mode_decisions.csv
 ```
 
 ## Operations
@@ -303,6 +318,7 @@ Watch recent automation logs:
 ```bash
 tail -n 120 ~/automation/logs/growatt_power_guard.log
 tail -n 120 ~/automation/logs/cron.log
+tail -n 40 ~/automation/logs/mode_decisions.csv
 ```
 
 Post a manual Discord daily summary:
@@ -320,6 +336,13 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py health-check --notify
 ```
 
+Run the emergency battery alert check manually:
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py battery-alert
+```
+
 Change the battery preservation threshold:
 
 ```bash
@@ -330,7 +353,18 @@ Then edit:
 
 ```text
 LOW_BATTERY_SOC=50
+EMERGENCY_SOC=30
+EMERGENCY_SOC_RECOVERY=35
 ```
+
+Update the VPS from GitHub:
+
+```bash
+cd ~/automation
+./update_server.sh
+```
+
+Use `./update_server.sh --no-notify` if you want the health check printed only in the terminal.
 
 Pause the cloud schedule:
 
@@ -360,6 +394,7 @@ RUNBOOK.md
 .env.example
 install_cloud_cron.sh
 install_growatt_schedule.ps1
+update_server.sh
 tests/
 .gitignore
 ```

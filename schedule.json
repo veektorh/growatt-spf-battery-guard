@@ -2,6 +2,14 @@
   "timezone": "Africa/Lagos",
   "jobs": [
     {
+      "name": "Send morning health report",
+      "cron": "10 6 * * *",
+      "command": "health-check",
+      "args": [
+        "--notify"
+      ]
+    },
+    {
       "name": "Preserve battery before morning outage",
       "cron": "30 6 * * *",
       "command": "preserve-battery"
@@ -35,6 +43,11 @@
       "name": "Post daily Discord summary",
       "cron": "0 21 * * *",
       "command": "daily-summary"
+    },
+    {
+      "name": "Check emergency battery SOC",
+      "cron": "*/30 * * * *",
+      "command": "battery-alert"
     },
     {
       "name": "Rotate old generated logs",

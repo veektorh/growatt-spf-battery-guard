@@ -3,6 +3,7 @@
 ## Current Schedule
 
 ```text
+06:10 daily       post Discord health report
 06:30 daily       preserve-battery if SOC is below 50%
 07:55 daily       return to SBU before the 08:00 outage
 08:01 daily       verify SBU and retry once if needed
@@ -10,6 +11,7 @@
 15:25 weekdays    return to SBU before the 15:30 outage
 15:31 weekdays    verify SBU and retry once if needed
 21:00 daily       post Discord daily summary
+*/30 always       alert once if battery SOC drops below 30%
 00:10 daily       rotate old generated logs/probes
 ```
 
@@ -28,6 +30,7 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py validate-schedule
 .venv/bin/python growatt_power_guard.py health-check
 .venv/bin/python growatt_power_guard.py health-check --notify
+.venv/bin/python growatt_power_guard.py battery-alert
 .venv/bin/python growatt_power_guard.py pause --hours 6 --reason "maintenance"
 .venv/bin/python growatt_power_guard.py pause-status
 .venv/bin/python growatt_power_guard.py resume
@@ -64,6 +67,7 @@ crontab -l | grep growatt-power-guard
 Expected jobs:
 
 ```text
+10 6 * * *
 30 6 * * *
 55 7 * * *
 1 8 * * *
@@ -71,6 +75,7 @@ Expected jobs:
 25 15 * * 1-5
 31 15 * * 1-5
 0 21 * * *
+*/30 * * * *
 10 0 * * *
 ```
 
@@ -79,6 +84,7 @@ Expected jobs:
 ```bash
 tail -n 120 ~/automation/logs/growatt_power_guard.log
 tail -n 120 ~/automation/logs/cron.log
+tail -n 40 ~/automation/logs/mode_decisions.csv
 ```
 
 Success response:
@@ -109,6 +115,8 @@ cd ~/automation
 GROWATT_PLANT_ID=your_plant_id
 GROWATT_DEVICE_SN=your_device_sn
 LOW_BATTERY_SOC=50
+EMERGENCY_SOC=30
+EMERGENCY_SOC_RECOVERY=35
 GROWATT_MODE_DRIVER=spf5000
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 WEATHER_ENABLED=true
@@ -124,6 +132,14 @@ Run a read-only health check:
 cd ~/automation
 .venv/bin/python growatt_power_guard.py health-check
 .venv/bin/python growatt_power_guard.py health-check --notify
+.venv/bin/python growatt_power_guard.py battery-alert
+```
+
+Update the VPS from GitHub, reinstall cron, and run health check:
+
+```bash
+cd ~/automation
+./update_server.sh
 ```
 
 ## Weather Thresholds
@@ -145,7 +161,7 @@ cd ~/automation
 
 ## Discord Alerts
 
-The automation can post to Discord on successful mode switches and failures.
+The automation can post to Discord on successful mode switches, health reports, emergency battery alerts, and failures.
 
 ```text
 DISCORD_NOTIFY_SUCCESS=true

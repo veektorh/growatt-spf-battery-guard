@@ -39,6 +39,11 @@ function Remove-StaleGrowattTask {
 Remove-StaleGrowattTask -Name "Utility Check Midday"
 
 Register-GrowattTask `
+    -Name "Morning Health Report" `
+    -ScheduleArgs @("/SC", "DAILY", "/ST", "06:10") `
+    -Command "health-check --notify"
+
+Register-GrowattTask `
     -Name "Utility Check Morning" `
     -ScheduleArgs @("/SC", "DAILY", "/ST", "06:30") `
     -Command "preserve-battery"
@@ -72,6 +77,11 @@ Register-GrowattTask `
     -Name "Daily Summary" `
     -ScheduleArgs @("/SC", "DAILY", "/ST", "21:00") `
     -Command "daily-summary"
+
+Register-GrowattTask `
+    -Name "Emergency Battery Alert" `
+    -ScheduleArgs @("/SC", "MINUTE", "/MO", "30") `
+    -Command "battery-alert"
 
 Register-GrowattTask `
     -Name "Log Rotation" `

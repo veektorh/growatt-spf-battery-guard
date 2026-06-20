@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import datetime as dt
 import json
 import logging
@@ -28,9 +29,11 @@ except ImportError:  # pragma: no cover - handled at runtime for friendlier outp
 BASE_DIR = Path(__file__).resolve().parent
 LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "growatt_power_guard.log"
+MODE_AUDIT_FILE = LOG_DIR / "mode_decisions.csv"
 SCHEDULE_FILE = BASE_DIR / "schedule.json"
 STATE_DIR = BASE_DIR / "state"
 PAUSE_FILE = STATE_DIR / "automation_pause.json"
+BATTERY_ALERT_FILE = STATE_DIR / "battery_alert.json"
 
 SOC_KEYS = (
     "SOC",
@@ -60,6 +63,11 @@ SCHEDULE_COMMANDS = {
     "watchdog-sbu",
     "daily-summary",
     "rotate-logs",
+    "health-check",
+    "battery-alert",
+}
+SCHEDULE_COMMAND_ARGS = {
+    "health-check": {"--notify"},
 }
 PAUSABLE_COMMANDS = {"preserve-battery", "utility-check", "morning-check", "return-sbu", "watchdog-sbu"}
 
@@ -87,6 +95,8 @@ class Config:
     discord_notify_skip: bool
     discord_notify_failure: bool
     log_retention_days: int
+    emergency_soc: float = 30
+    emergency_soc_recovery: float = 35
     weather_enabled: bool = False
     weather_lat: float | None = None
     weather_lon: float | None = None
@@ -174,6 +184,8 @@ def load_config() -> Config:
         discord_notify_skip=str_to_bool(env("DISCORD_NOTIFY_SKIP"), default=False),
         discord_notify_failure=str_to_bool(env("DISCORD_NOTIFY_FAILURE"), default=True),
         log_retention_days=int(env("LOG_RETENTION_DAYS", "30")),
+        emergency_soc=float(env("EMERGENCY_SOC", "30")),
+        emergency_soc_recovery=float(env("EMERGENCY_SOC_RECOVERY", "35")),
         weather_enabled=str_to_bool(env("WEATHER_ENABLED"), default=False),
         weather_lat=optional_float(env("WEATHER_LAT")),
         weather_lon=optional_float(env("WEATHER_LON")),
@@ -311,6 +323,31 @@ def write_pause_state(hours: float, reason: str) -> dict[str, Any]:
     PAUSE_FILE.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
     state["paused_until_dt"] = until
     return state
+
+
+def read_battery_alert_state() -> dict[str, Any] | None:
+    if not BATTERY_ALERT_FILE.exists():
+        return None
+    try:
+        return json.loads(BATTERY_ALERT_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logging.warning("Ignoring invalid battery alert state: %s", exc)
+        return None
+
+
+def write_battery_alert_state(soc: float) -> None:
+    state = {
+        "active": True,
+        "last_soc": soc,
+        "last_alert_at": utc_now().isoformat(),
+    }
+    STATE_DIR.mkdir(exist_ok=True)
+    BATTERY_ALERT_FILE.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def clear_battery_alert_state() -> None:
+    if BATTERY_ALERT_FILE.exists():
+        BATTERY_ALERT_FILE.unlink()
 
 
 def parse_forecast_time(value: str) -> dt.datetime:
@@ -704,6 +741,83 @@ def summarize_status(status: dict[str, Any]) -> str:
     return ", ".join(parts)
 
 
+def extract_status_soc(status: dict[str, Any]) -> float | None:
+    soc_result = extract_soc(status)
+    if not soc_result:
+        return None
+    soc, _ = soc_result
+    return soc
+
+
+def describe_status_output_source(status: dict[str, Any]) -> str:
+    output_source = extract_spf_output_source(status)
+    if not output_source:
+        return ""
+    raw, label, _ = output_source
+    return f"{label} [{raw}]"
+
+
+MODE_AUDIT_FIELDS = (
+    "timestamp",
+    "command",
+    "soc",
+    "threshold",
+    "weather_category",
+    "previous_mode",
+    "action",
+    "dry_run",
+    "result",
+    "note",
+)
+
+
+def format_audit_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        return f"{value:g}"
+    if isinstance(value, (dict, list)):
+        text = json.dumps(value, sort_keys=True)
+    else:
+        text = str(value)
+    if len(text) > 500:
+        return text[:497] + "..."
+    return text
+
+
+def append_mode_audit(
+    config: Config,
+    command: str,
+    *,
+    soc: float | None = None,
+    threshold: float | None = None,
+    weather_category: str = "",
+    previous_mode: str = "",
+    action: str = "",
+    result: Any = None,
+    note: str = "",
+) -> None:
+    LOG_DIR.mkdir(exist_ok=True)
+    write_header = not MODE_AUDIT_FILE.exists()
+    row = {
+        "timestamp": dt.datetime.now().isoformat(timespec="seconds"),
+        "command": command,
+        "soc": format_audit_value(soc),
+        "threshold": format_audit_value(threshold),
+        "weather_category": weather_category,
+        "previous_mode": previous_mode,
+        "action": action,
+        "dry_run": str(config.dry_run).lower(),
+        "result": format_audit_value(result),
+        "note": note,
+    }
+    with MODE_AUDIT_FILE.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=MODE_AUDIT_FIELDS)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+
+
 def redact(data: Any) -> Any:
     secret_words = ("password", "token", "secret", "auth", "session", "cookie")
     if isinstance(data, dict):
@@ -884,13 +998,39 @@ def command_preserve_battery(config: Config) -> int:
         raise GrowattGuardError("Could not find battery SOC in Growatt response. Run the probe command.")
 
     soc, path = soc_result
+    previous_mode = describe_status_output_source(status)
     threshold_decision = choose_preserve_threshold(config)
     threshold = threshold_decision.threshold
     logging.info("Preserve-battery threshold: %.1f%% (%s)", threshold, threshold_decision.reason)
 
     if soc < threshold:
         logging.info("Battery SOC %.1f%% from %s is below %.1f%%; switching to Utility.", soc, path, threshold)
-        result = set_mode(api, config, device, "utility")
+        try:
+            result = set_mode(api, config, device, "utility")
+        except Exception as exc:  # noqa: BLE001 - audit failed mode decisions before re-raising
+            append_mode_audit(
+                config,
+                "preserve-battery",
+                soc=soc,
+                threshold=threshold,
+                weather_category=threshold_decision.weather_category,
+                previous_mode=previous_mode,
+                action="switch-to-utility-failed",
+                result="error",
+                note=str(exc),
+            )
+            raise
+        append_mode_audit(
+            config,
+            "preserve-battery",
+            soc=soc,
+            threshold=threshold,
+            weather_category=threshold_decision.weather_category,
+            previous_mode=previous_mode,
+            action="switch-to-utility",
+            result=result,
+            note=f"SOC from {path}",
+        )
         if config.discord_notify_success and not config.dry_run:
             send_discord_message(
                 config,
@@ -905,6 +1045,17 @@ def command_preserve_battery(config: Config) -> int:
         print(f"Threshold reason: {threshold_decision.reason}")
     else:
         logging.info("Battery SOC %.1f%% is not below %.1f%%; leaving SBU as-is.", soc, threshold)
+        append_mode_audit(
+            config,
+            "preserve-battery",
+            soc=soc,
+            threshold=threshold,
+            weather_category=threshold_decision.weather_category,
+            previous_mode=previous_mode,
+            action="no-change",
+            result="skipped",
+            note=f"SOC from {path}",
+        )
         if config.discord_notify_skip:
             send_discord_message(
                 config,
@@ -931,8 +1082,30 @@ def command_return_sbu(config: Config) -> int:
     if ensure_not_paused(config, "return-sbu"):
         return 0
 
-    api, device, _ = load_context(config)
-    result = set_mode(api, config, device, "sbu")
+    api, device, status = load_context(config)
+    soc = extract_status_soc(status)
+    previous_mode = describe_status_output_source(status)
+    try:
+        result = set_mode(api, config, device, "sbu")
+    except Exception as exc:  # noqa: BLE001 - audit failed mode decisions before re-raising
+        append_mode_audit(
+            config,
+            "return-sbu",
+            soc=soc,
+            previous_mode=previous_mode,
+            action="switch-to-sbu-failed",
+            result="error",
+            note=str(exc),
+        )
+        raise
+    append_mode_audit(
+        config,
+        "return-sbu",
+        soc=soc,
+        previous_mode=previous_mode,
+        action="switch-to-sbu",
+        result=result,
+    )
     if config.discord_notify_success and not config.dry_run:
         send_discord_message(config, "Growatt return-sbu action completed.\nSwitched to `SBU priority`.")
     print(f"SBU command result: {result}")
@@ -945,8 +1118,19 @@ def command_watchdog_sbu(config: Config) -> int:
 
     api, device, status = load_context(config)
     output_source = extract_spf_output_source(status)
+    soc = extract_status_soc(status)
+    previous_mode = describe_status_output_source(status)
     if not output_source:
         message = "Could not read current SPF output source; cannot verify SBU mode."
+        append_mode_audit(
+            config,
+            "watchdog-sbu",
+            soc=soc,
+            previous_mode=previous_mode,
+            action="verify-sbu-failed",
+            result="error",
+            note=message,
+        )
         if config.discord_notify_failure:
             send_discord_message(config, f"Growatt SBU watchdog could not verify mode.\n{message}")
         raise GrowattGuardError(message)
@@ -954,11 +1138,41 @@ def command_watchdog_sbu(config: Config) -> int:
     raw, label, path = output_source
     if raw == "0":
         logging.info("SBU watchdog OK: output=%s [%s] from %s", label, raw, path)
+        append_mode_audit(
+            config,
+            "watchdog-sbu",
+            soc=soc,
+            previous_mode=previous_mode,
+            action="verified-sbu",
+            result="ok",
+            note=f"output from {path}",
+        )
         print(f"SBU watchdog OK: output={label} [{raw}]")
         return 0
 
     logging.warning("SBU watchdog detected output=%s [%s] from %s; retrying SBU.", label, raw, path)
-    result = set_mode(api, config, device, "sbu")
+    try:
+        result = set_mode(api, config, device, "sbu")
+    except Exception as exc:  # noqa: BLE001 - audit failed mode decisions before re-raising
+        append_mode_audit(
+            config,
+            "watchdog-sbu",
+            soc=soc,
+            previous_mode=previous_mode,
+            action="repair-sbu-failed",
+            result="error",
+            note=str(exc),
+        )
+        raise
+    append_mode_audit(
+        config,
+        "watchdog-sbu",
+        soc=soc,
+        previous_mode=previous_mode,
+        action="repair-sbu",
+        result=result,
+        note=f"output from {path}",
+    )
     message = (
         "Growatt SBU watchdog repaired output source.\n"
         f"Detected `{label}` [{raw}] from `{path}`; retried `SBU priority`.\n"
@@ -1051,6 +1265,55 @@ def command_weather_threshold(config: Config) -> int:
     return 0
 
 
+def command_battery_alert(config: Config) -> int:
+    _, _, status = load_context(config)
+    soc_result = extract_soc(status)
+    if not soc_result:
+        raise GrowattGuardError("Could not find battery SOC in Growatt response. Run the probe command.")
+
+    soc, path = soc_result
+    previous_mode = describe_status_output_source(status) or "unknown"
+    state = read_battery_alert_state()
+    recovery_soc = max(config.emergency_soc_recovery, config.emergency_soc)
+
+    if soc < config.emergency_soc:
+        if state and state.get("active"):
+            print(
+                f"Emergency battery alert already active: SOC {soc:g}% < "
+                f"{config.emergency_soc:g}% ({previous_mode})."
+            )
+            return 0
+        if not config.discord_webhook_url:
+            raise GrowattGuardError("DISCORD_WEBHOOK_URL must be configured for emergency battery alerts.")
+
+        message = (
+            "Growatt emergency battery alert.\n"
+            f"SOC `{soc:g}%` is below emergency threshold `{config.emergency_soc:g}%`.\n"
+            f"Current output source: `{previous_mode}`.\n"
+            f"SOC source: `{path}`."
+        )
+        if not send_discord_message(config, message):
+            raise GrowattGuardError("Emergency battery alert could not be sent to Discord.")
+        write_battery_alert_state(soc)
+        print(f"Emergency battery alert sent: SOC {soc:g}% < {config.emergency_soc:g}%.")
+        return 0
+
+    if state and state.get("active") and soc >= recovery_soc:
+        clear_battery_alert_state()
+        message = (
+            "Growatt battery alert recovered.\n"
+            f"SOC `{soc:g}%` is now at or above recovery threshold `{recovery_soc:g}%`.\n"
+            f"Current output source: `{previous_mode}`."
+        )
+        if config.discord_webhook_url:
+            send_discord_message(config, message)
+        print(f"Emergency battery alert cleared: SOC {soc:g}% >= {recovery_soc:g}%.")
+        return 0
+
+    print(f"Battery alert OK: SOC {soc:g}% >= {config.emergency_soc:g}% ({previous_mode}).")
+    return 0
+
+
 def command_pause(config: Config, hours: float, reason: str) -> int:
     state = write_pause_state(hours, reason)
     message = f"Growatt automation paused until {format_local_time(state['paused_until_dt'])}."
@@ -1131,17 +1394,18 @@ def check_cron_schedule(schedule: dict[str, Any]) -> list[HealthCheckItem]:
     cron_lines = [line.strip() for line in cron_text.splitlines()]
     expected_jobs = schedule["jobs"]
     missing: list[str] = []
-    for job in expected_jobs:
+    for index, job in enumerate(expected_jobs, start=1):
         cron = str(job["cron"]).strip()
-        command = str(job["command"]).strip()
+        tokens = schedule_job_tokens(job, index)
+        command_fragment = "growatt_power_guard.py " + " ".join(tokens)
         found = any(
             line.startswith(f"{cron} ")
-            and f"growatt_power_guard.py {command}" in line
+            and command_fragment in line
             and "# growatt-power-guard" in line
             for line in cron_lines
         )
         if not found:
-            missing.append(f"{cron} {command}")
+            missing.append(f"{cron} {' '.join(tokens)}")
 
     checks: list[HealthCheckItem] = []
     installed_count = sum(1 for line in cron_lines if "# growatt-power-guard" in line)
@@ -1177,6 +1441,34 @@ def command_health_check(config: Config, notify: bool = False) -> int:
             "DRY_RUN=true; mode-changing commands will only simulate." if config.dry_run else "DRY_RUN=false.",
         ),
     ]
+
+    if config.emergency_soc_recovery <= config.emergency_soc:
+        checks.append(
+            HealthCheckItem(
+                "Emergency alert",
+                "WARN",
+                (
+                    f"alerts below {config.emergency_soc:g}%, but recovery "
+                    f"{config.emergency_soc_recovery:g}% is not above the alert threshold."
+                ),
+            )
+        )
+    elif not config.discord_webhook_url:
+        checks.append(
+            HealthCheckItem(
+                "Emergency alert",
+                "WARN",
+                f"alerts below {config.emergency_soc:g}%, but DISCORD_WEBHOOK_URL is not configured.",
+            )
+        )
+    else:
+        checks.append(
+            HealthCheckItem(
+                "Emergency alert",
+                "OK",
+                f"alerts below {config.emergency_soc:g}% and clears at {config.emergency_soc_recovery:g}%.",
+            )
+        )
 
     if config.mode_driver not in {"spf5000", "spf", "custom"}:
         checks.append(
@@ -1265,6 +1557,36 @@ def command_health_check(config: Config, notify: bool = False) -> int:
     return 1 if health_result(checks) == "FAIL" else 0
 
 
+def schedule_job_args(job: dict[str, Any], command: str, index: int) -> list[str]:
+    raw_args = job.get("args", [])
+    if raw_args in (None, ""):
+        return []
+    if not isinstance(raw_args, list):
+        raise GrowattGuardError(f"Schedule job {index} args must be a list of strings.")
+
+    args: list[str] = []
+    for arg_index, raw_arg in enumerate(raw_args, start=1):
+        if not isinstance(raw_arg, str) or not raw_arg.strip():
+            raise GrowattGuardError(f"Schedule job {index} arg {arg_index} must be a non-empty string.")
+        arg = raw_arg.strip()
+        if "\n" in arg or "\r" in arg:
+            raise GrowattGuardError(f"Schedule job {index} arg {arg_index} cannot contain newlines.")
+        args.append(arg)
+
+    allowed_args = SCHEDULE_COMMAND_ARGS.get(command, set())
+    if args and not allowed_args:
+        raise GrowattGuardError(f"Schedule job {index} command {command!r} does not support args.")
+    unsupported = [arg for arg in args if arg not in allowed_args]
+    if unsupported:
+        raise GrowattGuardError(f"Schedule job {index} has unsupported args for {command!r}: {unsupported}")
+    return args
+
+
+def schedule_job_tokens(job: dict[str, Any], index: int = 0) -> list[str]:
+    command = str(job.get("command", "")).strip()
+    return [command, *schedule_job_args(job, command, index)]
+
+
 def validate_schedule(path: Path = SCHEDULE_FILE) -> dict[str, Any]:
     if not path.exists():
         raise GrowattGuardError(f"Schedule file not found: {path}")
@@ -1289,6 +1611,7 @@ def validate_schedule(path: Path = SCHEDULE_FILE) -> dict[str, Any]:
             raise GrowattGuardError(f"Schedule job {index} has invalid cron expression: {cron!r}")
         if command not in SCHEDULE_COMMANDS:
             raise GrowattGuardError(f"Schedule job {index} has unsupported command: {command!r}")
+        schedule_job_args(job, command, index)
     return schedule
 
 
@@ -1323,6 +1646,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("daily-summary", help="Post/print a daily Growatt and automation summary.")
     subparsers.add_parser("rotate-logs", help="Delete old generated probe/log files according to LOG_RETENTION_DAYS.")
     subparsers.add_parser("weather-threshold", help="Print the current weather-aware preserve-battery threshold.")
+    subparsers.add_parser("battery-alert", help="Send a Discord alert if battery SOC is below EMERGENCY_SOC.")
     subparsers.add_parser("validate-schedule", help="Validate schedule.json.")
     subparsers.add_parser("test-discord", help="Send a test Discord webhook message.")
     health_parser = subparsers.add_parser("health-check", help="Run read-only configuration and connectivity checks.")
@@ -1366,6 +1690,8 @@ def main(argv: list[str] | None = None) -> int:
             return command_rotate_logs(config)
         if args.command == "weather-threshold":
             return command_weather_threshold(config)
+        if args.command == "battery-alert":
+            return command_battery_alert(config)
         if args.command == "test-discord":
             return command_test_discord(config)
         if args.command == "health-check":

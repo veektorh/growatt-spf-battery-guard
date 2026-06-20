@@ -41,11 +41,17 @@ print(f"CRON_TZ={timezone}")
 for job in jobs:
     cron = job["cron"].strip()
     command = job["command"].strip()
+    args = job.get("args", [])
+    if args is None:
+        args = []
+    if not isinstance(args, list) or not all(isinstance(arg, str) and arg.strip() for arg in args):
+        raise SystemExit(f"Invalid schedule job args: {job}")
     if not cron or not command:
         raise SystemExit(f"Invalid schedule job: {job}")
+    command_text = " ".join(shlex.quote(token) for token in [command, *args])
     print(
         f"{cron} cd {shlex.quote(root)} && {shlex.quote(python_bin)} "
-        f"growatt_power_guard.py {shlex.quote(command)} >> "
+        f"growatt_power_guard.py {command_text} >> "
         f"{shlex.quote(str(Path(root) / 'logs' / 'cron.log'))} 2>&1 # growatt-power-guard"
     )
 PY

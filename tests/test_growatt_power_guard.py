@@ -12,6 +12,7 @@ from growatt_power_guard import (
     DeviceRef,
     HealthCheckItem,
     ThresholdDecision,
+    append_mode_audit,
     build_daily_summary,
     extract_soc,
     extract_spf_output_source,
@@ -19,6 +20,7 @@ from growatt_power_guard import (
     set_mode,
     build_parser,
     check_cron_schedule,
+    command_battery_alert,
     command_health_check,
     command_watchdog_sbu,
     ensure_not_paused,
@@ -53,6 +55,8 @@ def make_config(**overrides):
         "discord_notify_skip": False,
         "discord_notify_failure": True,
         "log_retention_days": 30,
+        "emergency_soc": 30,
+        "emergency_soc_recovery": 35,
         "weather_enabled": False,
         "weather_lat": None,
         "weather_lon": None,
@@ -158,6 +162,11 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(args.command, "weather-threshold")
 
+    def test_battery_alert_command_is_available(self):
+        args = build_parser().parse_args(["battery-alert"])
+
+        self.assertEqual(args.command, "battery-alert")
+
     def test_pause_commands_are_available(self):
         pause_args = build_parser().parse_args(["pause", "--hours", "2", "--reason", "maintenance"])
         resume_args = build_parser().parse_args(["resume"])
@@ -198,7 +207,9 @@ class GrowattPowerGuardTests(unittest.TestCase):
     def test_watchdog_sbu_does_nothing_when_already_sbu(self):
         config = make_config()
 
-        with patch(
+        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.LOG_DIR", Path(tmpdir)), patch(
+            "growatt_power_guard.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
+        ), patch(
             "growatt_power_guard.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), {"storage_params": {"outputConfig": "0"}}),
         ), patch("growatt_power_guard.set_mode") as set_mode_mock, redirect_stdout(StringIO()):
@@ -209,7 +220,9 @@ class GrowattPowerGuardTests(unittest.TestCase):
     def test_watchdog_sbu_retries_when_not_sbu(self):
         config = make_config()
 
-        with patch(
+        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.LOG_DIR", Path(tmpdir)), patch(
+            "growatt_power_guard.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
+        ), patch(
             "growatt_power_guard.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), {"storage_params": {"outputConfig": "2"}}),
         ), patch("growatt_power_guard.set_mode", return_value={"success": True}) as set_mode_mock, patch(
@@ -264,6 +277,35 @@ class GrowattPowerGuardTests(unittest.TestCase):
             with self.assertRaises(GrowattGuardError):
                 validate_schedule(path)
 
+    def test_validate_schedule_accepts_supported_command_args(self):
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "schedule.json"
+            path.write_text(
+                (
+                    '{"timezone":"Africa/Lagos","jobs":[{"cron":"10 6 * * *",'
+                    '"command":"health-check","args":["--notify"]}]}'
+                ),
+                encoding="utf-8",
+            )
+
+            schedule = validate_schedule(path)
+
+        self.assertEqual(schedule["jobs"][0]["args"], ["--notify"])
+
+    def test_validate_schedule_rejects_unsupported_command_args(self):
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "schedule.json"
+            path.write_text(
+                (
+                    '{"timezone":"Africa/Lagos","jobs":[{"cron":"30 6 * * *",'
+                    '"command":"preserve-battery","args":["--notify"]}]}'
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(GrowattGuardError):
+                validate_schedule(path)
+
     def test_format_health_report_summarizes_failures(self):
         report = format_health_report(
             [
@@ -279,6 +321,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         schedule = {
             "timezone": "Africa/Lagos",
             "jobs": [
+                {"cron": "10 6 * * *", "command": "health-check", "args": ["--notify"]},
                 {"cron": "30 6 * * *", "command": "preserve-battery"},
                 {"cron": "55 7 * * *", "command": "return-sbu"},
             ],
@@ -286,6 +329,10 @@ class GrowattPowerGuardTests(unittest.TestCase):
         crontab = "\n".join(
             [
                 "CRON_TZ=Africa/Lagos",
+                (
+                    "10 6 * * * cd /home/ubuntu/automation && .venv/bin/python "
+                    "growatt_power_guard.py health-check --notify >> logs/cron.log 2>&1 # growatt-power-guard"
+                ),
                 (
                     "30 6 * * * cd /home/ubuntu/automation && .venv/bin/python "
                     "growatt_power_guard.py preserve-battery >> logs/cron.log 2>&1 # growatt-power-guard"
@@ -306,7 +353,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertTrue(all(check.status == "OK" for check in checks))
 
     def test_command_health_check_reports_ok_when_everything_is_available(self):
-        config = make_config(dry_run=False)
+        config = make_config(dry_run=False, discord_webhook_url="https://discord.com/api/webhooks/example")
         status = {"device": {"capacity": "50%"}, "storage_params": {"outputConfig": "0"}}
         schedule = {"timezone": "Africa/Lagos", "jobs": [{"cron": "30 6 * * *", "command": "preserve-battery"}]}
 
@@ -326,6 +373,43 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Result: OK", stdout.getvalue())
+
+    def test_battery_alert_sends_once_while_low(self):
+        config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example")
+        status = {"device": {"capacity": "29%"}, "storage_params": {"outputConfig": "0"}}
+
+        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.STATE_DIR", Path(tmpdir)), patch(
+            "growatt_power_guard.BATTERY_ALERT_FILE", Path(tmpdir) / "battery_alert.json"
+        ), patch(
+            "growatt_power_guard.load_context",
+            return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
+        ), patch("growatt_power_guard.send_discord_message", return_value=True) as send_mock, redirect_stdout(StringIO()):
+            self.assertEqual(command_battery_alert(config), 0)
+            self.assertEqual(command_battery_alert(config), 0)
+
+        self.assertEqual(send_mock.call_count, 1)
+
+    def test_append_mode_audit_writes_csv_row(self):
+        config = make_config(dry_run=False)
+
+        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.LOG_DIR", Path(tmpdir)), patch(
+            "growatt_power_guard.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
+        ):
+            append_mode_audit(
+                config,
+                "preserve-battery",
+                soc=49,
+                threshold=50,
+                weather_category="rainy/cloudy",
+                previous_mode="SBU priority [0]",
+                action="switch-to-utility",
+                result={"success": True},
+            )
+            content = (Path(tmpdir) / "mode_decisions.csv").read_text(encoding="utf-8")
+
+        self.assertIn("timestamp,command,soc,threshold,weather_category", content)
+        self.assertIn("preserve-battery,49,50,rainy/cloudy", content)
+        self.assertIn("switch-to-utility", content)
 
     def test_choose_preserve_threshold_uses_fixed_when_weather_disabled(self):
         decision = choose_preserve_threshold(make_config(weather_enabled=False, low_battery_soc=50))
