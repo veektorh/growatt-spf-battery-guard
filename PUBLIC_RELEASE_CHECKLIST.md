@@ -22,6 +22,12 @@ Search for real Growatt values before publishing:
 grep -R "GROWATT_USERNAME=\|GROWATT_PASSWORD=\|GROWATT_PLANT_ID=\|GROWATT_DEVICE_SN=" .
 ```
 
+Also check that no real Discord webhook URL is committed:
+
+```bash
+grep -R "discord.com/api/webhooks/[0-9]" .
+```
+
 The public repo should only contain placeholders such as:
 
 ```text

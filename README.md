@@ -62,6 +62,38 @@ The script sends `storage_spf5000_ac_output_source` through Growatt's `storageSP
 
 Keep `DRY_RUN=true` for the first `preserve-battery` and `return-sbu` manual test. After the dry-run output looks right, set `DRY_RUN=false`.
 
+## Discord Notifications
+
+Discord notifications are optional. Create a webhook in your Discord server:
+
+```text
+Server Settings -> Integrations -> Webhooks -> New Webhook -> Copy Webhook URL
+```
+
+Then add it to `.env`:
+
+```text
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+DISCORD_NOTIFY_SUCCESS=true
+DISCORD_NOTIFY_SKIP=false
+DISCORD_NOTIFY_FAILURE=true
+```
+
+Test it:
+
+```bash
+python growatt_power_guard.py test-discord
+```
+
+Notifications are sent when:
+
+```text
+preserve-battery switches to Utility first
+return-sbu switches to SBU priority
+any command fails, if DISCORD_NOTIFY_FAILURE=true
+checks are skipped, only if DISCORD_NOTIFY_SKIP=true
+```
+
 ## Current Light Schedule
 
 Estate power is unavailable during these windows:
@@ -149,6 +181,7 @@ Test it:
 
 ```bash
 .venv/bin/python growatt_power_guard.py status
+.venv/bin/python growatt_power_guard.py test-discord
 .venv/bin/python growatt_power_guard.py preserve-battery
 .venv/bin/python growatt_power_guard.py return-sbu
 ```

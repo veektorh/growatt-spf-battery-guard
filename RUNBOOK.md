@@ -14,6 +14,7 @@
 ```bash
 cd ~/automation
 .venv/bin/python growatt_power_guard.py status
+.venv/bin/python growatt_power_guard.py test-discord
 .venv/bin/python growatt_power_guard.py preserve-battery
 .venv/bin/python growatt_power_guard.py return-sbu
 ```
@@ -68,4 +69,22 @@ GROWATT_PLANT_ID=your_plant_id
 GROWATT_DEVICE_SN=your_device_sn
 LOW_BATTERY_SOC=50
 GROWATT_MODE_DRIVER=spf5000
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+```
+
+## Discord Alerts
+
+The automation can post to Discord on successful mode switches and failures.
+
+```text
+DISCORD_NOTIFY_SUCCESS=true
+DISCORD_NOTIFY_SKIP=false
+DISCORD_NOTIFY_FAILURE=true
+```
+
+Test after changing the webhook:
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py test-discord
 ```

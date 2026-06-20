@@ -7,6 +7,8 @@ import logging
 import os
 import re
 import sys
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -66,6 +68,10 @@ class Config:
     set_mode_method: str
     utility_mode_params: str
     sbu_mode_params: str
+    discord_webhook_url: str
+    discord_notify_success: bool
+    discord_notify_skip: bool
+    discord_notify_failure: bool
 
 
 @dataclass(frozen=True)
@@ -115,9 +121,13 @@ def load_config() -> Config:
         dry_run=str_to_bool(env("DRY_RUN"), default=True),
         mode_driver=mode_driver,
         set_mode_path=env("GROWATT_SET_MODE_PATH", "tcpSet.do"),
-        set_mode_method=env("GROWATT_SET_MODE_METHOD", "get").lower(),
+        set_mode_method=env("GROWATT_SET_MODE_METHOD", "post").lower(),
         utility_mode_params=utility_mode_params,
         sbu_mode_params=sbu_mode_params,
+        discord_webhook_url=env("DISCORD_WEBHOOK_URL"),
+        discord_notify_success=str_to_bool(env("DISCORD_NOTIFY_SUCCESS"), default=True),
+        discord_notify_skip=str_to_bool(env("DISCORD_NOTIFY_SKIP"), default=False),
+        discord_notify_failure=str_to_bool(env("DISCORD_NOTIFY_FAILURE"), default=True),
     )
 
 
@@ -139,6 +149,46 @@ def setup_logging(verbose: bool) -> None:
     console_handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
     console_handler.setLevel(level)
     root.addHandler(console_handler)
+
+
+def truncate_discord_message(message: str) -> str:
+    if len(message) <= 1900:
+        return message
+    return message[:1890] + "...[truncated]"
+
+
+def send_discord_message(config: Config, message: str) -> bool:
+    if not config.discord_webhook_url:
+        return False
+
+    payload = json.dumps(
+        {
+            "username": "Growatt Guard",
+            "content": truncate_discord_message(message),
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        config.discord_webhook_url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            if response.status >= 300:
+                logging.warning("Discord webhook returned HTTP %s", response.status)
+                return False
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        logging.warning("Discord notification failed: %s", exc)
+        return False
+    return True
+
+
+def notify_failure(config: Config | None, command: str, message: str) -> None:
+    if config is None or not config.discord_notify_failure:
+        return
+    send_discord_message(config, f"Growatt automation failed during `{command}`.\n{message}")
 
 
 def require_dependencies() -> None:
@@ -459,6 +509,11 @@ def send_spf5000_output_source(api, path: str, params: dict[str, Any]) -> dict[s
     raise GrowattGuardError("Growatt SPF output-source command failed. " + " | ".join(failures))
 
 
+def ensure_growatt_success(result: dict[str, Any], action: str) -> None:
+    if result.get("success") is False:
+        raise GrowattGuardError(f"Growatt {action} failed: {result}")
+
+
 def set_mode(api, config: Config, device: DeviceRef, mode: str) -> dict[str, Any]:
     if mode not in {"utility", "sbu"}:
         raise GrowattGuardError(f"Unsupported mode: {mode}")
@@ -481,6 +536,7 @@ def set_mode(api, config: Config, device: DeviceRef, mode: str) -> dict[str, Any
             logging.info("DRY_RUN=true, not sending SPF output-source command.")
             return {"dry_run": True, "mode": mode, "path": path, "method": method, "params": params}
         result = send_spf5000_output_source(api, path, params)
+        ensure_growatt_success(result, f"{mode} mode command")
         logging.info("Growatt SPF %s mode response: %s", mode, result)
         return result
 
@@ -507,6 +563,7 @@ def set_mode(api, config: Config, device: DeviceRef, mode: str) -> dict[str, Any
     else:
         raise GrowattGuardError("GROWATT_SET_MODE_METHOD must be 'post' or 'get'.")
     result = response.json()
+    ensure_growatt_success(result, f"{mode} mode command")
     logging.info("Growatt %s mode response: %s", mode, result)
     return result
 
@@ -544,9 +601,26 @@ def command_preserve_battery(config: Config) -> int:
     if soc < config.low_battery_soc:
         logging.info("Battery SOC %.1f%% from %s is below %.1f%%; switching to Utility.", soc, path, config.low_battery_soc)
         result = set_mode(api, config, device, "utility")
+        if config.discord_notify_success and not config.dry_run:
+            send_discord_message(
+                config,
+                (
+                    "Growatt preserve-battery action completed.\n"
+                    f"SOC `{soc:g}%` is below threshold `{config.low_battery_soc:g}%`; "
+                    "switched to `Utility first`."
+                ),
+            )
         print(f"SOC {soc:g}% < {config.low_battery_soc:g}%; Utility command result: {result}")
     else:
         logging.info("Battery SOC %.1f%% is not below %.1f%%; leaving SBU as-is.", soc, config.low_battery_soc)
+        if config.discord_notify_skip:
+            send_discord_message(
+                config,
+                (
+                    "Growatt preserve-battery check skipped.\n"
+                    f"SOC `{soc:g}%` is at or above threshold `{config.low_battery_soc:g}%`; no switch needed."
+                ),
+            )
         print(f"SOC {soc:g}% >= {config.low_battery_soc:g}%; no switch needed.")
     return 0
 
@@ -562,7 +636,19 @@ def command_morning_check(config: Config) -> int:
 def command_return_sbu(config: Config) -> int:
     api, device, _ = load_context(config)
     result = set_mode(api, config, device, "sbu")
+    if config.discord_notify_success and not config.dry_run:
+        send_discord_message(config, "Growatt return-sbu action completed.\nSwitched to `SBU priority`.")
     print(f"SBU command result: {result}")
+    return 0
+
+
+def command_test_discord(config: Config) -> int:
+    if not config.discord_webhook_url:
+        raise GrowattGuardError("DISCORD_WEBHOOK_URL is not configured in .env.")
+    ok = send_discord_message(config, "Growatt Guard Discord test message.")
+    if not ok:
+        raise GrowattGuardError("Discord test message failed. Check the webhook URL and network access.")
+    print("Discord test message sent.")
     return 0
 
 
@@ -576,6 +662,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("utility-check", help="Alias for preserve-battery.")
     subparsers.add_parser("morning-check", help="Alias for preserve-battery.")
     subparsers.add_parser("return-sbu", help="Switch back to SBU.")
+    subparsers.add_parser("test-discord", help="Send a test Discord webhook message.")
     return parser
 
 
@@ -583,6 +670,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     setup_logging(args.verbose)
+    config: Config | None = None
 
     try:
         config = load_config()
@@ -599,14 +687,18 @@ def main(argv: list[str] | None = None) -> int:
             return command_morning_check(config)
         if args.command == "return-sbu":
             return command_return_sbu(config)
+        if args.command == "test-discord":
+            return command_test_discord(config)
         parser.error(f"Unknown command: {args.command}")
         return 2
     except GrowattGuardError as exc:
         logging.error("%s", exc)
+        notify_failure(config, args.command, str(exc))
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     except Exception as exc:  # noqa: BLE001 - logs traceback for unattended scheduler runs
         logging.exception("Unhandled error")
+        notify_failure(config, args.command, str(exc))
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 
