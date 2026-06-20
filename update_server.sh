@@ -58,6 +58,7 @@ fi
 
 echo "Running post-deploy smoke checks..."
 "${PYTHON_BIN}" growatt_power_guard.py observability-refresh
+"${PYTHON_BIN}" growatt_power_guard.py dashboard-refresh --once
 "${PYTHON_BIN}" growatt_power_guard.py dashboard-stale-alert
 
 echo "Running health check..."
