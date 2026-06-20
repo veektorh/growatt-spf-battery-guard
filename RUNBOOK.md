@@ -12,6 +12,7 @@
 15:31 weekdays    verify SBU and retry once if needed
 21:00 daily       post Discord daily summary
 */30 always       alert once if battery SOC drops below 30%
+21:10 Sundays     post weekly performance summary
 00:10 daily       rotate old generated logs/probes
 ```
 
@@ -25,12 +26,14 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py return-sbu
 .venv/bin/python growatt_power_guard.py watchdog-sbu
 .venv/bin/python growatt_power_guard.py daily-summary
+.venv/bin/python growatt_power_guard.py weekly-summary
 .venv/bin/python growatt_power_guard.py rotate-logs
 .venv/bin/python growatt_power_guard.py weather-threshold
 .venv/bin/python growatt_power_guard.py validate-schedule
 .venv/bin/python growatt_power_guard.py health-check
 .venv/bin/python growatt_power_guard.py health-check --notify
 .venv/bin/python growatt_power_guard.py battery-alert
+.venv/bin/python growatt_power_guard.py dashboard
 .venv/bin/python growatt_power_guard.py pause --hours 6 --reason "maintenance"
 .venv/bin/python growatt_power_guard.py pause-status
 .venv/bin/python growatt_power_guard.py resume
@@ -38,7 +41,7 @@ cd ~/automation
 
 ## Pause Automation
 
-Pause mode prevents scheduled mode changes while still allowing read-only checks and summaries:
+Pause mode prevents scheduled mode changes while still allowing read-only checks, summaries, alerts, and dashboard generation:
 
 ```bash
 cd ~/automation
@@ -46,6 +49,8 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py pause-status
 .venv/bin/python growatt_power_guard.py resume
 ```
+
+Mode-changing commands use a local `state/mode_command.lock` file to avoid overlapping Growatt writes.
 
 ## Change Schedule
 
@@ -54,6 +59,16 @@ Edit `schedule.json`, then validate and reinstall:
 ```bash
 cd ~/automation
 nano schedule.json
+.venv/bin/python growatt_power_guard.py validate-schedule
+./install_cloud_cron.sh
+```
+
+For temporary date changes, copy and edit the ignored override file:
+
+```bash
+cd ~/automation
+cp schedule_overrides.example.json schedule_overrides.json
+nano schedule_overrides.json
 .venv/bin/python growatt_power_guard.py validate-schedule
 ./install_cloud_cron.sh
 ```
@@ -76,6 +91,7 @@ Expected jobs:
 31 15 * * 1-5
 0 21 * * *
 */30 * * * *
+10 21 * * 0
 10 0 * * *
 ```
 
@@ -133,6 +149,8 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py health-check
 .venv/bin/python growatt_power_guard.py health-check --notify
 .venv/bin/python growatt_power_guard.py battery-alert
+.venv/bin/python growatt_power_guard.py weekly-summary
+.venv/bin/python growatt_power_guard.py dashboard
 ```
 
 Update the VPS from GitHub, reinstall cron, and run health check:
@@ -161,7 +179,7 @@ cd ~/automation
 
 ## Discord Alerts
 
-The automation can post to Discord on successful mode switches, health reports, emergency battery alerts, and failures.
+The automation can post to Discord on successful mode switches, health reports, emergency battery alerts, weekly summaries, and failures.
 
 ```text
 DISCORD_NOTIFY_SUCCESS=true

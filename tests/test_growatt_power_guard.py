@@ -14,6 +14,8 @@ from growatt_power_guard import (
     ThresholdDecision,
     append_mode_audit,
     build_daily_summary,
+    build_weekly_summary,
+    acquire_command_lock,
     extract_soc,
     extract_spf_output_source,
     render_params,
@@ -21,11 +23,17 @@ from growatt_power_guard import (
     build_parser,
     check_cron_schedule,
     command_battery_alert,
+    command_dashboard,
     command_health_check,
+    command_run_scheduled,
     command_watchdog_sbu,
     ensure_not_paused,
     format_health_report,
+    next_scheduled_runs,
     read_pause_state,
+    release_command_lock,
+    run_with_command_lock,
+    validate_schedule_overrides,
     validate_schedule,
     GrowattGuardError,
     write_pause_state,
@@ -147,6 +155,11 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(args.command, "daily-summary")
 
+    def test_weekly_summary_command_is_available(self):
+        args = build_parser().parse_args(["weekly-summary"])
+
+        self.assertEqual(args.command, "weekly-summary")
+
     def test_rotate_logs_command_is_available(self):
         args = build_parser().parse_args(["rotate-logs"])
 
@@ -183,6 +196,18 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(args.command, "health-check")
         self.assertTrue(args.notify)
+
+    def test_run_scheduled_command_is_available(self):
+        args = build_parser().parse_args(["run-scheduled", "morning-preserve"])
+
+        self.assertEqual(args.command, "run-scheduled")
+        self.assertEqual(args.job_id, "morning-preserve")
+
+    def test_dashboard_command_is_available(self):
+        args = build_parser().parse_args(["dashboard", "--output", "dash.html"])
+
+        self.assertEqual(args.command, "dashboard")
+        self.assertEqual(args.output, "dash.html")
 
     def test_truncate_discord_message_keeps_short_messages(self):
         self.assertEqual(truncate_discord_message("hello"), "hello")
@@ -270,7 +295,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "schedule.json"
             path.write_text(
-                '{"timezone":"Africa/Lagos","jobs":[{"cron":"0 1 * * *","command":"bad-command"}]}',
+                '{"timezone":"Africa/Lagos","jobs":[{"id":"bad","cron":"0 1 * * *","command":"bad-command"}]}',
                 encoding="utf-8",
             )
 
@@ -282,7 +307,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
             path = Path(tmpdir) / "schedule.json"
             path.write_text(
                 (
-                    '{"timezone":"Africa/Lagos","jobs":[{"cron":"10 6 * * *",'
+                    '{"timezone":"Africa/Lagos","jobs":[{"id":"health","cron":"10 6 * * *",'
                     '"command":"health-check","args":["--notify"]}]}'
                 ),
                 encoding="utf-8",
@@ -297,7 +322,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
             path = Path(tmpdir) / "schedule.json"
             path.write_text(
                 (
-                    '{"timezone":"Africa/Lagos","jobs":[{"cron":"30 6 * * *",'
+                    '{"timezone":"Africa/Lagos","jobs":[{"id":"preserve","cron":"30 6 * * *",'
                     '"command":"preserve-battery","args":["--notify"]}]}'
                 ),
                 encoding="utf-8",
@@ -305,6 +330,68 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
             with self.assertRaises(GrowattGuardError):
                 validate_schedule(path)
+
+    def test_validate_schedule_overrides_accepts_skip_and_replace(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"},
+                {"id": "morning-health", "cron": "10 6 * * *", "command": "health-check", "args": ["--notify"]},
+            ],
+        }
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "schedule_overrides.json"
+            path.write_text(
+                (
+                    '{"dates":{"2026-06-26":{"note":"skip",'
+                    '"skip":["morning-preserve"],'
+                    '"replace":{"morning-health":{"command":"health-check","args":["--notify"]}}}}}'
+                ),
+                encoding="utf-8",
+            )
+
+            overrides = validate_schedule_overrides(schedule, path)
+
+        self.assertIn("2026-06-26", overrides["dates"])
+
+    def test_run_scheduled_skips_date_override(self):
+        config = make_config(discord_notify_skip=False)
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [{"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"}],
+        }
+        overrides = {"dates": {dt.date.today().isoformat(): {"skip": ["morning-preserve"], "note": "test skip"}}}
+
+        with patch("growatt_power_guard.validate_schedule", return_value=schedule), patch(
+            "growatt_power_guard.validate_schedule_overrides", return_value=overrides
+        ), patch("growatt_power_guard.dispatch_command") as dispatch_mock, redirect_stdout(StringIO()) as stdout:
+            self.assertEqual(command_run_scheduled(config, "morning-preserve"), 0)
+
+        dispatch_mock.assert_not_called()
+        self.assertIn("Skipped scheduled job", stdout.getvalue())
+
+    def test_run_scheduled_dispatches_replacement(self):
+        config = make_config()
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [{"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"}],
+        }
+        overrides = {
+            "dates": {
+                dt.date.today().isoformat(): {
+                    "replace": {"morning-preserve": {"command": "health-check", "args": ["--notify"]}}
+                }
+            }
+        }
+
+        with patch("growatt_power_guard.validate_schedule", return_value=schedule), patch(
+            "growatt_power_guard.validate_schedule_overrides", return_value=overrides
+        ), patch("growatt_power_guard.dispatch_command", return_value=0) as dispatch_mock:
+            self.assertEqual(command_run_scheduled(config, "morning-preserve"), 0)
+
+        dispatched_args = dispatch_mock.call_args.args[1]
+        self.assertEqual(dispatched_args.command, "health-check")
+        self.assertTrue(dispatched_args.notify)
 
     def test_format_health_report_summarizes_failures(self):
         report = format_health_report(
@@ -321,9 +408,9 @@ class GrowattPowerGuardTests(unittest.TestCase):
         schedule = {
             "timezone": "Africa/Lagos",
             "jobs": [
-                {"cron": "10 6 * * *", "command": "health-check", "args": ["--notify"]},
-                {"cron": "30 6 * * *", "command": "preserve-battery"},
-                {"cron": "55 7 * * *", "command": "return-sbu"},
+                {"id": "morning-health", "cron": "10 6 * * *", "command": "health-check", "args": ["--notify"]},
+                {"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"},
+                {"id": "morning-return-sbu", "cron": "55 7 * * *", "command": "return-sbu"},
             ],
         }
         crontab = "\n".join(
@@ -331,15 +418,15 @@ class GrowattPowerGuardTests(unittest.TestCase):
                 "CRON_TZ=Africa/Lagos",
                 (
                     "10 6 * * * cd /home/ubuntu/automation && .venv/bin/python "
-                    "growatt_power_guard.py health-check --notify >> logs/cron.log 2>&1 # growatt-power-guard"
+                    "growatt_power_guard.py run-scheduled morning-health >> logs/cron.log 2>&1 # growatt-power-guard"
                 ),
                 (
                     "30 6 * * * cd /home/ubuntu/automation && .venv/bin/python "
-                    "growatt_power_guard.py preserve-battery >> logs/cron.log 2>&1 # growatt-power-guard"
+                    "growatt_power_guard.py run-scheduled morning-preserve >> logs/cron.log 2>&1 # growatt-power-guard"
                 ),
                 (
                     "55 7 * * * cd /home/ubuntu/automation && .venv/bin/python "
-                    "growatt_power_guard.py return-sbu >> logs/cron.log 2>&1 # growatt-power-guard"
+                    "growatt_power_guard.py run-scheduled morning-return-sbu >> logs/cron.log 2>&1 # growatt-power-guard"
                 ),
             ]
         )
@@ -358,7 +445,9 @@ class GrowattPowerGuardTests(unittest.TestCase):
         schedule = {"timezone": "Africa/Lagos", "jobs": [{"cron": "30 6 * * *", "command": "preserve-battery"}]}
 
         with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.PAUSE_FILE", Path(tmpdir) / "pause.json"), patch(
-            "growatt_power_guard.validate_schedule", return_value=schedule
+            "growatt_power_guard.COMMAND_LOCK_FILE", Path(tmpdir) / "mode_command.lock"
+        ), patch("growatt_power_guard.validate_schedule", return_value=schedule), patch(
+            "growatt_power_guard.validate_schedule_overrides", return_value={"dates": {}}
         ), patch(
             "growatt_power_guard.check_cron_schedule",
             return_value=[HealthCheckItem("Cron jobs", "OK", "1 scheduled job installed.")],
@@ -410,6 +499,78 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertIn("timestamp,command,soc,threshold,weather_category", content)
         self.assertIn("preserve-battery,49,50,rainy/cloudy", content)
         self.assertIn("switch-to-utility", content)
+
+    def test_weekly_summary_uses_audit_rows(self):
+        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"):
+            audit_path = Path(tmpdir) / "mode_decisions.csv"
+            audit_path.write_text(
+                "\n".join(
+                    [
+                        "timestamp,command,soc,threshold,weather_category,previous_mode,action,dry_run,result,note",
+                        "2026-06-18T06:30:00,preserve-battery,49,50,rainy/cloudy,SBU priority [0],switch-to-utility,false,ok,",
+                        "2026-06-19T06:30:00,preserve-battery,55,50,normal,SBU priority [0],no-change,false,skipped,",
+                        "2026-06-19T08:01:00,watchdog-sbu,54,,normal,Utility first [2],repair-sbu,false,ok,",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            summary = build_weekly_summary(dt.datetime(2026, 6, 20, 12, 0))
+
+        self.assertIn("Utility switches: 1", summary)
+        self.assertIn("Watchdog repairs: 1", summary)
+        self.assertIn("Average preserve-check SOC: 52%", summary)
+
+    def test_next_scheduled_runs_orders_jobs(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "morning-preserve", "name": "Preserve", "cron": "30 6 * * *", "command": "preserve-battery"},
+                {"id": "daily-summary", "name": "Summary", "cron": "0 21 * * *", "command": "daily-summary"},
+            ],
+        }
+
+        runs = next_scheduled_runs(schedule, now=dt.datetime(2026, 6, 20, 6, 29), limit=2)
+
+        self.assertEqual(runs[0][0], dt.datetime(2026, 6, 20, 6, 30))
+        self.assertEqual(runs[0][1]["id"], "morning-preserve")
+
+    def test_dashboard_writes_html(self):
+        config = make_config()
+        status = {"device": {"capacity": "50%"}, "storage_params": {"outputConfig": "0"}}
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [{"id": "morning-preserve", "name": "Preserve", "cron": "30 6 * * *", "command": "preserve-battery"}],
+        }
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_power_guard.load_context",
+            return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
+        ), patch("growatt_power_guard.validate_schedule", return_value=schedule), patch(
+            "growatt_power_guard.validate_schedule_overrides", return_value={"dates": {}}
+        ), patch(
+            "growatt_power_guard.choose_preserve_threshold",
+            return_value=ThresholdDecision(50, "weather disabled; using fixed threshold 50%"),
+        ), patch("growatt_power_guard.read_mode_audit_rows", return_value=[]), redirect_stdout(StringIO()):
+            output = Path(tmpdir) / "dashboard.html"
+            self.assertEqual(command_dashboard(config, str(output)), 0)
+            html = output.read_text(encoding="utf-8")
+
+        self.assertIn("Growatt Dashboard", html)
+        self.assertIn("50%", html)
+        self.assertIn("SBU priority", html)
+
+    def test_command_lock_skips_when_busy(self):
+        config = make_config(discord_notify_skip=False)
+        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.STATE_DIR", Path(tmpdir)), patch(
+            "growatt_power_guard.COMMAND_LOCK_FILE", Path(tmpdir) / "mode_command.lock"
+        ), redirect_stdout(StringIO()) as stdout:
+            token = acquire_command_lock("preserve-battery")
+            self.assertIsNotNone(token)
+            self.assertEqual(run_with_command_lock(config, "return-sbu", lambda: 99), 0)
+            release_command_lock(token or "")
+
+        self.assertIn("already running", stdout.getvalue())
 
     def test_choose_preserve_threshold_uses_fixed_when_weather_disabled(self):
         decision = choose_preserve_threshold(make_config(weather_enabled=False, low_battery_soc=50))

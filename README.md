@@ -133,6 +133,7 @@ watchdog-sbu repairs a missed SBU switch
 daily-summary posts the end-of-day summary
 health-check --notify posts readiness diagnostics
 battery-alert detects or clears an emergency SOC episode
+weekly-summary posts the weekly performance report
 any command fails, if DISCORD_NOTIFY_FAILURE=true
 checks are skipped, only if DISCORD_NOTIFY_SKIP=true
 ```
@@ -158,10 +159,11 @@ The automation should therefore:
 15:31 weekdays    verify SBU and retry once if needed
 21:00 daily       post Discord daily summary
 */30 always       alert once if battery SOC drops below 30%
+21:10 Sundays     post weekly performance summary
 00:10 daily       rotate old generated logs/probes
 ```
 
-The cloud cron installer reads these jobs from [schedule.json](schedule.json). To change outage times, edit `schedule.json`, validate it, then reinstall cron:
+The cloud cron installer reads these jobs from [schedule.json](schedule.json). Cron calls `run-scheduled <job-id>`, which applies date overrides before running the job. To change outage times, edit `schedule.json`, validate it, then reinstall cron:
 
 ```bash
 cd ~/automation
@@ -176,12 +178,14 @@ python .\growatt_power_guard.py preserve-battery
 python .\growatt_power_guard.py return-sbu
 python .\growatt_power_guard.py watchdog-sbu
 python .\growatt_power_guard.py daily-summary
+python .\growatt_power_guard.py weekly-summary
 python .\growatt_power_guard.py rotate-logs
 python .\growatt_power_guard.py weather-threshold
 python .\growatt_power_guard.py validate-schedule
 python .\growatt_power_guard.py health-check
 python .\growatt_power_guard.py health-check --notify
 python .\growatt_power_guard.py battery-alert
+python .\growatt_power_guard.py dashboard
 python .\growatt_power_guard.py pause --hours 6 --reason "maintenance"
 python .\growatt_power_guard.py pause-status
 python .\growatt_power_guard.py resume
@@ -198,16 +202,17 @@ powershell -ExecutionPolicy Bypass -File .\install_growatt_schedule.ps1
 Or create them manually:
 
 ```powershell
-schtasks /Create /F /TN "Growatt Morning Health Report" /SC DAILY /ST 06:10 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py health-check --notify"
-schtasks /Create /F /TN "Growatt Utility Check Morning" /SC DAILY /ST 06:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py preserve-battery"
-schtasks /Create /F /TN "Growatt SBU Before Morning Outage" /SC DAILY /ST 07:55 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py return-sbu"
-schtasks /Create /F /TN "Growatt SBU Watchdog Morning" /SC DAILY /ST 08:01 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py watchdog-sbu"
-schtasks /Create /F /TN "Growatt Utility Check Afternoon" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py preserve-battery"
-schtasks /Create /F /TN "Growatt SBU Before Afternoon Outage" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:25 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py return-sbu"
-schtasks /Create /F /TN "Growatt SBU Watchdog Afternoon" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:31 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py watchdog-sbu"
-schtasks /Create /F /TN "Growatt Daily Summary" /SC DAILY /ST 21:00 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py daily-summary"
-schtasks /Create /F /TN "Growatt Emergency Battery Alert" /SC MINUTE /MO 30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py battery-alert"
-schtasks /Create /F /TN "Growatt Log Rotation" /SC DAILY /ST 00:10 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py rotate-logs"
+schtasks /Create /F /TN "Growatt Morning Health Report" /SC DAILY /ST 06:10 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-health"
+schtasks /Create /F /TN "Growatt Utility Check Morning" /SC DAILY /ST 06:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-preserve"
+schtasks /Create /F /TN "Growatt SBU Before Morning Outage" /SC DAILY /ST 07:55 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-return-sbu"
+schtasks /Create /F /TN "Growatt SBU Watchdog Morning" /SC DAILY /ST 08:01 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-watchdog"
+schtasks /Create /F /TN "Growatt Utility Check Afternoon" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-preserve"
+schtasks /Create /F /TN "Growatt SBU Before Afternoon Outage" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:25 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-return-sbu"
+schtasks /Create /F /TN "Growatt SBU Watchdog Afternoon" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:31 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-watchdog"
+schtasks /Create /F /TN "Growatt Daily Summary" /SC DAILY /ST 21:00 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled daily-summary"
+schtasks /Create /F /TN "Growatt Emergency Battery Alert" /SC MINUTE /MO 30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled battery-alert"
+schtasks /Create /F /TN "Growatt Weekly Summary" /SC WEEKLY /D SUN /ST 21:10 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled weekly-summary"
+schtasks /Create /F /TN "Growatt Log Rotation" /SC DAILY /ST 00:10 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled rotate-logs"
 ```
 
 Logs are written to:
@@ -262,17 +267,21 @@ Test it:
 .venv/bin/python growatt_power_guard.py return-sbu
 .venv/bin/python growatt_power_guard.py watchdog-sbu
 .venv/bin/python growatt_power_guard.py daily-summary
+.venv/bin/python growatt_power_guard.py weekly-summary
 .venv/bin/python growatt_power_guard.py rotate-logs
 .venv/bin/python growatt_power_guard.py weather-threshold
 .venv/bin/python growatt_power_guard.py validate-schedule
 .venv/bin/python growatt_power_guard.py health-check
 .venv/bin/python growatt_power_guard.py health-check --notify
 .venv/bin/python growatt_power_guard.py battery-alert
+.venv/bin/python growatt_power_guard.py dashboard
 ```
 
 ## Pause Or Resume Automation
 
-Pause only affects mode-changing commands: `preserve-battery`, `return-sbu`, and `watchdog-sbu`. Read-only commands such as `status`, `daily-summary`, `weather-threshold`, `health-check`, and `battery-alert` still run.
+Pause only affects mode-changing commands: `preserve-battery`, `return-sbu`, and `watchdog-sbu`. Read-only commands such as `status`, `daily-summary`, `weekly-summary`, `weather-threshold`, `health-check`, `battery-alert`, and `dashboard` still run.
+
+Mode-changing commands also use a local lock under `state/` so overlapping cron/manual runs do not issue conflicting Growatt mode commands. A stale lock clears automatically after 45 minutes.
 
 ```bash
 cd ~/automation
@@ -343,6 +352,54 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py battery-alert
 ```
 
+Post a weekly performance summary manually:
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py weekly-summary
+```
+
+Generate the dashboard:
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py dashboard
+python3 -m http.server 8080
+```
+
+Then open `http://your-vps-ip:8080/dashboard.html` if your firewall allows that port.
+
+## Schedule Overrides
+
+Use date overrides for temporary estate schedule changes without editing `schedule.json`.
+
+```bash
+cd ~/automation
+cp schedule_overrides.example.json schedule_overrides.json
+nano schedule_overrides.json
+.venv/bin/python growatt_power_guard.py validate-schedule
+./install_cloud_cron.sh
+```
+
+Example: skip the afternoon outage automation on a specific date:
+
+```json
+{
+  "dates": {
+    "2026-06-26": {
+      "note": "No afternoon outage today",
+      "skip": [
+        "afternoon-preserve",
+        "afternoon-return-sbu",
+        "afternoon-watchdog"
+      ]
+    }
+  }
+}
+```
+
+The local `schedule_overrides.json` file is ignored by Git so VPS-specific calendar changes stay private.
+
 Change the battery preservation threshold:
 
 ```bash
@@ -392,9 +449,11 @@ requirements.txt
 README.md
 RUNBOOK.md
 .env.example
+schedule.json
 install_cloud_cron.sh
 install_growatt_schedule.ps1
 update_server.sh
+schedule_overrides.example.json
 tests/
 .gitignore
 ```
@@ -406,6 +465,8 @@ Do not publish:
 logs/
 state/
 growatt-probe-*.json
+schedule_overrides.json
+dashboard.html
 ```
 
 Before pushing, check for private values:

@@ -1,0 +1,23 @@
+{
+  "dates": {
+    "2026-06-26": {
+      "note": "Example: skip the Friday afternoon outage window.",
+      "skip": [
+        "afternoon-preserve",
+        "afternoon-return-sbu",
+        "afternoon-watchdog"
+      ]
+    },
+    "2026-07-01": {
+      "note": "Example: replace one scheduled job with a read-only health report.",
+      "replace": {
+        "morning-preserve": {
+          "command": "health-check",
+          "args": [
+            "--notify"
+          ]
+        }
+      }
+    }
+  }
+}

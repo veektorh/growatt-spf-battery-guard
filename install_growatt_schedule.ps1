@@ -41,51 +41,56 @@ Remove-StaleGrowattTask -Name "Utility Check Midday"
 Register-GrowattTask `
     -Name "Morning Health Report" `
     -ScheduleArgs @("/SC", "DAILY", "/ST", "06:10") `
-    -Command "health-check --notify"
+    -Command "run-scheduled morning-health"
 
 Register-GrowattTask `
     -Name "Utility Check Morning" `
     -ScheduleArgs @("/SC", "DAILY", "/ST", "06:30") `
-    -Command "preserve-battery"
+    -Command "run-scheduled morning-preserve"
 
 Register-GrowattTask `
     -Name "SBU Before Morning Outage" `
     -ScheduleArgs @("/SC", "DAILY", "/ST", "07:55") `
-    -Command "return-sbu"
+    -Command "run-scheduled morning-return-sbu"
 
 Register-GrowattTask `
     -Name "SBU Watchdog Morning" `
     -ScheduleArgs @("/SC", "DAILY", "/ST", "08:01") `
-    -Command "watchdog-sbu"
+    -Command "run-scheduled morning-watchdog"
 
 Register-GrowattTask `
     -Name "Utility Check Afternoon" `
     -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "14:30") `
-    -Command "preserve-battery"
+    -Command "run-scheduled afternoon-preserve"
 
 Register-GrowattTask `
     -Name "SBU Before Afternoon Outage" `
     -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "15:25") `
-    -Command "return-sbu"
+    -Command "run-scheduled afternoon-return-sbu"
 
 Register-GrowattTask `
     -Name "SBU Watchdog Afternoon" `
     -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "15:31") `
-    -Command "watchdog-sbu"
+    -Command "run-scheduled afternoon-watchdog"
 
 Register-GrowattTask `
     -Name "Daily Summary" `
     -ScheduleArgs @("/SC", "DAILY", "/ST", "21:00") `
-    -Command "daily-summary"
+    -Command "run-scheduled daily-summary"
 
 Register-GrowattTask `
     -Name "Emergency Battery Alert" `
     -ScheduleArgs @("/SC", "MINUTE", "/MO", "30") `
-    -Command "battery-alert"
+    -Command "run-scheduled battery-alert"
+
+Register-GrowattTask `
+    -Name "Weekly Summary" `
+    -ScheduleArgs @("/SC", "WEEKLY", "/D", "SUN", "/ST", "21:10") `
+    -Command "run-scheduled weekly-summary"
 
 Register-GrowattTask `
     -Name "Log Rotation" `
     -ScheduleArgs @("/SC", "DAILY", "/ST", "00:10") `
-    -Command "rotate-logs"
+    -Command "run-scheduled rotate-logs"
 
 Write-Host "Done."

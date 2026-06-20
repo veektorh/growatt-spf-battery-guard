@@ -2,6 +2,7 @@
   "timezone": "Africa/Lagos",
   "jobs": [
     {
+      "id": "morning-health",
       "name": "Send morning health report",
       "cron": "10 6 * * *",
       "command": "health-check",
@@ -10,46 +11,61 @@
       ]
     },
     {
+      "id": "morning-preserve",
       "name": "Preserve battery before morning outage",
       "cron": "30 6 * * *",
       "command": "preserve-battery"
     },
     {
+      "id": "morning-return-sbu",
       "name": "Return to SBU before morning outage",
       "cron": "55 7 * * *",
       "command": "return-sbu"
     },
     {
+      "id": "morning-watchdog",
       "name": "Verify SBU after morning outage starts",
       "cron": "1 8 * * *",
       "command": "watchdog-sbu"
     },
     {
+      "id": "afternoon-preserve",
       "name": "Preserve battery before afternoon outage",
       "cron": "30 14 * * 1-5",
       "command": "preserve-battery"
     },
     {
+      "id": "afternoon-return-sbu",
       "name": "Return to SBU before afternoon outage",
       "cron": "25 15 * * 1-5",
       "command": "return-sbu"
     },
     {
+      "id": "afternoon-watchdog",
       "name": "Verify SBU after afternoon outage starts",
       "cron": "31 15 * * 1-5",
       "command": "watchdog-sbu"
     },
     {
+      "id": "daily-summary",
       "name": "Post daily Discord summary",
       "cron": "0 21 * * *",
       "command": "daily-summary"
     },
     {
+      "id": "battery-alert",
       "name": "Check emergency battery SOC",
       "cron": "*/30 * * * *",
       "command": "battery-alert"
     },
     {
+      "id": "weekly-summary",
+      "name": "Post weekly performance summary",
+      "cron": "10 21 * * 0",
+      "command": "weekly-summary"
+    },
+    {
+      "id": "rotate-logs",
       "name": "Rotate old generated logs",
       "cron": "10 0 * * *",
       "command": "rotate-logs"

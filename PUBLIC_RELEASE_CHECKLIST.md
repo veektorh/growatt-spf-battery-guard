@@ -11,6 +11,8 @@ Do not commit these files or folders:
 logs/
 growatt-probe-*.json
 state/
+schedule_overrides.json
+dashboard.html
 .venv/
 __pycache__/
 ```
@@ -57,7 +59,9 @@ PUBLIC_RELEASE_CHECKLIST.md
 .env.example
 .gitignore
 schedule.json
+schedule_overrides.example.json
 install_cloud_cron.sh
 install_growatt_schedule.ps1
+update_server.sh
 tests/
 ```

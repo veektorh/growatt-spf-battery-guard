@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import datetime as dt
+import html
 import json
 import logging
 import os
@@ -30,10 +31,14 @@ BASE_DIR = Path(__file__).resolve().parent
 LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "growatt_power_guard.log"
 MODE_AUDIT_FILE = LOG_DIR / "mode_decisions.csv"
+DASHBOARD_FILE = BASE_DIR / "dashboard.html"
 SCHEDULE_FILE = BASE_DIR / "schedule.json"
+SCHEDULE_OVERRIDES_FILE = BASE_DIR / "schedule_overrides.json"
 STATE_DIR = BASE_DIR / "state"
 PAUSE_FILE = STATE_DIR / "automation_pause.json"
 BATTERY_ALERT_FILE = STATE_DIR / "battery_alert.json"
+COMMAND_LOCK_FILE = STATE_DIR / "mode_command.lock"
+COMMAND_LOCK_STALE_SECONDS = 45 * 60
 
 SOC_KEYS = (
     "SOC",
@@ -65,11 +70,13 @@ SCHEDULE_COMMANDS = {
     "rotate-logs",
     "health-check",
     "battery-alert",
+    "weekly-summary",
 }
 SCHEDULE_COMMAND_ARGS = {
     "health-check": {"--notify"},
 }
 PAUSABLE_COMMANDS = {"preserve-battery", "utility-check", "morning-check", "return-sbu", "watchdog-sbu"}
+LOCKED_COMMANDS = PAUSABLE_COMMANDS
 
 
 class GrowattGuardError(RuntimeError):
@@ -323,6 +330,82 @@ def write_pause_state(hours: float, reason: str) -> dict[str, Any]:
     PAUSE_FILE.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
     state["paused_until_dt"] = until
     return state
+
+
+def read_command_lock_state() -> dict[str, Any] | None:
+    if not COMMAND_LOCK_FILE.exists():
+        return None
+    try:
+        return json.loads(COMMAND_LOCK_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logging.warning("Ignoring invalid command lock state: %s", exc)
+        return None
+
+
+def command_lock_is_stale() -> bool:
+    if not COMMAND_LOCK_FILE.exists():
+        return False
+    try:
+        age_seconds = dt.datetime.now().timestamp() - COMMAND_LOCK_FILE.stat().st_mtime
+    except OSError:
+        return False
+    return age_seconds > COMMAND_LOCK_STALE_SECONDS
+
+
+def acquire_command_lock(command: str) -> str | None:
+    STATE_DIR.mkdir(exist_ok=True)
+    token = f"{os.getpid()}-{utc_now().timestamp()}"
+    payload = {
+        "token": token,
+        "pid": os.getpid(),
+        "command": command,
+        "created_at": utc_now().isoformat(),
+    }
+
+    for _ in range(2):
+        try:
+            flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+            fd = os.open(str(COMMAND_LOCK_FILE), flags)
+        except FileExistsError:
+            if command_lock_is_stale():
+                try:
+                    COMMAND_LOCK_FILE.unlink()
+                except OSError:
+                    pass
+                continue
+            return None
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+        return token
+    return None
+
+
+def release_command_lock(token: str) -> None:
+    state = read_command_lock_state()
+    if state and state.get("token") != token:
+        return
+    try:
+        COMMAND_LOCK_FILE.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def run_with_command_lock(config: Config, command: str, action) -> int:
+    token = acquire_command_lock(command)
+    if token is None:
+        state = read_command_lock_state() or {}
+        locked_command = state.get("command", "another command")
+        created_at = state.get("created_at", "unknown time")
+        message = f"Skipped `{command}` because `{locked_command}` is already running since {created_at}."
+        logging.warning(message)
+        if config.discord_notify_skip:
+            send_discord_message(config, message)
+        print(message)
+        return 0
+    try:
+        return action()
+    finally:
+        release_command_lock(token)
 
 
 def read_battery_alert_state() -> dict[str, Any] | None:
@@ -818,6 +901,88 @@ def append_mode_audit(
         writer.writerow(row)
 
 
+def parse_audit_timestamp(value: str) -> dt.datetime | None:
+    try:
+        return dt.datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def read_mode_audit_rows(
+    *,
+    since: dt.datetime | None = None,
+    limit: int | None = None,
+    newest_first: bool = False,
+) -> list[dict[str, str]]:
+    if not MODE_AUDIT_FILE.exists():
+        return []
+    with MODE_AUDIT_FILE.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    if since is not None:
+        rows = [
+            row
+            for row in rows
+            if (timestamp := parse_audit_timestamp(row.get("timestamp", ""))) is not None and timestamp >= since
+        ]
+    if newest_first:
+        rows = list(reversed(rows))
+    if limit is not None:
+        rows = rows[:limit]
+    return rows
+
+
+def parse_audit_float(row: dict[str, str], key: str) -> float | None:
+    value = row.get(key, "").strip()
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def average(values: list[float]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+def build_weekly_summary(now: dt.datetime | None = None) -> str:
+    now = now or dt.datetime.now()
+    since = now - dt.timedelta(days=7)
+    rows = read_mode_audit_rows(since=since)
+    preserve_rows = [row for row in rows if row.get("command") == "preserve-battery"]
+    preserve_socs = [soc for row in preserve_rows if (soc := parse_audit_float(row, "soc")) is not None]
+    utility_switches = [row for row in rows if row.get("action") == "switch-to-utility"]
+    preserve_no_changes = [row for row in rows if row.get("command") == "preserve-battery" and row.get("action") == "no-change"]
+    return_sbu = [row for row in rows if row.get("action") == "switch-to-sbu"]
+    watchdog_repairs = [row for row in rows if row.get("action") == "repair-sbu"]
+    failures = [row for row in rows if row.get("action", "").endswith("-failed") or row.get("result") == "error"]
+    last_row = rows[-1] if rows else None
+
+    avg_soc = average(preserve_socs)
+    lines = [
+        f"Growatt weekly performance - {since.strftime('%Y-%m-%d')} to {now.strftime('%Y-%m-%d')}",
+        f"Audit rows: {len(rows)}",
+        f"Preserve-battery checks: {len(preserve_rows)}",
+        f"Utility switches: {len(utility_switches)}",
+        f"No-change preserve checks: {len(preserve_no_changes)}",
+        f"Return-SBU switches: {len(return_sbu)}",
+        f"Watchdog repairs: {len(watchdog_repairs)}",
+        f"Failures: {len(failures)}",
+    ]
+    if avg_soc is not None:
+        lines.append(f"Average preserve-check SOC: {avg_soc:g}%")
+        lines.append(f"Lowest preserve-check SOC: {min(preserve_socs):g}%")
+    else:
+        lines.append("Average preserve-check SOC: not enough data")
+    if last_row:
+        lines.append(
+            "Last action: "
+            f"{last_row.get('timestamp', '')} {last_row.get('command', '')} "
+            f"{last_row.get('action', '')} SOC={last_row.get('soc', '')}%"
+        )
+    return "\n".join(lines)
+
+
 def redact(data: Any) -> Any:
     secret_words = ("password", "token", "secret", "auth", "session", "cookie")
     if isinstance(data, dict):
@@ -1241,6 +1406,179 @@ def command_daily_summary(config: Config) -> int:
     return 0
 
 
+def command_weekly_summary(config: Config) -> int:
+    summary = build_weekly_summary()
+    if config.discord_webhook_url:
+        send_discord_message(config, summary)
+    print(summary)
+    return 0
+
+
+def cron_part_matches(value: int, field: str, minimum: int, maximum: int) -> bool:
+    for part in field.split(","):
+        part = part.strip()
+        if part == "*":
+            return True
+        if part.startswith("*/"):
+            step = int(part[2:])
+            return step > 0 and value % step == 0
+        if "-" in part:
+            start_text, end_text = part.split("-", 1)
+            start = int(start_text)
+            end = int(end_text)
+            if start <= value <= end:
+                return True
+            continue
+        try:
+            wanted = int(part)
+        except ValueError:
+            continue
+        if minimum <= wanted <= maximum and value == wanted:
+            return True
+    return False
+
+
+def cron_matches(cron: str, when: dt.datetime) -> bool:
+    minute, hour, day, month, day_of_week = cron.split()
+    cron_dow = (when.weekday() + 1) % 7
+    return (
+        cron_part_matches(when.minute, minute, 0, 59)
+        and cron_part_matches(when.hour, hour, 0, 23)
+        and cron_part_matches(when.day, day, 1, 31)
+        and cron_part_matches(when.month, month, 1, 12)
+        and (cron_part_matches(cron_dow, day_of_week, 0, 7) or (cron_dow == 0 and cron_part_matches(7, day_of_week, 0, 7)))
+    )
+
+
+def next_scheduled_runs(
+    schedule: dict[str, Any],
+    *,
+    now: dt.datetime | None = None,
+    limit: int = 8,
+) -> list[tuple[dt.datetime, dict[str, Any]]]:
+    now = now or dt.datetime.now()
+    cursor = now.replace(second=0, microsecond=0) + dt.timedelta(minutes=1)
+    end = cursor + dt.timedelta(days=14)
+    matches: list[tuple[dt.datetime, dict[str, Any]]] = []
+    while cursor <= end and len(matches) < limit:
+        for job in schedule["jobs"]:
+            if cron_matches(str(job["cron"]), cursor):
+                matches.append((cursor, job))
+                if len(matches) >= limit:
+                    break
+        cursor += dt.timedelta(minutes=1)
+    return matches
+
+
+def esc(value: Any) -> str:
+    return html.escape(str(value), quote=True)
+
+
+def build_dashboard_html(
+    status: dict[str, Any],
+    schedule: dict[str, Any],
+    overrides: dict[str, Any],
+    threshold_decision: ThresholdDecision,
+) -> str:
+    now = dt.datetime.now()
+    soc_result = extract_soc(status)
+    soc = f"{soc_result[0]:g}%" if soc_result else "Not found"
+    output_source = extract_spf_output_source(status)
+    mode = f"{output_source[1]} [{output_source[0]}]" if output_source else "Not found"
+    pause_state = read_pause_state()
+    pause = pause_message(pause_state) if pause_state else "active"
+    alert_state = read_battery_alert_state()
+    alert = "active" if alert_state and alert_state.get("active") else "clear"
+    today_override = today_schedule_override(overrides, now.date())
+    override_note = str(today_override.get("note", "")).strip() or "none"
+    skipped = ", ".join(today_override.get("skip", [])) if isinstance(today_override.get("skip", []), list) else ""
+    last_actions = read_mode_audit_rows(limit=8, newest_first=True)
+    next_runs = next_scheduled_runs(schedule, now=now, limit=8)
+
+    next_rows = "\n".join(
+        "<tr>"
+        f"<td>{esc(run_at.strftime('%Y-%m-%d %H:%M'))}</td>"
+        f"<td>{esc(job.get('id', ''))}</td>"
+        f"<td>{esc(job.get('name', ''))}</td>"
+        f"<td>{esc(' '.join(schedule_job_tokens(job)))}</td>"
+        "</tr>"
+        for run_at, job in next_runs
+    )
+    action_rows = "\n".join(
+        "<tr>"
+        f"<td>{esc(row.get('timestamp', ''))}</td>"
+        f"<td>{esc(row.get('command', ''))}</td>"
+        f"<td>{esc(row.get('action', ''))}</td>"
+        f"<td>{esc(row.get('soc', ''))}</td>"
+        f"<td>{esc(row.get('previous_mode', ''))}</td>"
+        "</tr>"
+        for row in last_actions
+    )
+
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="300">
+  <title>Growatt Dashboard</title>
+  <style>
+    :root {{ color-scheme: light; font-family: Inter, Segoe UI, Arial, sans-serif; }}
+    body {{ margin: 0; background: #f5f7f8; color: #172026; }}
+    main {{ max-width: 1120px; margin: 0 auto; padding: 24px; }}
+    h1 {{ font-size: 28px; margin: 0 0 4px; }}
+    h2 {{ font-size: 18px; margin: 28px 0 12px; }}
+    .muted {{ color: #64727d; font-size: 14px; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 20px; }}
+    .card {{ background: #fff; border: 1px solid #dce3e8; border-radius: 8px; padding: 14px; }}
+    .label {{ color: #64727d; font-size: 12px; text-transform: uppercase; letter-spacing: 0; }}
+    .value {{ font-size: 22px; font-weight: 700; margin-top: 8px; }}
+    table {{ width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #dce3e8; }}
+    th, td {{ padding: 10px; border-bottom: 1px solid #e8eef2; text-align: left; font-size: 14px; }}
+    th {{ background: #eef3f5; color: #34444f; }}
+    tr:last-child td {{ border-bottom: 0; }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Growatt Dashboard</h1>
+    <div class="muted">Generated {esc(now.strftime('%Y-%m-%d %H:%M:%S'))}</div>
+    <section class="grid">
+      <div class="card"><div class="label">Battery SOC</div><div class="value">{esc(soc)}</div></div>
+      <div class="card"><div class="label">Output Source</div><div class="value">{esc(mode)}</div></div>
+      <div class="card"><div class="label">Preserve Threshold</div><div class="value">{esc(f'{threshold_decision.threshold:g}%')}</div></div>
+      <div class="card"><div class="label">Pause State</div><div class="value">{esc(pause)}</div></div>
+      <div class="card"><div class="label">Emergency Alert</div><div class="value">{esc(alert)}</div></div>
+      <div class="card"><div class="label">Today Override</div><div class="value">{esc(override_note)}</div></div>
+    </section>
+    <h2>Next Scheduled Jobs</h2>
+    <table><thead><tr><th>Time</th><th>ID</th><th>Name</th><th>Command</th></tr></thead><tbody>{next_rows}</tbody></table>
+    <h2>Recent Mode Decisions</h2>
+    <table><thead><tr><th>Time</th><th>Command</th><th>Action</th><th>SOC</th><th>Previous Mode</th></tr></thead><tbody>{action_rows}</tbody></table>
+    <h2>Automation Notes</h2>
+    <div class="card">
+      <div>Threshold: {esc(threshold_decision.reason)}</div>
+      <div>Skipped today: {esc(skipped or 'none')}</div>
+    </div>
+  </main>
+</body>
+</html>
+"""
+
+
+def command_dashboard(config: Config, output: str) -> int:
+    _, _, status = load_context(config)
+    schedule = validate_schedule()
+    overrides = validate_schedule_overrides(schedule)
+    threshold_decision = choose_preserve_threshold(config)
+    output_path = Path(output)
+    if not output_path.is_absolute():
+        output_path = BASE_DIR / output_path
+    output_path.write_text(build_dashboard_html(status, schedule, overrides, threshold_decision), encoding="utf-8")
+    print(f"Wrote dashboard to {output_path}")
+    return 0
+
+
 def command_rotate_logs(config: Config) -> int:
     cutoff = dt.datetime.now() - dt.timedelta(days=config.log_retention_days)
     removed = 0
@@ -1396,16 +1734,18 @@ def check_cron_schedule(schedule: dict[str, Any]) -> list[HealthCheckItem]:
     missing: list[str] = []
     for index, job in enumerate(expected_jobs, start=1):
         cron = str(job["cron"]).strip()
+        job_id = schedule_job_id(job, index)
         tokens = schedule_job_tokens(job, index)
-        command_fragment = "growatt_power_guard.py " + " ".join(tokens)
+        wrapper_fragment = f"growatt_power_guard.py run-scheduled {job_id}"
+        direct_fragment = "growatt_power_guard.py " + " ".join(tokens)
         found = any(
             line.startswith(f"{cron} ")
-            and command_fragment in line
+            and (wrapper_fragment in line or direct_fragment in line)
             and "# growatt-power-guard" in line
             for line in cron_lines
         )
         if not found:
-            missing.append(f"{cron} {' '.join(tokens)}")
+            missing.append(f"{cron} run-scheduled {job_id}")
 
     checks: list[HealthCheckItem] = []
     installed_count = sum(1 for line in cron_lines if "# growatt-power-guard" in line)
@@ -1496,6 +1836,14 @@ def command_health_check(config: Config, notify: bool = False) -> int:
         checks.append(HealthCheckItem("Schedule", "FAIL", str(exc)))
 
     if schedule is not None:
+        try:
+            overrides = validate_schedule_overrides(schedule)
+        except GrowattGuardError as exc:
+            checks.append(HealthCheckItem("Schedule overrides", "FAIL", str(exc)))
+        else:
+            count = len(overrides.get("dates", {}))
+            detail = f"{count} date override(s) configured." if count else "no local date overrides configured."
+            checks.append(HealthCheckItem("Schedule overrides", "OK", detail))
         checks.extend(check_cron_schedule(schedule))
 
     try:
@@ -1545,6 +1893,20 @@ def command_health_check(config: Config, notify: bool = False) -> int:
     else:
         checks.append(HealthCheckItem("Pause state", "OK", "automation is active."))
 
+    lock_state = read_command_lock_state()
+    if lock_state and command_lock_is_stale():
+        checks.append(HealthCheckItem("Command lock", "WARN", "stale mode-command lock file is present."))
+    elif lock_state:
+        checks.append(
+            HealthCheckItem(
+                "Command lock",
+                "WARN",
+                f"{lock_state.get('command', 'unknown command')} has held the mode lock since {lock_state.get('created_at')}.",
+            )
+        )
+    else:
+        checks.append(HealthCheckItem("Command lock", "OK", "no active mode-command lock."))
+
     if notify:
         if not config.discord_webhook_url:
             checks.append(HealthCheckItem("Discord report", "FAIL", "DISCORD_WEBHOOK_URL is not configured."))
@@ -1555,6 +1917,15 @@ def command_health_check(config: Config, notify: bool = False) -> int:
 
     print(format_health_report(checks))
     return 1 if health_result(checks) == "FAIL" else 0
+
+
+def schedule_job_id(job: dict[str, Any], index: int) -> str:
+    job_id = str(job.get("id", "")).strip()
+    if not job_id:
+        raise GrowattGuardError(f"Schedule job {index} must contain a non-empty id.")
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", job_id):
+        raise GrowattGuardError(f"Schedule job {index} has invalid id: {job_id!r}")
+    return job_id
 
 
 def schedule_job_args(job: dict[str, Any], command: str, index: int) -> list[str]:
@@ -1587,6 +1958,101 @@ def schedule_job_tokens(job: dict[str, Any], index: int = 0) -> list[str]:
     return [command, *schedule_job_args(job, command, index)]
 
 
+def validate_schedule_overrides(schedule: dict[str, Any], path: Path = SCHEDULE_OVERRIDES_FILE) -> dict[str, Any]:
+    if not path.exists():
+        return {"dates": {}}
+    try:
+        overrides = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise GrowattGuardError(f"Invalid schedule overrides JSON: {exc}") from exc
+    if not isinstance(overrides, dict):
+        raise GrowattGuardError("schedule_overrides.json must contain a JSON object.")
+
+    dates = overrides.get("dates", {})
+    if not isinstance(dates, dict):
+        raise GrowattGuardError("schedule_overrides.json dates must be an object.")
+
+    job_ids = {schedule_job_id(job, index) for index, job in enumerate(schedule["jobs"], start=1)}
+    for date_key, override in dates.items():
+        try:
+            dt.date.fromisoformat(str(date_key))
+        except ValueError as exc:
+            raise GrowattGuardError(f"Invalid override date: {date_key!r}") from exc
+        if not isinstance(override, dict):
+            raise GrowattGuardError(f"Override for {date_key} must be an object.")
+
+        skip = override.get("skip", [])
+        if skip in (None, ""):
+            skip = []
+        if not isinstance(skip, list) or not all(isinstance(item, str) and item in job_ids for item in skip):
+            raise GrowattGuardError(f"Override skip list for {date_key} must contain known schedule job ids.")
+
+        skip_all = override.get("skip_all", False)
+        if not isinstance(skip_all, bool):
+            raise GrowattGuardError(f"Override skip_all for {date_key} must be true or false.")
+
+        replace = override.get("replace", {})
+        if replace in (None, ""):
+            replace = {}
+        if not isinstance(replace, dict):
+            raise GrowattGuardError(f"Override replace for {date_key} must be an object.")
+        for job_id, replacement in replace.items():
+            if job_id not in job_ids:
+                raise GrowattGuardError(f"Override replace for {date_key} references unknown job id {job_id!r}.")
+            if not isinstance(replacement, dict):
+                raise GrowattGuardError(f"Override replacement for {date_key}/{job_id} must be an object.")
+            command = str(replacement.get("command", "")).strip()
+            if command not in SCHEDULE_COMMANDS:
+                raise GrowattGuardError(
+                    f"Override replacement for {date_key}/{job_id} has unsupported command: {command!r}"
+                )
+            schedule_job_args(replacement, command, 0)
+
+    return {"dates": dates}
+
+
+def find_schedule_job(schedule: dict[str, Any], job_id: str) -> tuple[dict[str, Any], int]:
+    for index, job in enumerate(schedule["jobs"], start=1):
+        if schedule_job_id(job, index) == job_id:
+            return job, index
+    raise GrowattGuardError(f"Schedule job id not found: {job_id}")
+
+
+def today_schedule_override(overrides: dict[str, Any], today: dt.date | None = None) -> dict[str, Any]:
+    today = today or dt.date.today()
+    value = overrides.get("dates", {}).get(today.isoformat(), {})
+    return value if isinstance(value, dict) else {}
+
+
+def command_run_scheduled(config: Config, job_id: str) -> int:
+    schedule = validate_schedule()
+    job, index = find_schedule_job(schedule, job_id)
+    overrides = validate_schedule_overrides(schedule)
+    override = today_schedule_override(overrides)
+    today = dt.date.today().isoformat()
+    note = str(override.get("note", "")).strip()
+
+    if override.get("skip_all") or job_id in override.get("skip", []):
+        message = f"Skipped scheduled job `{job_id}` for {today} due to schedule override."
+        if note:
+            message += f" Note: {note}"
+        logging.info(message)
+        if config.discord_notify_skip:
+            send_discord_message(config, message)
+        print(message)
+        return 0
+
+    replacement = override.get("replace", {}).get(job_id) if isinstance(override.get("replace", {}), dict) else None
+    if replacement:
+        tokens = schedule_job_tokens(replacement, 0)
+        logging.info("Running schedule override for %s: %s", job_id, " ".join(tokens))
+    else:
+        tokens = schedule_job_tokens(job, index)
+
+    args = parse_command_tokens(tokens)
+    return dispatch_command(config, args)
+
+
 def validate_schedule(path: Path = SCHEDULE_FILE) -> dict[str, Any]:
     if not path.exists():
         raise GrowattGuardError(f"Schedule file not found: {path}")
@@ -1602,9 +2068,14 @@ def validate_schedule(path: Path = SCHEDULE_FILE) -> dict[str, Any]:
     if not isinstance(jobs, list) or not jobs:
         raise GrowattGuardError("schedule.json must contain at least one job.")
 
+    job_ids: set[str] = set()
     for index, job in enumerate(jobs, start=1):
         if not isinstance(job, dict):
             raise GrowattGuardError(f"Schedule job {index} must be an object.")
+        job_id = schedule_job_id(job, index)
+        if job_id in job_ids:
+            raise GrowattGuardError(f"Schedule job {index} has duplicate id: {job_id!r}")
+        job_ids.add(job_id)
         cron = str(job.get("cron", "")).strip()
         command = str(job.get("command", "")).strip()
         if len(cron.split()) != 5:
@@ -1619,6 +2090,9 @@ def command_validate_schedule(config: Config | None = None) -> int:
     _ = config
     schedule = validate_schedule()
     print(f"Schedule OK: {len(schedule['jobs'])} jobs in {schedule['timezone']}.")
+    overrides = validate_schedule_overrides(schedule)
+    if overrides.get("dates"):
+        print(f"Schedule overrides OK: {len(overrides['dates'])} date override(s).")
     return 0
 
 
@@ -1644,19 +2118,77 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("return-sbu", help="Switch back to SBU.")
     subparsers.add_parser("watchdog-sbu", help="Verify output source is SBU; retry SBU once if needed.")
     subparsers.add_parser("daily-summary", help="Post/print a daily Growatt and automation summary.")
+    subparsers.add_parser("weekly-summary", help="Post/print a weekly automation performance summary.")
     subparsers.add_parser("rotate-logs", help="Delete old generated probe/log files according to LOG_RETENTION_DAYS.")
     subparsers.add_parser("weather-threshold", help="Print the current weather-aware preserve-battery threshold.")
     subparsers.add_parser("battery-alert", help="Send a Discord alert if battery SOC is below EMERGENCY_SOC.")
     subparsers.add_parser("validate-schedule", help="Validate schedule.json.")
     subparsers.add_parser("test-discord", help="Send a test Discord webhook message.")
+    run_parser = subparsers.add_parser("run-scheduled", help="Run a schedule job by id, applying date overrides first.")
+    run_parser.add_argument("job_id", help="Schedule job id from schedule.json.")
     health_parser = subparsers.add_parser("health-check", help="Run read-only configuration and connectivity checks.")
     health_parser.add_argument("--notify", action="store_true", help="Post the health report to Discord.")
+    dashboard_parser = subparsers.add_parser("dashboard", help="Generate a small local HTML dashboard.")
+    dashboard_parser.add_argument("--output", default=str(DASHBOARD_FILE), help="Dashboard HTML output path.")
     pause_parser = subparsers.add_parser("pause", help="Pause scheduled mode-changing automation.")
     pause_parser.add_argument("--hours", type=float, required=True, help="How long to pause automation for.")
     pause_parser.add_argument("--reason", default="", help="Optional reason stored in pause state and Discord alert.")
     subparsers.add_parser("resume", help="Resume scheduled mode-changing automation.")
     subparsers.add_parser("pause-status", help="Show whether automation is currently paused.")
     return parser
+
+
+def parse_command_tokens(tokens: list[str]) -> argparse.Namespace:
+    return build_parser().parse_args(tokens)
+
+
+def dispatch_command(config: Config, args: argparse.Namespace) -> int:
+    command = args.command
+
+    def action() -> int:
+        if command == "status":
+            return command_status(config)
+        if command == "probe":
+            return command_probe(config)
+        if command == "preserve-battery":
+            return command_preserve_battery(config)
+        if command == "utility-check":
+            return command_utility_check(config)
+        if command == "morning-check":
+            return command_morning_check(config)
+        if command == "return-sbu":
+            return command_return_sbu(config)
+        if command == "watchdog-sbu":
+            return command_watchdog_sbu(config)
+        if command == "daily-summary":
+            return command_daily_summary(config)
+        if command == "weekly-summary":
+            return command_weekly_summary(config)
+        if command == "rotate-logs":
+            return command_rotate_logs(config)
+        if command == "weather-threshold":
+            return command_weather_threshold(config)
+        if command == "battery-alert":
+            return command_battery_alert(config)
+        if command == "test-discord":
+            return command_test_discord(config)
+        if command == "health-check":
+            return command_health_check(config, args.notify)
+        if command == "dashboard":
+            return command_dashboard(config, args.output)
+        if command == "run-scheduled":
+            return command_run_scheduled(config, args.job_id)
+        if command == "pause":
+            return command_pause(config, args.hours, args.reason)
+        if command == "resume":
+            return command_resume(config)
+        if command == "pause-status":
+            return command_pause_status(config)
+        raise GrowattGuardError(f"Unknown command: {command}")
+
+    if command in LOCKED_COMMANDS:
+        return run_with_command_lock(config, command, action)
+    return action()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1670,40 +2202,7 @@ def main(argv: list[str] | None = None) -> int:
             return command_validate_schedule()
         config = load_config()
         logging.info("Command=%s dry_run=%s low_soc=%s", args.command, config.dry_run, config.low_battery_soc)
-        if args.command == "status":
-            return command_status(config)
-        if args.command == "probe":
-            return command_probe(config)
-        if args.command == "preserve-battery":
-            return command_preserve_battery(config)
-        if args.command == "utility-check":
-            return command_utility_check(config)
-        if args.command == "morning-check":
-            return command_morning_check(config)
-        if args.command == "return-sbu":
-            return command_return_sbu(config)
-        if args.command == "watchdog-sbu":
-            return command_watchdog_sbu(config)
-        if args.command == "daily-summary":
-            return command_daily_summary(config)
-        if args.command == "rotate-logs":
-            return command_rotate_logs(config)
-        if args.command == "weather-threshold":
-            return command_weather_threshold(config)
-        if args.command == "battery-alert":
-            return command_battery_alert(config)
-        if args.command == "test-discord":
-            return command_test_discord(config)
-        if args.command == "health-check":
-            return command_health_check(config, args.notify)
-        if args.command == "pause":
-            return command_pause(config, args.hours, args.reason)
-        if args.command == "resume":
-            return command_resume(config)
-        if args.command == "pause-status":
-            return command_pause_status(config)
-        parser.error(f"Unknown command: {args.command}")
-        return 2
+        return dispatch_command(config, args)
     except GrowattGuardError as exc:
         logging.error("%s", exc)
         notify_failure(config, args.command, str(exc))
