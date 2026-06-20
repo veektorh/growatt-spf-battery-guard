@@ -28,6 +28,7 @@ SCHEDULE_COMMANDS = {
     "battery-alert",
     "weekly-summary",
     "dashboard-stale-alert",
+    "pvoutput-upload",
 }
 SCHEDULE_COMMAND_ARGS = {
     "health-check": {"--notify"},

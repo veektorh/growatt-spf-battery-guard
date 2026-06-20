@@ -33,6 +33,9 @@ def make_config(**overrides):
         "low_battery_soc_normal": 45,
         "low_battery_soc_sunny": 40,
         "season_profiles_enabled": False,
+        "pvoutput_enabled": False,
+        "pvoutput_api_key": "",
+        "pvoutput_system_id": "",
     }
     values.update(overrides)
     return Config(**values)

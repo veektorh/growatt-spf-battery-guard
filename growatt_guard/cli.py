@@ -8,6 +8,7 @@ from typing import Any
 from growatt_guard.config import Config, load_config
 from growatt_guard.dashboard import DASHBOARD_FILE, MIN_DASHBOARD_REFRESH_MINUTES
 from growatt_guard.notifications import notify_failure
+from growatt_guard.pvoutput import command_pvoutput_upload
 from growatt_guard.schedule import command_outage_profile, command_schedule_override, command_validate_schedule
 
 
@@ -129,6 +130,11 @@ def build_parser() -> argparse.ArgumentParser:
     outage_apply.add_argument("dates", nargs="+", help="YYYY-MM-DD date(s) to apply the profile to.")
     outage_apply.add_argument("--note", default="", help="Optional note stored with each override.")
 
+    subparsers.add_parser(
+        "pvoutput-upload",
+        help="Upload the current Growatt status to PVOutput.org (requires PVOUTPUT_ENABLED=true).",
+    )
+
     return parser
 
 
@@ -195,6 +201,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return command_schedule_override(config, args)
         if command == "outage-profile":
             return command_outage_profile(config, args)
+        if command == "pvoutput-upload":
+            return command_pvoutput_upload(config)
         raise app.GrowattGuardError(f"Unknown command: {command}")
 
     if command in app.LOCKED_COMMANDS:
