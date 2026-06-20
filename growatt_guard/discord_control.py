@@ -223,7 +223,7 @@ async def run_guard_command(tokens: list[str], timeout_seconds: int = 1800) -> t
         *tokens,
         cwd=str(BASE_DIR),
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
+        stderr=asyncio.subprocess.DEVNULL,
     )
     try:
         output, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_seconds)
