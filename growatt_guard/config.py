@@ -104,6 +104,24 @@ def csv_env(name: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in value.split(",") if part.strip())
 
 
+def validate_config(config: Config) -> list[str]:
+    warnings: list[str] = []
+    if config.load_aware_threshold and not config.weather_enabled:
+        warnings.append(
+            "LOAD_AWARE_THRESHOLD=true has no effect without WEATHER_ENABLED=true"
+        )
+    if config.battery_capacity_wh > 0 and config.battery_charge_rate_w <= 0:
+        warnings.append(
+            "BATTERY_CAPACITY_WH is set but BATTERY_CHARGE_RATE_W=0; "
+            "/growatt_topup target_soc and topup-to-sunrise estimate will not work"
+        )
+    if config.weather_enabled and (config.weather_lat is None or config.weather_lon is None):
+        warnings.append(
+            "WEATHER_ENABLED=true but WEATHER_LAT and/or WEATHER_LON are not set"
+        )
+    return warnings
+
+
 def load_config() -> Config:
     if load_dotenv is not None:
         load_dotenv(BASE_DIR / ".env")

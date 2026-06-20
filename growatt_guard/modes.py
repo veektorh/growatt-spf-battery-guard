@@ -69,6 +69,59 @@ _MODE_CHANGING_COMMANDS = {
 }
 
 
+def command_estimate_charge_rate(config: Config, wait_seconds: int = 900) -> int:
+    import time as _time
+
+    if config.battery_capacity_wh <= 0:
+        raise GrowattGuardError(
+            "BATTERY_CAPACITY_WH must be set to estimate charge rate. "
+            "Set it to your total battery capacity in Wh (e.g. 30000 for 2x15kWh)."
+        )
+
+    _, _, status1 = load_context(config)
+    soc1_result = extract_soc(status1)
+    if not soc1_result:
+        raise GrowattGuardError("Could not read SOC from Growatt.")
+    soc1, _ = soc1_result
+
+    _pc = extract_first_metric(status1, ("pCharge", "pCharge1"))
+    pcv = parse_number(_pc[0]) if _pc else None
+    if not pcv or pcv <= 0:
+        bat_status = extract_first_metric(status1, ("statusText",))
+        raise GrowattGuardError(
+            f"Battery does not appear to be charging (pCharge={pcv}). "
+            "Switch to Utility/mains charging first, then run this command."
+        )
+
+    print(f"Initial SOC : {soc1:.0f}%  |  API charge reading: {pcv:g} W")
+    print(f"Waiting {wait_seconds}s ({wait_seconds // 60}m {wait_seconds % 60:02d}s) — do not change modes...")
+
+    _time.sleep(wait_seconds)
+
+    _, _, status2 = load_context(config)
+    soc2_result = extract_soc(status2)
+    if not soc2_result:
+        raise GrowattGuardError("Could not read SOC after wait.")
+    soc2, _ = soc2_result
+
+    delta_soc = soc2 - soc1
+    print(f"Final SOC   : {soc2:.0f}%  |  Delta: {delta_soc:+.0f}%")
+
+    if delta_soc <= 0:
+        print(
+            f"No SOC increase detected. The wait may be too short for the API's 1% resolution. "
+            f"Try: estimate-charge-rate --wait-seconds {wait_seconds * 2}"
+        )
+        return 1
+
+    delta_wh = delta_soc / 100.0 * config.battery_capacity_wh
+    rate_w = delta_wh / (wait_seconds / 3600.0)
+    print(f"Delta energy: {delta_wh:g} Wh")
+    print(f"Estimated charge rate: {rate_w:.0f} W")
+    print(f"\nAdd to .env:  BATTERY_CHARGE_RATE_W={rate_w:.0f}")
+    return 0
+
+
 def _sunrise_hours(config: Config) -> float | None:
     try:
         return hours_until_next_sunrise(config)

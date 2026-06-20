@@ -489,7 +489,7 @@ def command_serve_discord_bot(config: Config) -> int:
                 active = read_topup_state()
                 active_reason = active.get("reason", "unknown") if active else "unknown"
                 await interaction.response.send_message(
-                    f"A top-up is already in progress: {active_reason}. Wait for it to finish or use /growatt_resume to cancel it.",
+                    f"A top-up is already in progress: {active_reason}. Use /growatt_topup_cancel to cancel it.",
                     ephemeral=True,
                 )
                 return
@@ -498,8 +498,13 @@ def command_serve_discord_bot(config: Config) -> int:
             paused_until = utc_now() + dt.timedelta(minutes=effective_minutes)
             write_topup_state(effective_minutes, reason, paused_until)
 
+            if target_soc > 0:
+                rate_kw = config.battery_charge_rate_w / 1000.0
+                hint = f"~{effective_minutes} min ({current_soc:.0f}% → {target_soc}% at {rate_kw:.1f} kW)"
+            else:
+                hint = f"{effective_minutes} min"
             await interaction.response.send_message(
-                f"Starting top-up for {effective_minutes} minute(s). I will pause automation, switch to Utility, then return to SBU.",
+                f"Starting top-up for {hint}. I will pause automation, switch to Utility, then return to SBU.",
             )
 
             pause_rc, pause_out = await run_guard_command(
@@ -526,6 +531,21 @@ def command_serve_discord_bot(config: Config) -> int:
             await interaction.channel.send(command_result_text("topup resume", resume_rc, resume_out))
             sbu_rc, sbu_out = await run_guard_command(["return-sbu"])
             await interaction.channel.send(command_result_text("topup return-sbu", sbu_rc, sbu_out))
+            clear_topup_state()
+
+        await _guarded(config, interaction, action)
+
+    @tree.command(name="growatt_topup_cancel", description="Cancel an active top-up and return to SBU.", **command_scope)
+    async def growatt_topup_cancel(interaction: discord.Interaction) -> None:
+        async def action() -> None:
+            if not topup_is_active():
+                await interaction.response.send_message("No active top-up to cancel.", ephemeral=True)
+                return
+            await interaction.response.send_message("Cancelling top-up — resuming automation and returning to SBU.")
+            resume_rc, resume_out = await run_guard_command(["resume"])
+            await interaction.channel.send(command_result_text("topup cancel resume", resume_rc, resume_out))
+            sbu_rc, sbu_out = await run_guard_command(["return-sbu"])
+            await interaction.channel.send(command_result_text("topup cancel return-sbu", sbu_rc, sbu_out))
             clear_topup_state()
 
         await _guarded(config, interaction, action)

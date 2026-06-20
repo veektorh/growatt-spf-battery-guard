@@ -5,7 +5,7 @@ import logging
 import sys
 from typing import Any
 
-from growatt_guard.config import Config, load_config
+from growatt_guard.config import Config, load_config, validate_config
 from growatt_guard.dashboard import DASHBOARD_FILE, MIN_DASHBOARD_REFRESH_MINUTES
 from growatt_guard.discord_control import command_serve_discord_bot
 from growatt_guard.notifications import notify_failure
@@ -151,6 +151,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Upload the current Growatt status to PVOutput.org (requires PVOUTPUT_ENABLED=true).",
     )
 
+    charge_rate_parser = subparsers.add_parser(
+        "estimate-charge-rate",
+        help="Read SOC before and after a wait while charging to estimate BATTERY_CHARGE_RATE_W.",
+    )
+    charge_rate_parser.add_argument(
+        "--wait-seconds",
+        type=int,
+        default=900,
+        help="Seconds to wait between readings (default 900 = 15 min). Longer gives a more accurate result.",
+    )
+
     return parser
 
 
@@ -225,6 +236,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return command_outage_profile(config, args)
         if command == "pvoutput-upload":
             return command_pvoutput_upload(config)
+        if command == "estimate-charge-rate":
+            return app.command_estimate_charge_rate(config, args.wait_seconds)
         raise app.GrowattGuardError(f"Unknown command: {command}")
 
     if command in app.LOCKED_COMMANDS:
@@ -243,6 +256,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "validate-schedule":
             return command_validate_schedule()
         config = load_config()
+        for _w in validate_config(config):
+            logging.warning("Config: %s", _w)
         logging.info("Command=%s dry_run=%s low_soc=%s", args.command, config.dry_run, config.low_battery_soc)
         return dispatch_command(config, args)
     except app.GrowattGuardError as exc:

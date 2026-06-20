@@ -71,6 +71,7 @@ from growatt_guard.health import (
 from growatt_guard.modes import (
     command_battery_alert,
     command_daily_summary,
+    command_estimate_charge_rate,
     command_force_utility,
     command_monthly_summary,
     command_morning_check,
