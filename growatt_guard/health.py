@@ -10,7 +10,14 @@ from growatt_guard.dashboard import DASHBOARD_FILE, dashboard_freshness
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import extract_soc, extract_spf_output_source, load_context
 from growatt_guard.notifications import read_growatt_cloud_failure_state, send_discord_message
-from growatt_guard.schedule import check_cron_schedule, validate_schedule, validate_schedule_overrides
+from growatt_guard.pvoutput import read_pvoutput_state
+from growatt_guard.schedule import (
+    check_cron_schedule,
+    next_scheduled_runs,
+    schedule_job_id,
+    validate_schedule,
+    validate_schedule_overrides,
+)
 from growatt_guard.state import (
     command_lock_is_stale,
     pause_message,
@@ -155,6 +162,20 @@ def command_health_check(config: Config, notify: bool = False) -> int:
             checks.append(HealthCheckItem("Schedule overrides", "OK", detail))
         checks.extend(check_cron_schedule(schedule))
 
+        now = dt.datetime.now()
+        next_runs = next_scheduled_runs(schedule, now=now, limit=1)
+        if next_runs:
+            run_at, job = next_runs[0]
+            job_id = str(job.get("id", "?"))
+            minutes_away = int((run_at - now).total_seconds() // 60)
+            checks.append(
+                HealthCheckItem(
+                    "Next job",
+                    "OK",
+                    f"{job_id} at {run_at.strftime('%H:%M')} (in {minutes_away} min).",
+                )
+            )
+
     try:
         _, device, status = load_context(config)
     except Exception as exc:  # noqa: BLE001 - health check continues reporting other checks on cloud failure
@@ -193,6 +214,20 @@ def command_health_check(config: Config, notify: bool = False) -> int:
             f"{threshold_decision.threshold:g}% ({threshold_decision.reason}).",
         )
     )
+
+    if getattr(config, "pvoutput_enabled", False):
+        pvo_state = read_pvoutput_state()
+        if pvo_state is None:
+            checks.append(HealthCheckItem("PVOutput", "WARN", "enabled but no successful uploads recorded yet."))
+        else:
+            try:
+                uploaded_at = dt.datetime.fromisoformat(str(pvo_state.get("uploaded_at", "")))
+                age_seconds = max(0.0, (dt.datetime.now() - uploaded_at).total_seconds())
+                age_min = int(age_seconds // 60)
+                status_str = "WARN" if age_seconds > 30 * 60 else "OK"
+                checks.append(HealthCheckItem("PVOutput", status_str, f"last upload {age_min} min ago."))
+            except (ValueError, TypeError):
+                checks.append(HealthCheckItem("PVOutput", "WARN", "upload state file could not be parsed."))
 
     pause_state = read_pause_state()
     if pause_state:

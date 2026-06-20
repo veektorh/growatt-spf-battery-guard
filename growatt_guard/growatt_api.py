@@ -487,14 +487,35 @@ def set_mode(api, config: Any, device: DeviceRef, mode: str) -> dict[str, Any]:
     return result
 
 
-def load_context(config: Any):
-    api, login_response = connect(config)
-    plant_id = choose_plant(api, login_response, config)
-    device = choose_device(api, plant_id, config)
-    status = read_device_status(api, device)
-    logging.info("Current status: %s", summarize_status(status))
-    record_growatt_cloud_success(config)
-    return api, device, status
+def load_context(config: Any, max_attempts: int = 3):
+    from growatt_guard.exceptions import GrowattGuardError as _GrowattGuardError
+
+    last_exc: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            api, login_response = connect(config)
+            plant_id = choose_plant(api, login_response, config)
+            device = choose_device(api, plant_id, config)
+            status = read_device_status(api, device)
+            logging.info("Current status: %s", summarize_status(status))
+            record_growatt_cloud_success(config)
+            return api, device, status
+        except _GrowattGuardError:
+            raise  # auth failures, bad config, missing device — permanent, don't retry
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if attempt < max_attempts - 1:
+                delay = (5.0, 10.0)[min(attempt, 1)]
+                logging.warning(
+                    "Growatt API call failed (attempt %d/%d): %s. Retrying in %.0fs.",
+                    attempt + 1,
+                    max_attempts,
+                    exc,
+                    delay,
+                )
+                time.sleep(delay)
+
+    raise api_error(f"Growatt API failed after {max_attempts} attempts: {last_exc}") from last_exc
 
 
 SPF_EXPECTED_OUTPUT_CONFIG: dict[str, str] = {"utility": "2", "sbu": "0"}

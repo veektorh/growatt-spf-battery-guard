@@ -78,6 +78,22 @@ def command_preserve_battery(config: Config) -> int:
     logging.info("Preserve-battery threshold: %.1f%% (%s)", threshold, threshold_decision.reason)
 
     if soc < threshold:
+        current_source = extract_spf_output_source(status)
+        if current_source and current_source[0] == "2":
+            logging.info("Battery SOC %.1f%% is below %.1f%% but already in Utility; skipping switch.", soc, threshold)
+            append_mode_audit(
+                config,
+                "preserve-battery",
+                soc=soc,
+                threshold=threshold,
+                weather_category=threshold_decision.weather_category,
+                previous_mode=previous_mode,
+                action="no-change",
+                result="skipped",
+                note="already in Utility mode",
+            )
+            print(f"SOC {soc:g}% < {threshold:g}%; already in Utility mode, no switch needed.")
+            return 0
         logging.info("Battery SOC %.1f%% from %s is below %.1f%%; switching to Utility.", soc, path, threshold)
         try:
             result = set_mode(api, config, device, "utility")
@@ -168,6 +184,22 @@ def command_return_sbu(config: Config) -> int:
     api, device, status = load_context(config)
     soc = extract_status_soc(status)
     previous_mode = describe_status_output_source(status)
+
+    current_source = extract_spf_output_source(status)
+    if current_source and current_source[0] == "0":
+        logging.info("Already in SBU priority mode; skipping return-sbu switch.")
+        append_mode_audit(
+            config,
+            "return-sbu",
+            soc=soc,
+            previous_mode=previous_mode,
+            action="no-change",
+            result="skipped",
+            note="already in SBU mode",
+        )
+        print("Already in SBU priority mode; no switch needed.")
+        return 0
+
     try:
         result = set_mode(api, config, device, "sbu")
     except Exception as exc:  # noqa: BLE001 - audit failed mode decisions before re-raising
