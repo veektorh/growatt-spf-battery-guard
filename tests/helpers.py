@@ -32,6 +32,7 @@ def make_config(**overrides):
         "weather_rain_threshold_mm": 1,
         "low_battery_soc_normal": 45,
         "low_battery_soc_sunny": 40,
+        "season_profiles_enabled": False,
     }
     values.update(overrides)
     return Config(**values)

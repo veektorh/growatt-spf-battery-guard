@@ -48,6 +48,7 @@ class Config:
     weather_rain_threshold_mm: float = 1
     low_battery_soc_normal: float = 45
     low_battery_soc_sunny: float = 40
+    season_profiles_enabled: bool = False
 
 
 def app_module() -> Any:
@@ -133,4 +134,5 @@ def load_config() -> Config:
         weather_rain_threshold_mm=float(env("WEATHER_RAIN_THRESHOLD_MM", "1")),
         low_battery_soc_normal=float(env("LOW_BATTERY_SOC_NORMAL", "45")),
         low_battery_soc_sunny=float(env("LOW_BATTERY_SOC_SUNNY", "40")),
+        season_profiles_enabled=str_to_bool(env("SEASON_PROFILES_ENABLED"), default=False),
     )

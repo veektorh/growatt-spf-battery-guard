@@ -7,9 +7,13 @@ from unittest.mock import patch
 
 from helpers import make_config
 from growatt_power_guard import (
+    DRY_SEASON_THRESHOLDS,
+    RAINY_SEASON_MONTHS,
     ThresholdDecision,
     analyze_weather_window,
+    apply_season_adjustment,
     choose_preserve_threshold,
+    current_season,
 )
 
 
@@ -101,6 +105,54 @@ class WeatherTests(unittest.TestCase):
             mock_requests.get.assert_called_once()
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
             self.assertEqual(cached["forecast"], forecast)
+
+
+class SeasonProfileTests(unittest.TestCase):
+    def test_current_season_rainy_months(self):
+        for month in RAINY_SEASON_MONTHS:
+            date = dt.date(2026, month, 15)
+            self.assertEqual(current_season(date), "rainy", f"Expected rainy for month {month}")
+
+    def test_current_season_dry_months(self):
+        for month in [1, 2, 3, 11, 12]:
+            date = dt.date(2026, month, 15)
+            self.assertEqual(current_season(date), "dry", f"Expected dry for month {month}")
+
+    def test_apply_season_adjustment_lowers_threshold_in_dry_season(self):
+        decision = ThresholdDecision(threshold=50.0, reason="rainy/cloudy", weather_category="rainy/cloudy")
+        adjusted = apply_season_adjustment(decision, "dry")
+        self.assertEqual(adjusted.threshold, DRY_SEASON_THRESHOLDS["rainy/cloudy"])
+        self.assertIn("dry season", adjusted.reason)
+
+    def test_apply_season_adjustment_no_change_in_rainy_season(self):
+        decision = ThresholdDecision(threshold=50.0, reason="rainy/cloudy", weather_category="rainy/cloudy")
+        adjusted = apply_season_adjustment(decision, "rainy")
+        self.assertEqual(adjusted.threshold, 50.0)
+        self.assertEqual(adjusted.reason, decision.reason)
+
+    def test_dry_season_thresholds_values(self):
+        self.assertEqual(DRY_SEASON_THRESHOLDS["rainy/cloudy"], 45.0)
+        self.assertEqual(DRY_SEASON_THRESHOLDS["normal"], 40.0)
+        self.assertEqual(DRY_SEASON_THRESHOLDS["sunny"], 35.0)
+
+    def test_choose_preserve_threshold_applies_dry_season_when_enabled(self):
+        config = make_config(weather_enabled=False, low_battery_soc=50, season_profiles_enabled=True)
+        dry_date = dt.date(2026, 1, 15)  # January = dry season
+        decision = choose_preserve_threshold(config, today=dry_date)
+        self.assertEqual(decision.threshold, DRY_SEASON_THRESHOLDS["disabled"])
+        self.assertIn("dry season", decision.reason)
+
+    def test_choose_preserve_threshold_no_adjustment_in_rainy_season(self):
+        config = make_config(weather_enabled=False, low_battery_soc=50, season_profiles_enabled=True)
+        rainy_date = dt.date(2026, 6, 20)  # June = rainy season
+        decision = choose_preserve_threshold(config, today=rainy_date)
+        self.assertEqual(decision.threshold, 50.0)
+
+    def test_choose_preserve_threshold_no_adjustment_when_disabled(self):
+        config = make_config(weather_enabled=False, low_battery_soc=50, season_profiles_enabled=False)
+        dry_date = dt.date(2026, 1, 15)
+        decision = choose_preserve_threshold(config, today=dry_date)
+        self.assertEqual(decision.threshold, 50.0)
 
 
 if __name__ == "__main__":

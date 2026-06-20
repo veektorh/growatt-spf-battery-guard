@@ -15,6 +15,16 @@ from growatt_guard.state import STATE_DIR
 WEATHER_CACHE_FILE = STATE_DIR / "weather_cache.json"
 WEATHER_CACHE_TTL_SECONDS = 15 * 60
 
+RAINY_SEASON_MONTHS: frozenset[int] = frozenset(range(4, 11))  # April–October (Lagos)
+
+DRY_SEASON_THRESHOLDS: dict[str, float] = {
+    "rainy/cloudy": 45.0,
+    "normal": 40.0,
+    "sunny": 35.0,
+    "disabled": 45.0,
+    "unavailable": 45.0,
+}
+
 
 @dataclass(frozen=True)
 class ThresholdDecision:
@@ -37,6 +47,26 @@ def app_module() -> Any:
     import growatt_power_guard
 
     return growatt_power_guard
+
+
+def current_season(date: dt.date | None = None) -> str:
+    d = date or dt.date.today()
+    return "rainy" if d.month in RAINY_SEASON_MONTHS else "dry"
+
+
+def apply_season_adjustment(decision: ThresholdDecision, season: str) -> ThresholdDecision:
+    if season != "dry":
+        return decision
+    dry_threshold = DRY_SEASON_THRESHOLDS.get(decision.weather_category)
+    if dry_threshold is None:
+        return decision
+    return ThresholdDecision(
+        threshold=dry_threshold,
+        reason=decision.reason + f"; dry season (Lagos): lowered to {dry_threshold:g}%",
+        weather_category=decision.weather_category,
+        cloud_cover=decision.cloud_cover,
+        precipitation_mm=decision.precipitation_mm,
+    )
 
 
 def weather_error(message: str) -> Exception:
@@ -165,19 +195,26 @@ def analyze_weather_window(config: Any, forecast: dict[str, Any]) -> ThresholdDe
     )
 
 
-def choose_preserve_threshold(config: Any) -> ThresholdDecision:
+def choose_preserve_threshold(config: Any, today: dt.date | None = None) -> ThresholdDecision:
     if not config.weather_enabled:
-        return ThresholdDecision(
+        decision = ThresholdDecision(
             threshold=config.low_battery_soc,
             reason=f"weather disabled; using fixed threshold {config.low_battery_soc:g}%",
         )
+    else:
+        try:
+            decision = analyze_weather_window(config, fetch_weather_forecast(config))
+        except Exception as exc:  # noqa: BLE001 - preserve automation if weather is unavailable
+            logging.warning("Weather threshold unavailable, using fixed threshold: %s", exc)
+            decision = ThresholdDecision(
+                threshold=config.low_battery_soc,
+                reason=f"weather unavailable; using fixed threshold {config.low_battery_soc:g}%",
+                weather_category="unavailable",
+            )
 
-    try:
-        return analyze_weather_window(config, fetch_weather_forecast(config))
-    except Exception as exc:  # noqa: BLE001 - preserve automation if weather is unavailable
-        logging.warning("Weather threshold unavailable, using fixed threshold: %s", exc)
-        return ThresholdDecision(
-            threshold=config.low_battery_soc,
-            reason=f"weather unavailable; using fixed threshold {config.low_battery_soc:g}%",
-            weather_category="unavailable",
-        )
+    if getattr(config, "season_profiles_enabled", False):
+        season = current_season(today)
+        decision = apply_season_adjustment(decision, season)
+        logging.debug("Season: %s; threshold after season adjustment: %g%%", season, decision.threshold)
+
+    return decision

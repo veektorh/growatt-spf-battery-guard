@@ -118,9 +118,13 @@ from growatt_guard.state import (
     write_pause_state,
 )
 from growatt_guard.weather import (
+    DRY_SEASON_THRESHOLDS,
+    RAINY_SEASON_MONTHS,
     ThresholdDecision,
     analyze_weather_window,
+    apply_season_adjustment,
     choose_preserve_threshold,
+    current_season,
     fetch_weather_forecast,
 )
 
