@@ -21,6 +21,7 @@ from growatt_guard.growatt_api import (
     load_context,
     set_mode,
     summarize_status,
+    verify_mode_switch,
     write_probe,
 )
 from growatt_guard.notifications import send_discord_message
@@ -116,6 +117,15 @@ def command_preserve_battery(config: Config) -> int:
             )
         print(f"SOC {soc:g}% < {threshold:g}%; Utility command result: {result}")
         print(f"Threshold reason: {threshold_decision.reason}")
+        if not config.dry_run:
+            confirmed = verify_mode_switch(api, device, "utility")
+            if confirmed is False:
+                logging.warning("preserve-battery: Utility switch not confirmed by re-read.")
+                if config.discord_notify_failure:
+                    send_discord_message(
+                        config,
+                        "Growatt preserve-battery: switch command accepted but outputConfig did not update to Utility on re-read. Please check the inverter.",
+                    )
     else:
         logging.info("Battery SOC %.1f%% is not below %.1f%%; leaving SBU as-is.", soc, threshold)
         append_mode_audit(
@@ -182,6 +192,15 @@ def command_return_sbu(config: Config) -> int:
     if config.discord_notify_success and not config.dry_run:
         send_discord_message(config, "Growatt return-sbu action completed.\nSwitched to `SBU priority`.")
     print(f"SBU command result: {result}")
+    if not config.dry_run:
+        confirmed = verify_mode_switch(api, device, "sbu")
+        if confirmed is False:
+            logging.warning("return-sbu: SBU switch not confirmed by re-read.")
+            if config.discord_notify_failure:
+                send_discord_message(
+                    config,
+                    "Growatt return-sbu: switch command accepted but outputConfig did not update to SBU on re-read. Please check the inverter.",
+                )
     return 0
 
 

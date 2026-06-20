@@ -3,13 +3,16 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import sys
+from pathlib import Path
 from typing import Any
 
 import requests
 
 from growatt_guard.growatt_api import extract_first_metric, extract_soc, load_context, parse_number
+from growatt_guard.state import read_json_state, write_json_state
 
 PVOUTPUT_URL = "https://pvoutput.org/service/r2/addstatus.jsp"
+PVOUTPUT_STATE_FILE = Path(__file__).resolve().parents[1] / "state" / "pvoutput_last.json"
 
 # Keys tried in order; first non-empty value wins
 _V1_KEYS = ("epvToday", "ePvToday", "epvTodayTotal", "eacChargeToday", "eChargeToday")
@@ -157,6 +160,19 @@ def upload_pvoutput_status(config: Any, fields: dict[str, Any]) -> bool:
     return False
 
 
+def write_pvoutput_state(fields: dict[str, Any], now: dt.datetime | None = None) -> None:
+    if now is None:
+        now = dt.datetime.now()
+    write_json_state(PVOUTPUT_STATE_FILE, {
+        "uploaded_at": now.isoformat(timespec="seconds"),
+        "fields": {k: v for k, v in fields.items() if k not in ("d", "t")},
+    })
+
+
+def read_pvoutput_state() -> dict[str, Any] | None:
+    return read_json_state(PVOUTPUT_STATE_FILE, "pvoutput")
+
+
 def command_pvoutput_upload(config: Any) -> int:
     if not getattr(config, "pvoutput_enabled", False):
         print("PVOutput upload skipped: set PVOUTPUT_ENABLED=true in .env to enable.")
@@ -176,8 +192,10 @@ def command_pvoutput_upload(config: Any) -> int:
         print(f"DRY_RUN: would upload to PVOutput: {field_summary}")
         return 0
 
+    now = dt.datetime.now()
     ok = upload_pvoutput_status(config, fields)
     if ok:
+        write_pvoutput_state(fields, now=now)
         field_summary = ", ".join(f"{k}={v}" for k, v in sorted(fields.items()) if k not in ("d", "t"))
         print(f"PVOutput OK: {field_summary}")
         return 0

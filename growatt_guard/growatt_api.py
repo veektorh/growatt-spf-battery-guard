@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -494,3 +495,45 @@ def load_context(config: Any):
     logging.info("Current status: %s", summarize_status(status))
     record_growatt_cloud_success(config)
     return api, device, status
+
+
+SPF_EXPECTED_OUTPUT_CONFIG: dict[str, str] = {"utility": "2", "sbu": "0"}
+
+
+def verify_mode_switch(
+    api: Any,
+    device: DeviceRef,
+    mode: str,
+    delay_seconds: float = 3.0,
+) -> bool | None:
+    """Re-read outputConfig after a mode switch to confirm the inverter responded.
+
+    Waits delay_seconds, then reads device status and checks outputConfig.
+    Returns True if confirmed, False if the wrong value is found, None if
+    the status cannot be read or the mode is not recognised.
+    """
+    expected = SPF_EXPECTED_OUTPUT_CONFIG.get(mode)
+    if expected is None:
+        return None
+    time.sleep(delay_seconds)
+    try:
+        fresh_status = read_device_status(api, device)
+    except Exception:  # noqa: BLE001
+        logging.warning("verify_mode_switch: could not re-read device status after %s switch.", mode)
+        return None
+    result = extract_spf_output_source(fresh_status)
+    if result is None:
+        logging.warning("verify_mode_switch: outputConfig not found after %s switch.", mode)
+        return None
+    raw, label, path = result
+    if raw == expected:
+        logging.info("Mode switch verified: outputConfig=%s (%s) from %s.", raw, label, path)
+        return True
+    logging.warning(
+        "Mode switch NOT confirmed: expected outputConfig=%s, got %s (%s) from %s.",
+        expected,
+        raw,
+        label,
+        path,
+    )
+    return False

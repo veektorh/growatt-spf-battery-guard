@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from growatt_guard.audit import build_chart_data, read_mode_audit_rows
+from growatt_guard.pvoutput import read_pvoutput_state
 from growatt_guard.growatt_api import (
     extract_soc,
     extract_spf_output_source,
@@ -194,6 +195,47 @@ def _upcoming_override_rows(overrides: dict[str, Any], today: dt.date, days: int
     return rows
 
 
+def _pvoutput_card_html(state: dict[str, Any] | None, now: dt.datetime) -> str:
+    if state is None:
+        return (
+            '<div class="card"><div class="label">PVOutput</div>'
+            '<div class="value muted" style="font-size:16px">—</div>'
+            '<div class="muted small">no uploads recorded</div></div>'
+        )
+    try:
+        uploaded_at = dt.datetime.fromisoformat(str(state.get("uploaded_at", "")))
+        age_seconds = max(0.0, (now - uploaded_at).total_seconds())
+        time_str = uploaded_at.strftime("%H:%M")
+        stale = age_seconds > 20 * 60
+    except (ValueError, TypeError):
+        return (
+            '<div class="card"><div class="label">PVOutput</div>'
+            '<div class="value muted" style="font-size:16px">—</div>'
+            '<div class="muted small">invalid state</div></div>'
+        )
+    fields = state.get("fields", {})
+    parts: list[str] = []
+    v1 = fields.get("v1")
+    v2 = fields.get("v2")
+    v7 = fields.get("v7")
+    if v1 is not None:
+        parts.append(f"{int(v1) / 1000:.1f} kWh")
+    if v2 is not None:
+        parts.append(f"{v2} W PV")
+    if v7 is not None:
+        parts.append(f"SOC {v7:g}%")
+    age_text = format_duration(age_seconds)
+    detail = (", ".join(parts) + f" · {age_text} ago") if parts else f"{age_text} ago"
+    badge_cls = "badge-warn" if stale else "badge-ok"
+    badge_txt = "STALE" if stale else "OK"
+    return (
+        '<div class="card"><div class="label">PVOutput</div>'
+        f'<div class="value"><span class="badge {badge_cls}">{badge_txt}</span>'
+        f' <span style="font-size:16px">{esc(time_str)}</span></div>'
+        f'<div class="muted small">{esc(detail)}</div></div>'
+    )
+
+
 def build_dashboard_html(
     status: dict[str, Any],
     schedule: dict[str, Any],
@@ -224,6 +266,7 @@ def build_dashboard_html(
     today_jobs = _today_job_rows(schedule, today_override, now.date())
     upcoming_overrides = _upcoming_override_rows(overrides, now.date())
     chart_data_json = json.dumps(build_chart_data(now=now))
+    pvoutput_card = _pvoutput_card_html(read_pvoutput_state(), now)
 
     next_rows = "\n".join(
         "<tr>"
@@ -328,6 +371,7 @@ def build_dashboard_html(
       <div class="card"><div class="label">Emergency Alert</div><div class="value">{esc(alert)}</div></div>
       <div class="card"><div class="label">Cloud Streak</div><div class="value">{esc(cloud_streak)}</div></div>
       <div class="card"><div class="label">Today Override</div><div class="value">{esc(override_note)}</div></div>
+      {pvoutput_card}
     </section>
     <h2>Today&#8217;s Schedule — {esc(now.strftime('%A, %Y-%m-%d'))}</h2>
     <table><thead><tr><th>Time</th><th>Job ID</th><th>Command</th><th>Status</th></tr></thead><tbody>{today_job_rows_html}</tbody></table>

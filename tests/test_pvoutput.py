@@ -5,9 +5,12 @@ from unittest.mock import MagicMock, patch
 
 from helpers import make_config
 from growatt_power_guard import (
+    PVOUTPUT_STATE_FILE,
     PVOUTPUT_URL,
     extract_pvoutput_fields,
     upload_pvoutput_status,
+    write_pvoutput_state,
+    read_pvoutput_state,
 )
 
 
@@ -218,6 +221,59 @@ class CommandPvoutputUploadTests(unittest.TestCase):
              patch("growatt_guard.pvoutput.requests.post", return_value=mock_response):
             with self.assertRaises(GrowattGuardError):
                 command_pvoutput_upload(config)
+
+
+class PvoutputStateTests(unittest.TestCase):
+    def test_write_and_read_state(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        fields = {"v1": 17300, "v2": 694, "v4": 1017, "v6": 222.3, "v7": 68.0}
+        now = dt.datetime(2026, 6, 20, 14, 30, 0)
+        with TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "pvoutput_last.json"
+            with patch("growatt_guard.pvoutput.PVOUTPUT_STATE_FILE", state_path):
+                write_pvoutput_state(fields, now=now)
+                state = read_pvoutput_state()
+
+        self.assertIsNotNone(state)
+        self.assertEqual(state["uploaded_at"], "2026-06-20T14:30:00")
+        self.assertEqual(state["fields"]["v1"], 17300)
+        self.assertEqual(state["fields"]["v2"], 694)
+        self.assertNotIn("d", state["fields"])
+        self.assertNotIn("t", state["fields"])
+
+    def test_read_state_returns_none_when_missing(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "pvoutput_last.json"
+            with patch("growatt_guard.pvoutput.PVOUTPUT_STATE_FILE", state_path):
+                result = read_pvoutput_state()
+        self.assertIsNone(result)
+
+    def test_upload_success_writes_state(self):
+        from growatt_guard.pvoutput import command_pvoutput_upload
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        config = make_config(dry_run=False, pvoutput_enabled=True, pvoutput_api_key="K", pvoutput_system_id="1")
+        status = _make_status()
+        mock_response = MagicMock(status_code=200)
+        with TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "pvoutput_last.json"
+            with patch("growatt_guard.pvoutput.load_context", return_value=(None, None, status)), \
+                 patch("growatt_guard.pvoutput.requests.post", return_value=mock_response), \
+                 patch("growatt_guard.pvoutput.PVOUTPUT_STATE_FILE", state_path), \
+                 patch("builtins.print"):
+                command_pvoutput_upload(config)
+            state = read_pvoutput_state.__wrapped__(state_path) if hasattr(read_pvoutput_state, "__wrapped__") else None
+            import json
+            raw = json.loads(state_path.read_text()) if state_path.exists() else None
+        self.assertIsNotNone(raw)
+        self.assertIn("uploaded_at", raw)
+        self.assertIn("v2", raw["fields"])
 
 
 class PvoutputParserTests(unittest.TestCase):

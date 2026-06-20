@@ -8,10 +8,12 @@ from unittest.mock import patch
 from helpers import make_config
 from growatt_power_guard import (
     DeviceRef,
+    SPF_EXPECTED_OUTPUT_CONFIG,
     extract_soc,
     extract_spf_output_source,
     render_params,
     set_mode,
+    verify_mode_switch,
     command_watchdog_sbu,
 )
 
@@ -98,6 +100,57 @@ class GrowattApiTests(unittest.TestCase):
             self.assertEqual(command_watchdog_sbu(config), 0)
 
         set_mode_mock.assert_called_once()
+
+
+class VerifyModeSwitchTests(unittest.TestCase):
+    def _device(self):
+        return DeviceRef("plant1", "SN1", "storage", {})
+
+    def _status(self, output_config: str) -> dict:
+        return {"storage_params": {"storageDetailBean": {"outputConfig": output_config}}}
+
+    def test_returns_true_when_config_matches_utility(self):
+        api = object()
+        with patch("growatt_guard.growatt_api.read_device_status", return_value=self._status("2")), \
+             patch("growatt_guard.growatt_api.time.sleep"):
+            result = verify_mode_switch(api, self._device(), "utility", delay_seconds=0)
+        self.assertTrue(result)
+
+    def test_returns_true_when_config_matches_sbu(self):
+        api = object()
+        with patch("growatt_guard.growatt_api.read_device_status", return_value=self._status("0")), \
+             patch("growatt_guard.growatt_api.time.sleep"):
+            result = verify_mode_switch(api, self._device(), "sbu", delay_seconds=0)
+        self.assertTrue(result)
+
+    def test_returns_false_when_config_does_not_match(self):
+        api = object()
+        with patch("growatt_guard.growatt_api.read_device_status", return_value=self._status("0")), \
+             patch("growatt_guard.growatt_api.time.sleep"):
+            result = verify_mode_switch(api, self._device(), "utility", delay_seconds=0)
+        self.assertFalse(result)
+
+    def test_returns_none_when_status_read_fails(self):
+        api = object()
+        with patch("growatt_guard.growatt_api.read_device_status", side_effect=Exception("network")), \
+             patch("growatt_guard.growatt_api.time.sleep"):
+            result = verify_mode_switch(api, self._device(), "utility", delay_seconds=0)
+        self.assertIsNone(result)
+
+    def test_returns_none_for_unknown_mode(self):
+        result = verify_mode_switch(None, self._device(), "unknown_mode", delay_seconds=0)
+        self.assertIsNone(result)
+
+    def test_expected_configs(self):
+        self.assertEqual(SPF_EXPECTED_OUTPUT_CONFIG["utility"], "2")
+        self.assertEqual(SPF_EXPECTED_OUTPUT_CONFIG["sbu"], "0")
+
+    def test_sleeps_before_reading(self):
+        api = object()
+        with patch("growatt_guard.growatt_api.read_device_status", return_value=self._status("2")), \
+             patch("growatt_guard.growatt_api.time.sleep") as mock_sleep:
+            verify_mode_switch(api, self._device(), "utility", delay_seconds=3)
+        mock_sleep.assert_called_once_with(3)
 
 
 if __name__ == "__main__":
