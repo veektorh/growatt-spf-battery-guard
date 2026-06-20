@@ -26,6 +26,8 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py rotate-logs
 .venv/bin/python growatt_power_guard.py weather-threshold
 .venv/bin/python growatt_power_guard.py validate-schedule
+.venv/bin/python growatt_power_guard.py health-check
+.venv/bin/python growatt_power_guard.py health-check --notify
 .venv/bin/python growatt_power_guard.py pause --hours 6 --reason "maintenance"
 .venv/bin/python growatt_power_guard.py pause-status
 .venv/bin/python growatt_power_guard.py resume
@@ -112,6 +114,16 @@ DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 WEATHER_ENABLED=true
 WEATHER_LAT=your_latitude
 WEATHER_LON=your_longitude
+```
+
+## Diagnostics
+
+Run a read-only health check:
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py health-check
+.venv/bin/python growatt_power_guard.py health-check --notify
 ```
 
 ## Weather Thresholds

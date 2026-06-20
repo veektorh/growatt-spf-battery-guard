@@ -1,4 +1,5 @@
 import datetime as dt
+import subprocess
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -9,14 +10,19 @@ from unittest.mock import patch
 from growatt_power_guard import (
     Config,
     DeviceRef,
+    HealthCheckItem,
+    ThresholdDecision,
     build_daily_summary,
     extract_soc,
     extract_spf_output_source,
     render_params,
     set_mode,
     build_parser,
+    check_cron_schedule,
+    command_health_check,
     command_watchdog_sbu,
     ensure_not_paused,
+    format_health_report,
     read_pause_state,
     validate_schedule,
     GrowattGuardError,
@@ -163,6 +169,12 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertEqual(resume_args.command, "resume")
         self.assertEqual(status_args.command, "pause-status")
 
+    def test_health_check_command_is_available(self):
+        args = build_parser().parse_args(["health-check", "--notify"])
+
+        self.assertEqual(args.command, "health-check")
+        self.assertTrue(args.notify)
+
     def test_truncate_discord_message_keeps_short_messages(self):
         self.assertEqual(truncate_discord_message("hello"), "hello")
 
@@ -251,6 +263,69 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
             with self.assertRaises(GrowattGuardError):
                 validate_schedule(path)
+
+    def test_format_health_report_summarizes_failures(self):
+        report = format_health_report(
+            [
+                HealthCheckItem("Config", "OK", "loaded"),
+                HealthCheckItem("Cron jobs", "FAIL", "missing"),
+            ]
+        )
+
+        self.assertIn("Result: FAIL", report)
+        self.assertIn("[FAIL] Cron jobs: missing", report)
+
+    def test_check_cron_schedule_accepts_installed_jobs(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"cron": "30 6 * * *", "command": "preserve-battery"},
+                {"cron": "55 7 * * *", "command": "return-sbu"},
+            ],
+        }
+        crontab = "\n".join(
+            [
+                "CRON_TZ=Africa/Lagos",
+                (
+                    "30 6 * * * cd /home/ubuntu/automation && .venv/bin/python "
+                    "growatt_power_guard.py preserve-battery >> logs/cron.log 2>&1 # growatt-power-guard"
+                ),
+                (
+                    "55 7 * * * cd /home/ubuntu/automation && .venv/bin/python "
+                    "growatt_power_guard.py return-sbu >> logs/cron.log 2>&1 # growatt-power-guard"
+                ),
+            ]
+        )
+
+        with patch("growatt_power_guard.os.name", "posix"), patch(
+            "growatt_power_guard.subprocess.run",
+            return_value=subprocess.CompletedProcess(["crontab", "-l"], 0, stdout=crontab, stderr=""),
+        ):
+            checks = check_cron_schedule(schedule)
+
+        self.assertTrue(all(check.status == "OK" for check in checks))
+
+    def test_command_health_check_reports_ok_when_everything_is_available(self):
+        config = make_config(dry_run=False)
+        status = {"device": {"capacity": "50%"}, "storage_params": {"outputConfig": "0"}}
+        schedule = {"timezone": "Africa/Lagos", "jobs": [{"cron": "30 6 * * *", "command": "preserve-battery"}]}
+
+        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.PAUSE_FILE", Path(tmpdir) / "pause.json"), patch(
+            "growatt_power_guard.validate_schedule", return_value=schedule
+        ), patch(
+            "growatt_power_guard.check_cron_schedule",
+            return_value=[HealthCheckItem("Cron jobs", "OK", "1 scheduled job installed.")],
+        ), patch(
+            "growatt_power_guard.load_context",
+            return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
+        ), patch(
+            "growatt_power_guard.choose_preserve_threshold",
+            return_value=ThresholdDecision(50, "weather disabled; using fixed threshold 50%"),
+        ), patch("growatt_power_guard.read_pause_state", return_value=None), redirect_stdout(StringIO()) as stdout:
+            exit_code = command_health_check(config)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Result: OK", stdout.getvalue())
 
     def test_choose_preserve_threshold_uses_fixed_when_weather_disabled(self):
         decision = choose_preserve_threshold(make_config(weather_enabled=False, low_battery_soc=50))

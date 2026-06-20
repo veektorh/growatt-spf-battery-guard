@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -105,6 +106,13 @@ class ThresholdDecision:
     weather_category: str = "disabled"
     cloud_cover: float | None = None
     precipitation_mm: float | None = None
+
+
+@dataclass(frozen=True)
+class HealthCheckItem:
+    name: str
+    status: str
+    detail: str
 
 
 @dataclass(frozen=True)
@@ -1073,6 +1081,190 @@ def command_pause_status(config: Config) -> int:
     return 0
 
 
+def health_result(checks: list[HealthCheckItem]) -> str:
+    statuses = {check.status for check in checks}
+    if "FAIL" in statuses:
+        return "FAIL"
+    if "WARN" in statuses:
+        return "WARN"
+    return "OK"
+
+
+def format_health_report(checks: list[HealthCheckItem]) -> str:
+    now = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+    result = health_result(checks)
+    lines = [f"Growatt health check - {now}", f"Result: {result}", ""]
+    for check in checks:
+        detail = " ".join(str(check.detail).split())
+        lines.append(f"[{check.status}] {check.name}: {detail}")
+    return "\n".join(lines)
+
+
+def check_cron_schedule(schedule: dict[str, Any]) -> list[HealthCheckItem]:
+    if os.name == "nt":
+        return [
+            HealthCheckItem(
+                "Cron",
+                "WARN",
+                "cron check skipped on Windows; verify Task Scheduler locally or run this on the VPS.",
+            )
+        ]
+
+    try:
+        completed = subprocess.run(
+            ["crontab", "-l"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=10,
+        )
+    except FileNotFoundError:
+        return [HealthCheckItem("Cron", "WARN", "crontab command not found; cron check skipped.")]
+    except subprocess.TimeoutExpired:
+        return [HealthCheckItem("Cron", "FAIL", "crontab -l timed out after 10 seconds.")]
+
+    if completed.returncode != 0:
+        message = (completed.stderr or completed.stdout or "no crontab installed").strip()
+        return [HealthCheckItem("Cron", "FAIL", f"crontab -l failed: {message}")]
+
+    cron_text = completed.stdout
+    cron_lines = [line.strip() for line in cron_text.splitlines()]
+    expected_jobs = schedule["jobs"]
+    missing: list[str] = []
+    for job in expected_jobs:
+        cron = str(job["cron"]).strip()
+        command = str(job["command"]).strip()
+        found = any(
+            line.startswith(f"{cron} ")
+            and f"growatt_power_guard.py {command}" in line
+            and "# growatt-power-guard" in line
+            for line in cron_lines
+        )
+        if not found:
+            missing.append(f"{cron} {command}")
+
+    checks: list[HealthCheckItem] = []
+    installed_count = sum(1 for line in cron_lines if "# growatt-power-guard" in line)
+    if missing:
+        checks.append(
+            HealthCheckItem(
+                "Cron jobs",
+                "FAIL",
+                (
+                    f"{installed_count}/{len(expected_jobs)} growatt jobs found; "
+                    f"missing: {', '.join(missing)}"
+                ),
+            )
+        )
+    else:
+        checks.append(HealthCheckItem("Cron jobs", "OK", f"{len(expected_jobs)} scheduled jobs installed."))
+
+    timezone = str(schedule.get("timezone", "")).strip()
+    if timezone and f"CRON_TZ={timezone}" not in cron_text:
+        checks.append(HealthCheckItem("Cron timezone", "WARN", f"CRON_TZ={timezone} not found in crontab."))
+    elif timezone:
+        checks.append(HealthCheckItem("Cron timezone", "OK", f"CRON_TZ={timezone} is installed."))
+
+    return checks
+
+
+def command_health_check(config: Config, notify: bool = False) -> int:
+    checks: list[HealthCheckItem] = [
+        HealthCheckItem("Config", "OK", ".env loaded and required Growatt credentials are present."),
+        HealthCheckItem(
+            "Dry run",
+            "WARN" if config.dry_run else "OK",
+            "DRY_RUN=true; mode-changing commands will only simulate." if config.dry_run else "DRY_RUN=false.",
+        ),
+    ]
+
+    if config.mode_driver not in {"spf5000", "spf", "custom"}:
+        checks.append(
+            HealthCheckItem(
+                "Mode driver",
+                "FAIL",
+                f"GROWATT_MODE_DRIVER={config.mode_driver!r} is unsupported; mode changes will fail.",
+            )
+        )
+    elif config.mode_driver == "custom":
+        if not config.utility_mode_params:
+            checks.append(HealthCheckItem("Utility command", "FAIL", "custom driver missing GROWATT_UTILITY_MODE_PARAMS."))
+        if not config.sbu_mode_params:
+            checks.append(HealthCheckItem("SBU command", "FAIL", "custom driver missing GROWATT_SBU_MODE_PARAMS."))
+        if config.utility_mode_params and config.sbu_mode_params:
+            checks.append(HealthCheckItem("Mode driver", "OK", "custom mode driver parameters are configured."))
+    else:
+        checks.append(HealthCheckItem("Mode driver", "OK", "SPF output-source command driver is configured."))
+
+    schedule: dict[str, Any] | None = None
+    try:
+        schedule = validate_schedule()
+        checks.append(HealthCheckItem("Schedule", "OK", f"{len(schedule['jobs'])} jobs in {schedule['timezone']}."))
+    except GrowattGuardError as exc:
+        checks.append(HealthCheckItem("Schedule", "FAIL", str(exc)))
+
+    if schedule is not None:
+        checks.extend(check_cron_schedule(schedule))
+
+    try:
+        _, device, status = load_context(config)
+    except Exception as exc:  # noqa: BLE001 - health check should continue reporting other checks
+        checks.append(HealthCheckItem("Growatt cloud", "FAIL", str(exc)))
+    else:
+        checks.append(
+            HealthCheckItem(
+                "Growatt cloud",
+                "OK",
+                f"login ok; plant={device.plant_id}, device={device.device_sn}, type={device.device_type or 'unknown'}.",
+            )
+        )
+
+        soc_result = extract_soc(status)
+        if soc_result:
+            soc, path = soc_result
+            checks.append(HealthCheckItem("Battery SOC", "OK", f"{soc:g}% from {path}."))
+        else:
+            checks.append(HealthCheckItem("Battery SOC", "FAIL", "SOC was not found in the Growatt status response."))
+
+        output_source = extract_spf_output_source(status)
+        if output_source:
+            raw, label, path = output_source
+            checks.append(HealthCheckItem("Output source", "OK", f"{label} [{raw}] from {path}."))
+        else:
+            checks.append(
+                HealthCheckItem("Output source", "FAIL", "SPF output source was not found in the Growatt status response.")
+            )
+
+    threshold_decision = choose_preserve_threshold(config)
+    threshold_status = "WARN" if threshold_decision.weather_category == "unavailable" else "OK"
+    checks.append(
+        HealthCheckItem(
+            "Preserve threshold",
+            threshold_status,
+            f"{threshold_decision.threshold:g}% ({threshold_decision.reason}).",
+        )
+    )
+
+    pause_state = read_pause_state()
+    if pause_state:
+        checks.append(HealthCheckItem("Pause state", "WARN", pause_message(pause_state)))
+    elif PAUSE_FILE.exists():
+        checks.append(HealthCheckItem("Pause state", "WARN", "pause file exists but could not be read; automation is active."))
+    else:
+        checks.append(HealthCheckItem("Pause state", "OK", "automation is active."))
+
+    if notify:
+        if not config.discord_webhook_url:
+            checks.append(HealthCheckItem("Discord report", "FAIL", "DISCORD_WEBHOOK_URL is not configured."))
+        elif send_discord_message(config, format_health_report(checks)):
+            checks.append(HealthCheckItem("Discord report", "OK", "health report sent."))
+        else:
+            checks.append(HealthCheckItem("Discord report", "FAIL", "Discord webhook rejected the health report."))
+
+    print(format_health_report(checks))
+    return 1 if health_result(checks) == "FAIL" else 0
+
+
 def validate_schedule(path: Path = SCHEDULE_FILE) -> dict[str, Any]:
     if not path.exists():
         raise GrowattGuardError(f"Schedule file not found: {path}")
@@ -1133,6 +1325,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("weather-threshold", help="Print the current weather-aware preserve-battery threshold.")
     subparsers.add_parser("validate-schedule", help="Validate schedule.json.")
     subparsers.add_parser("test-discord", help="Send a test Discord webhook message.")
+    health_parser = subparsers.add_parser("health-check", help="Run read-only configuration and connectivity checks.")
+    health_parser.add_argument("--notify", action="store_true", help="Post the health report to Discord.")
     pause_parser = subparsers.add_parser("pause", help="Pause scheduled mode-changing automation.")
     pause_parser.add_argument("--hours", type=float, required=True, help="How long to pause automation for.")
     pause_parser.add_argument("--reason", default="", help="Optional reason stored in pause state and Discord alert.")
@@ -1174,6 +1368,8 @@ def main(argv: list[str] | None = None) -> int:
             return command_weather_threshold(config)
         if args.command == "test-discord":
             return command_test_discord(config)
+        if args.command == "health-check":
+            return command_health_check(config, args.notify)
         if args.command == "pause":
             return command_pause(config, args.hours, args.reason)
         if args.command == "resume":
