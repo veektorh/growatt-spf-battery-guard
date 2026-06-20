@@ -308,8 +308,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
     def test_watchdog_sbu_does_nothing_when_already_sbu(self):
         config = make_config()
 
-        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.LOG_DIR", Path(tmpdir)), patch(
-            "growatt_power_guard.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.audit.LOG_DIR", Path(tmpdir)), patch(
+            "growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
         ), patch(
             "growatt_power_guard.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), {"storage_params": {"outputConfig": "0"}}),
@@ -321,8 +321,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
     def test_watchdog_sbu_retries_when_not_sbu(self):
         config = make_config()
 
-        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.LOG_DIR", Path(tmpdir)), patch(
-            "growatt_power_guard.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.audit.LOG_DIR", Path(tmpdir)), patch(
+            "growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
         ), patch(
             "growatt_power_guard.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), {"storage_params": {"outputConfig": "2"}}),
@@ -347,7 +347,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
             },
         }
 
-        with patch("growatt_power_guard.summarize_today_log_counts", return_value={
+        with patch("growatt_guard.audit.summarize_today_log_counts", return_value={
             "success": 2,
             "failure": 0,
             "watchdog_repairs": 1,
@@ -562,8 +562,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
     def test_append_mode_audit_writes_csv_row(self):
         config = make_config(dry_run=False)
 
-        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.LOG_DIR", Path(tmpdir)), patch(
-            "growatt_power_guard.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.audit.LOG_DIR", Path(tmpdir)), patch(
+            "growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
         ):
             append_mode_audit(
                 config,
@@ -582,7 +582,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertIn("switch-to-utility", content)
 
     def test_weekly_summary_uses_audit_rows(self):
-        with TemporaryDirectory() as tmpdir, patch("growatt_power_guard.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"):
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"):
             audit_path = Path(tmpdir) / "mode_decisions.csv"
             audit_path.write_text(
                 "\n".join(
@@ -634,7 +634,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
             return_value=ThresholdDecision(50, "weather disabled; using fixed threshold 50%"),
         ), patch(
             "growatt_guard.state.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
-        ), patch("growatt_power_guard.read_mode_audit_rows", return_value=[]), redirect_stdout(StringIO()):
+        ), patch("growatt_guard.dashboard.read_mode_audit_rows", return_value=[]), redirect_stdout(StringIO()):
             output = Path(tmpdir) / "dashboard.html"
             self.assertEqual(command_dashboard(config, str(output)), 0)
             html = output.read_text(encoding="utf-8")

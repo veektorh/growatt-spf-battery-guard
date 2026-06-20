@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from growatt_guard.audit import read_mode_audit_rows
 from growatt_guard.growatt_api import (
     extract_soc,
     extract_spf_output_source,
@@ -128,7 +129,6 @@ def build_dashboard_html(
     threshold_decision: Any,
     stale_after_minutes: float = 30,
 ) -> str:
-    app = app_module()
     now = dt.datetime.now()
     generated_at = now.astimezone()
     generated_at_iso = generated_at.isoformat(timespec="seconds")
@@ -145,7 +145,7 @@ def build_dashboard_html(
     today_override = today_schedule_override(overrides, now.date())
     override_note = str(today_override.get("note", "")).strip() or "none"
     skipped = ", ".join(today_override.get("skip", [])) if isinstance(today_override.get("skip", []), list) else ""
-    last_actions = app.read_mode_audit_rows(limit=8, newest_first=True)
+    last_actions = read_mode_audit_rows(limit=8, newest_first=True)
     next_runs = next_scheduled_runs(schedule, now=now, limit=8)
     stale_minutes_text = f"{stale_after_minutes:g}"
 
