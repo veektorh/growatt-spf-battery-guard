@@ -295,7 +295,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
         ), patch(
             "growatt_guard.modes.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
-        ), patch("growatt_guard.modes.send_discord_message", return_value=True) as send_mock, redirect_stdout(StringIO()):
+        ), patch("growatt_guard.modes.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()):
             self.assertEqual(command_battery_alert(config), 0)
             self.assertEqual(command_battery_alert(config), 0)
 

@@ -42,7 +42,7 @@ class NotificationsTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir, patch(
             "growatt_guard.state.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
-        ), patch("growatt_guard.notifications.send_discord_message", return_value=True) as send_mock:
+        ), patch("growatt_guard.notifications.send_discord_embed", return_value=True) as send_mock:
             notify_failure(config, "status", "Growatt login failed: temporary cloud error")
             notify_failure(config, "status", "Growatt login failed: temporary cloud error")
             self.assertEqual(send_mock.call_count, 0)
@@ -63,7 +63,7 @@ class NotificationsTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir, patch(
             "growatt_guard.state.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
-        ), patch("growatt_guard.notifications.send_discord_message", return_value=True) as send_mock:
+        ), patch("growatt_guard.notifications.send_discord_embed", return_value=True) as send_mock:
             notify_failure(config, "status", "Growatt login failed: temporary cloud error")
             notify_failure(config, "status", "Growatt login failed: temporary cloud error")
             record_growatt_cloud_success(config)
