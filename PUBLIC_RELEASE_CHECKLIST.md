@@ -56,6 +56,8 @@ growatt_guard/
 requirements.txt
 README.md
 RUNBOOK.md
+AGENTS.md
+ARCHITECTURE.md
 PUBLIC_RELEASE_CHECKLIST.md
 .env.example
 .gitignore

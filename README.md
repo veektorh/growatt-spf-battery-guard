@@ -13,6 +13,13 @@ This automates the rainy-season routine for a Growatt SPF 6000 ES on ShinePhone:
 
 The script starts in `DRY_RUN=true` mode. In dry-run it logs in and prepares the command, but does not change the inverter.
 
+## Developer Docs
+
+- [AGENTS.md](AGENTS.md) gives coding agents the safety rules, module map, and verification checklist.
+- [ARCHITECTURE.md](ARCHITECTURE.md) explains the command flow and module boundaries.
+- [RUNBOOK.md](RUNBOOK.md) covers VPS operations and recovery steps.
+- [PUBLIC_RELEASE_CHECKLIST.md](PUBLIC_RELEASE_CHECKLIST.md) lists public-repo hygiene checks.
+
 ## Setup
 
 ```powershell
