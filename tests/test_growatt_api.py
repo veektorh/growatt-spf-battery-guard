@@ -563,6 +563,128 @@ class TopupForSunriseTests(unittest.TestCase):
         self.assertGreater(result, 0.0)
 
 
+class AutoTopupTargetSocTests(unittest.TestCase):
+    """Tests for AUTO_TOPUP_TARGET_SOC sunrise buffer in command_auto_topup_check."""
+
+    CAPACITY = 30_000.0
+    CUTOFF = 25.0
+    CHARGE_RATE = 3_000.0
+
+    def test_higher_target_soc_produces_longer_topup(self):
+        # Same conditions, higher target → more charging needed
+        result_cutoff = estimate_topup_for_sunrise(40.0, 1500.0, self.CAPACITY, self.CUTOFF, self.CHARGE_RATE, 5.0)
+        result_target = estimate_topup_for_sunrise(40.0, 1500.0, self.CAPACITY, 35.0, self.CHARGE_RATE, 5.0)
+        self.assertGreater(result_target, result_cutoff)
+
+    def test_target_soc_equal_to_cutoff_same_result(self):
+        r1 = estimate_topup_for_sunrise(40.0, 1500.0, self.CAPACITY, self.CUTOFF, self.CHARGE_RATE, 5.0)
+        r2 = estimate_topup_for_sunrise(40.0, 1500.0, self.CAPACITY, self.CUTOFF, self.CHARGE_RATE, 5.0)
+        self.assertAlmostEqual(r1, r2)
+
+    def test_command_uses_effective_target_soc(self):
+        from growatt_guard.modes import command_auto_topup_check
+        from growatt_guard import state as state_mod
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        status = {
+            "datalogSn": "SN1", "deviceSn": "SN1",
+            "data": {"soc": 40.0, "pDischarge": 1500.0, "outputConfig": "0"},
+        }
+
+        written_cutoff: dict = {}
+        written_target: dict = {}
+
+        def make_fake_write(store):
+            def _fake(minutes, reason, paused_until, start_soc=None, start_load_w=None):
+                store["minutes"] = minutes
+            return _fake
+
+        common_patches = lambda store: [
+            patch("growatt_guard.modes.read_pause_state", return_value=None),
+            patch("growatt_guard.modes.topup_is_active", return_value=False),
+            patch("growatt_guard.modes.hours_until_next_sunrise", return_value=5.0),
+            patch("growatt_guard.modes.load_context", return_value=(None, None, status)),
+            patch("growatt_guard.modes.set_mode", return_value="ok"),
+            patch("growatt_guard.modes.command_pause", return_value=0),
+            patch("growatt_guard.modes.write_topup_state", side_effect=make_fake_write(store)),
+            patch("growatt_guard.modes.append_mode_audit"),
+        ]
+
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+
+            cfg_cutoff = make_config(
+                auto_topup_enabled=True, battery_capacity_wh=30000.0,
+                battery_charge_rate_w=3000.0, battery_bms_cutoff_soc=25.0,
+                auto_topup_target_soc=0.0, dry_run=True,
+            )
+            ps = common_patches(written_cutoff)
+            with (patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "t1.json"),
+                  patch.object(state_mod, "PAUSE_FILE", tmp / "p1.json"),
+                  ps[0], ps[1], ps[2], ps[3], ps[4], ps[5], ps[6], ps[7],
+                  redirect_stdout(StringIO())):
+                command_auto_topup_check(cfg_cutoff)
+
+            cfg_target = make_config(
+                auto_topup_enabled=True, battery_capacity_wh=30000.0,
+                battery_charge_rate_w=3000.0, battery_bms_cutoff_soc=25.0,
+                auto_topup_target_soc=35.0, dry_run=True,
+            )
+            ps2 = common_patches(written_target)
+            with (patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "t2.json"),
+                  patch.object(state_mod, "PAUSE_FILE", tmp / "p2.json"),
+                  ps2[0], ps2[1], ps2[2], ps2[3], ps2[4], ps2[5], ps2[6], ps2[7],
+                  redirect_stdout(StringIO())):
+                command_auto_topup_check(cfg_target)
+
+        self.assertIn("minutes", written_cutoff)
+        self.assertIn("minutes", written_target)
+        self.assertGreater(written_target["minutes"], written_cutoff["minutes"])
+
+    def test_target_soc_below_cutoff_uses_cutoff(self):
+        # target_soc=10 < bms_cutoff=25 → effective target = 25 (cutoff wins via max())
+        result_low_target = estimate_topup_for_sunrise(40.0, 1500.0, self.CAPACITY, max(self.CUTOFF, 10.0), self.CHARGE_RATE, 5.0)
+        result_cutoff = estimate_topup_for_sunrise(40.0, 1500.0, self.CAPACITY, self.CUTOFF, self.CHARGE_RATE, 5.0)
+        self.assertAlmostEqual(result_low_target, result_cutoff)
+
+    def test_target_note_appears_in_output(self):
+        from growatt_guard.modes import command_auto_topup_check
+        from growatt_guard import state as state_mod
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        status = {
+            "datalogSn": "SN1", "deviceSn": "SN1",
+            "data": {"soc": 40.0, "pDischarge": 1500.0, "outputConfig": "0"},
+        }
+        cfg = make_config(
+            auto_topup_enabled=True, battery_capacity_wh=30000.0,
+            battery_charge_rate_w=3000.0, battery_bms_cutoff_soc=25.0,
+            auto_topup_target_soc=35.0, dry_run=True,
+        )
+        buf = StringIO()
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            with (patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "t.json"),
+                  patch.object(state_mod, "PAUSE_FILE", tmp / "p.json"),
+                  patch("growatt_guard.modes.read_pause_state", return_value=None),
+                  patch("growatt_guard.modes.topup_is_active", return_value=False),
+                  patch("growatt_guard.modes.hours_until_next_sunrise", return_value=5.0),
+                  patch("growatt_guard.modes.load_context", return_value=(None, None, status)),
+                  patch("growatt_guard.modes.set_mode", return_value="ok"),
+                  patch("growatt_guard.modes.command_pause", return_value=0),
+                  patch("growatt_guard.modes.write_topup_state"),
+                  patch("growatt_guard.modes.append_mode_audit"),
+                  redirect_stdout(buf)):
+                command_auto_topup_check(cfg)
+        self.assertIn("target 35%", buf.getvalue())
+
+
 class AutoTopupMinMinutesTests(unittest.TestCase):
     """Tests for AUTO_TOPUP_MIN_MINUTES floor applied in command_auto_topup_check."""
 

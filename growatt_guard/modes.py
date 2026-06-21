@@ -760,8 +760,9 @@ def command_auto_topup_check(config: Config) -> int:
         print(f"Battery not discharging; no auto-topup needed.")
         return 0
 
+    effective_target_soc = max(config.battery_bms_cutoff_soc, config.auto_topup_target_soc)
     topup_min_f = estimate_topup_for_sunrise(
-        soc, load_w, config.battery_capacity_wh, config.battery_bms_cutoff_soc,
+        soc, load_w, config.battery_capacity_wh, effective_target_soc,
         config.battery_charge_rate_w, hrs,
     )
     if topup_min_f is None or topup_min_f <= 0:
@@ -794,6 +795,8 @@ def command_auto_topup_check(config: Config) -> int:
             return 0
 
     reason = f"Auto-topup: {topup_min}min needed for {hrs:.1f}h until sunrise"
+    if effective_target_soc > config.battery_bms_cutoff_soc:
+        reason += f" (target {effective_target_soc:g}% SOC at sunrise)"
     paused_until = utc_now() + dt.timedelta(minutes=topup_min)
 
     command_pause(config, topup_min / 60.0, reason)
@@ -815,10 +818,12 @@ def command_auto_topup_check(config: Config) -> int:
         action="auto-topup-started", result=result,
         note=f"{topup_min}min, {hrs:.1f}h to sunrise",
     )
+    target_soc_arg = effective_target_soc if effective_target_soc > config.battery_bms_cutoff_soc else None
     if config.discord_notify_success and not config.dry_run:
-        send_discord_embed(config, embed_auto_topup_started(soc, topup_min, hrs, load_w))
+        send_discord_embed(config, embed_auto_topup_started(soc, topup_min, hrs, load_w, target_soc=target_soc_arg))
 
-    print(f"Auto-topup started: {topup_min}min on Utility (SOC={soc:.0f}%, {hrs:.1f}h to sunrise).")
+    target_note = f", target {effective_target_soc:g}% SOC" if target_soc_arg else ""
+    print(f"Auto-topup started: {topup_min}min on Utility (SOC={soc:.0f}%, {hrs:.1f}h to sunrise{target_note}).")
     return 0
 
 

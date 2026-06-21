@@ -277,7 +277,13 @@ def embed_topup_skipped_sunny(
     return _embed("☀️ Topup skipped — sunny forecast", _COLOR_OK, fields)
 
 
-def embed_auto_topup_started(soc: float, topup_min: int, hours_to_sunrise: float, load_w: float) -> dict:
+def embed_auto_topup_started(
+    soc: float,
+    topup_min: int,
+    hours_to_sunrise: float,
+    load_w: float,
+    target_soc: float | None = None,
+) -> dict:
     from growatt_guard.growatt_api import format_duration_minutes
     fields = [
         _f("Battery SOC", f"{soc:g}%"),
@@ -285,6 +291,8 @@ def embed_auto_topup_started(soc: float, topup_min: int, hours_to_sunrise: float
         _f("Sunrise in", format_duration_minutes(hours_to_sunrise * 60)),
         _f("Load", f"{load_w:g} W"),
     ]
+    if target_soc is not None:
+        fields.append(_f("Target SOC at sunrise", f"{target_soc:g}%"))
     return _embed("⚡ Auto-topup started", _COLOR_WARN, fields)
 
 
