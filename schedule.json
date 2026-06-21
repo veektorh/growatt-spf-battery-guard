@@ -77,6 +77,12 @@
       "command": "weekly-summary"
     },
     {
+      "id": "monthly-summary",
+      "name": "Post monthly performance summary on the 1st",
+      "cron": "10 21 1 * *",
+      "command": "monthly-summary"
+    },
+    {
       "id": "rotate-logs",
       "name": "Rotate old generated logs",
       "cron": "10 0 * * *",
