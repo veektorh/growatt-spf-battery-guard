@@ -485,7 +485,11 @@ def command_watchdog_sbu(config: Config) -> int:
 
 def command_daily_summary(config: Config) -> int:
     _, _, status = load_context(config)
-    summary = build_daily_summary(status)
+    tomorrow_kwh_m2: float | None = None
+    if getattr(config, "weather_lat", None) and getattr(config, "weather_lon", None):
+        from growatt_guard.weather import get_tomorrow_solar_kwh_m2
+        tomorrow_kwh_m2 = get_tomorrow_solar_kwh_m2(config)
+    summary = build_daily_summary(status, tomorrow_kwh_m2=tomorrow_kwh_m2)
     if config.discord_webhook_url:
         send_discord_embed(config, embed_summary("Daily Summary", summary))
     print(summary)
@@ -508,6 +512,7 @@ def command_weekly_summary(config: Config) -> int:
         now=now,
         solar_this_week=solar_this or None,
         solar_last_week=solar_last or None,
+        charge_rate_w=config.battery_charge_rate_w,
     )
     if config.discord_webhook_url:
         send_discord_embed(config, embed_summary("Weekly Summary", summary))
@@ -551,6 +556,17 @@ def command_rotate_logs(config: Config) -> int:
             path.unlink()
             removed += 1
     print(f"Removed {removed} old log/probe files older than {config.log_retention_days} days.")
+    return 0
+
+
+def command_prune_audit(config: Config) -> int:
+    from growatt_guard.audit import prune_audit_rows
+    cutoff = dt.datetime.now() - dt.timedelta(days=config.audit_retention_days)
+    removed, kept = prune_audit_rows(cutoff)
+    if removed == 0:
+        print(f"Audit log: {kept} rows, nothing to prune (retention: {config.audit_retention_days} days).")
+    else:
+        print(f"Audit log pruned: {removed} rows removed, {kept} remaining (retention: {config.audit_retention_days} days).")
     return 0
 
 

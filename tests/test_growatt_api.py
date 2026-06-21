@@ -1067,5 +1067,157 @@ class SolarSkipTopupTests(unittest.TestCase):
         self.assertIn("skipping", out)
 
 
+class TopupStatsWeeklySummaryTests(unittest.TestCase):
+    """Tests for auto-topup stats section in build_weekly_summary."""
+
+    def _write_audit(self, path: Path, rows: list[dict]) -> None:
+        import csv as csv_mod
+        from growatt_guard.audit import MODE_AUDIT_FIELDS
+        with path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv_mod.DictWriter(f, fieldnames=MODE_AUDIT_FIELDS)
+            writer.writeheader()
+            for row in rows:
+                full = {k: "" for k in MODE_AUDIT_FIELDS}
+                full.update(row)
+                writer.writerow(full)
+
+    def test_topup_count_and_minutes_in_summary(self):
+        import datetime as dt
+        from growatt_guard.audit import build_weekly_summary, MODE_AUDIT_FILE
+        now = dt.datetime(2026, 6, 21, 21, 0)
+        rows = [
+            {"timestamp": "2026-06-19T01:00:00", "action": "auto-topup-started", "note": "45min, 5.0h to sunrise"},
+            {"timestamp": "2026-06-20T02:00:00", "action": "auto-topup-started", "note": "30min, 4.5h to sunrise"},
+        ]
+        with TemporaryDirectory() as tmpdir:
+            audit_path = Path(tmpdir) / "mode_decisions.csv"
+            self._write_audit(audit_path, rows)
+            with patch("growatt_guard.audit.MODE_AUDIT_FILE", audit_path):
+                result = build_weekly_summary(now=now)
+        self.assertIn("Auto-topups: 2", result)
+        self.assertIn("75 min", result)
+
+    def test_kwh_estimate_shown_when_charge_rate_set(self):
+        import datetime as dt
+        from growatt_guard.audit import build_weekly_summary
+        now = dt.datetime(2026, 6, 21, 21, 0)
+        rows = [
+            {"timestamp": "2026-06-19T01:00:00", "action": "auto-topup-started", "note": "60min, 5.0h to sunrise"},
+        ]
+        with TemporaryDirectory() as tmpdir:
+            audit_path = Path(tmpdir) / "mode_decisions.csv"
+            self._write_audit(audit_path, rows)
+            with patch("growatt_guard.audit.MODE_AUDIT_FILE", audit_path):
+                # 60 min * 3000 W / 60 / 1000 = 3.0 kWh
+                result = build_weekly_summary(now=now, charge_rate_w=3000.0)
+        self.assertIn("3.0 kWh", result)
+
+    def test_no_topups_shows_zero(self):
+        import datetime as dt
+        from growatt_guard.audit import build_weekly_summary
+        now = dt.datetime(2026, 6, 21, 21, 0)
+        with TemporaryDirectory() as tmpdir:
+            audit_path = Path(tmpdir) / "mode_decisions.csv"
+            self._write_audit(audit_path, [])
+            with patch("growatt_guard.audit.MODE_AUDIT_FILE", audit_path):
+                result = build_weekly_summary(now=now)
+        self.assertIn("Auto-topups: 0", result)
+
+
+class DailyTomorrowForecastTests(unittest.TestCase):
+    """Tests for tomorrow's solar forecast line in build_daily_summary."""
+
+    def test_forecast_line_present_when_provided(self):
+        from growatt_guard.audit import build_daily_summary
+        with patch("growatt_guard.audit.summarize_today_log_counts", return_value={
+            "success": 0, "failure": 0, "watchdog_repairs": 0,
+            "preserve_actions": 0, "return_sbu_actions": 0,
+        }):
+            result = build_daily_summary({}, tomorrow_kwh_m2=5.3)
+        self.assertIn("Tomorrow's solar forecast: 5.3 kWh/m²", result)
+
+    def test_forecast_line_absent_when_none(self):
+        from growatt_guard.audit import build_daily_summary
+        with patch("growatt_guard.audit.summarize_today_log_counts", return_value={
+            "success": 0, "failure": 0, "watchdog_repairs": 0,
+            "preserve_actions": 0, "return_sbu_actions": 0,
+        }):
+            result = build_daily_summary({}, tomorrow_kwh_m2=None)
+        self.assertNotIn("Tomorrow's solar forecast", result)
+
+
+class PruneAuditTests(unittest.TestCase):
+    """Tests for prune_audit_rows."""
+
+    def _write_audit(self, path: Path, rows: list[dict]) -> None:
+        import csv as csv_mod
+        from growatt_guard.audit import MODE_AUDIT_FIELDS
+        with path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv_mod.DictWriter(f, fieldnames=MODE_AUDIT_FIELDS)
+            writer.writeheader()
+            for row in rows:
+                full = {k: "" for k in MODE_AUDIT_FIELDS}
+                full.update(row)
+                writer.writerow(full)
+
+    def test_removes_old_rows_keeps_recent(self):
+        import datetime as dt
+        from growatt_guard.audit import prune_audit_rows, MODE_AUDIT_FILE
+        cutoff = dt.datetime(2026, 6, 1)
+        rows = [
+            {"timestamp": "2026-05-01T10:00:00", "action": "switch-to-utility"},  # old
+            {"timestamp": "2026-06-15T10:00:00", "action": "switch-to-sbu"},       # recent
+        ]
+        with TemporaryDirectory() as tmpdir:
+            audit_path = Path(tmpdir) / "mode_decisions.csv"
+            self._write_audit(audit_path, rows)
+            with patch("growatt_guard.audit.MODE_AUDIT_FILE", audit_path):
+                removed, kept = prune_audit_rows(cutoff)
+        self.assertEqual(removed, 1)
+        self.assertEqual(kept, 1)
+
+    def test_returns_zero_when_nothing_to_prune(self):
+        import datetime as dt
+        from growatt_guard.audit import prune_audit_rows, MODE_AUDIT_FILE
+        cutoff = dt.datetime(2026, 1, 1)
+        rows = [
+            {"timestamp": "2026-06-15T10:00:00", "action": "switch-to-sbu"},
+        ]
+        with TemporaryDirectory() as tmpdir:
+            audit_path = Path(tmpdir) / "mode_decisions.csv"
+            self._write_audit(audit_path, rows)
+            with patch("growatt_guard.audit.MODE_AUDIT_FILE", audit_path):
+                removed, kept = prune_audit_rows(cutoff)
+        self.assertEqual(removed, 0)
+        self.assertEqual(kept, 1)
+
+    def test_returns_zero_zero_when_file_missing(self):
+        import datetime as dt
+        from growatt_guard.audit import prune_audit_rows, MODE_AUDIT_FILE
+        with TemporaryDirectory() as tmpdir:
+            audit_path = Path(tmpdir) / "missing.csv"
+            with patch("growatt_guard.audit.MODE_AUDIT_FILE", audit_path):
+                removed, kept = prune_audit_rows(dt.datetime(2026, 6, 1))
+        self.assertEqual((removed, kept), (0, 0))
+
+    def test_command_prune_audit_prints_result(self):
+        import datetime as dt
+        from growatt_guard.modes import command_prune_audit
+        from growatt_guard.audit import MODE_AUDIT_FILE
+        rows = [
+            {"timestamp": "2026-03-01T10:00:00", "action": "switch-to-utility"},
+            {"timestamp": "2026-06-15T10:00:00", "action": "switch-to-sbu"},
+        ]
+        with TemporaryDirectory() as tmpdir:
+            audit_path = Path(tmpdir) / "mode_decisions.csv"
+            self._write_audit(audit_path, rows)
+            cfg = make_config(audit_retention_days=90)
+            buf = StringIO()
+            with (patch("growatt_guard.audit.MODE_AUDIT_FILE", audit_path),
+                  redirect_stdout(buf)):
+                command_prune_audit(cfg)
+        self.assertIn("pruned", buf.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

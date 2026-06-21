@@ -18,6 +18,7 @@ def make_config(**overrides):
         "discord_notify_skip": False,
         "discord_notify_failure": True,
         "log_retention_days": 30,
+        "audit_retention_days": 90,
         "emergency_soc": 30,
         "emergency_soc_recovery": 35,
         "cloud_failure_alert_threshold": 3,

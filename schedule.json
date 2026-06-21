@@ -87,6 +87,12 @@
       "name": "Rotate old generated logs",
       "cron": "10 0 * * *",
       "command": "rotate-logs"
+    },
+    {
+      "id": "prune-audit",
+      "name": "Prune old audit log rows on the 1st of each month",
+      "cron": "20 0 1 * *",
+      "command": "prune-audit"
     }
   ]
 }

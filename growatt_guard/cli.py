@@ -44,6 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("weekly-summary", help="Post/print a weekly automation performance summary.")
     subparsers.add_parser("monthly-summary", help="Post/print a 30-day automation performance summary.")
     subparsers.add_parser("rotate-logs", help="Delete old generated probe/log files according to LOG_RETENTION_DAYS.")
+    subparsers.add_parser("prune-audit", help="Remove audit CSV rows older than AUDIT_RETENTION_DAYS (default 90).")
     subparsers.add_parser("weather-threshold", help="Print the current weather-aware preserve-battery threshold.")
     subparsers.add_parser("battery-alert", help="Send a Discord alert if battery SOC is below EMERGENCY_SOC.")
     subparsers.add_parser("validate-schedule", help="Validate schedule.json.")
@@ -211,6 +212,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_monthly_summary(config)
         if command == "rotate-logs":
             return app.command_rotate_logs(config)
+        if command == "prune-audit":
+            return app.command_prune_audit(config)
         if command == "weather-threshold":
             return app.command_weather_threshold(config)
         if command == "battery-alert":

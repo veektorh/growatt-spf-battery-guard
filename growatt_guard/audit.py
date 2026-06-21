@@ -109,6 +109,30 @@ def append_mode_audit(
         writer.writerow(row)
 
 
+def prune_audit_rows(cutoff: dt.datetime) -> tuple[int, int]:
+    """Remove rows older than cutoff from MODE_AUDIT_FILE. Returns (removed, kept)."""
+    if not MODE_AUDIT_FILE.exists():
+        return 0, 0
+    with MODE_AUDIT_FILE.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or MODE_AUDIT_FIELDS)
+        rows = list(reader)
+    kept = []
+    removed = 0
+    for row in rows:
+        ts = parse_audit_timestamp(row.get("timestamp", ""))
+        if ts is None or ts >= cutoff:
+            kept.append(row)
+        else:
+            removed += 1
+    if removed > 0:
+        with MODE_AUDIT_FILE.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(kept)
+    return removed, len(kept)
+
+
 def parse_audit_timestamp(value: str) -> dt.datetime | None:
     try:
         return dt.datetime.fromisoformat(value)
@@ -185,6 +209,7 @@ def build_weekly_summary(
     now: dt.datetime | None = None,
     solar_this_week: dict[str, int] | None = None,
     solar_last_week: dict[str, int] | None = None,
+    charge_rate_w: float = 0.0,
 ) -> str:
     now = now or dt.datetime.now()
     since = now - dt.timedelta(days=7)
@@ -196,7 +221,15 @@ def build_weekly_summary(
     return_sbu = [row for row in rows if row.get("action") == "switch-to-sbu"]
     watchdog_repairs = [row for row in rows if row.get("action") == "repair-sbu"]
     failures = [row for row in rows if row.get("action", "").endswith("-failed") or row.get("result") == "error"]
+    topup_rows = [row for row in rows if row.get("action") == "auto-topup-started"]
     last_row = rows[-1] if rows else None
+
+    topup_total_min = 0
+    for row in topup_rows:
+        try:
+            topup_total_min += int(row.get("note", "").split("min")[0])
+        except (ValueError, IndexError):
+            pass
 
     avg_soc = average(preserve_socs)
     lines = [
@@ -209,6 +242,15 @@ def build_weekly_summary(
         f"Watchdog repairs: {len(watchdog_repairs)}",
         f"Failures: {len(failures)}",
     ]
+
+    topup_line = f"Auto-topups: {len(topup_rows)}"
+    if topup_rows and topup_total_min > 0:
+        topup_line += f" ({topup_total_min} min grid charging"
+        if charge_rate_w > 0:
+            kwh = topup_total_min / 60.0 * charge_rate_w / 1000.0
+            topup_line += f", ~{kwh:.1f} kWh"
+        topup_line += ")"
+    lines.append(topup_line)
     if avg_soc is not None:
         lines.append(f"Average preserve-check SOC: {avg_soc:g}%")
         lines.append(f"Lowest preserve-check SOC: {min(preserve_socs):g}%")
@@ -378,7 +420,7 @@ def build_monthly_summary(
     return "\n".join(lines)
 
 
-def build_daily_summary(status: dict[str, Any]) -> str:
+def build_daily_summary(status: dict[str, Any], tomorrow_kwh_m2: float | None = None) -> str:
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"Growatt daily summary - {now}"]
 
@@ -423,6 +465,9 @@ def build_daily_summary(status: dict[str, Any]) -> str:
                     lines.append(f"Solar today: {int(v1) / 1000:.2f} kWh")
     except Exception:
         pass
+
+    if tomorrow_kwh_m2 is not None:
+        lines.append(f"Tomorrow's solar forecast: {tomorrow_kwh_m2:.1f} kWh/m²")
 
     counts = summarize_today_log_counts()
     lines.extend(

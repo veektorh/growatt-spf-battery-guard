@@ -34,6 +34,7 @@ class Config:
     discord_notify_skip: bool
     discord_notify_failure: bool
     log_retention_days: int
+    audit_retention_days: int = 90
     emergency_soc: float = 30
     emergency_soc_recovery: float = 35
     cloud_failure_alert_threshold: int = 3
@@ -169,6 +170,7 @@ def load_config() -> Config:
         discord_notify_skip=str_to_bool(env("DISCORD_NOTIFY_SKIP"), default=False),
         discord_notify_failure=str_to_bool(env("DISCORD_NOTIFY_FAILURE"), default=True),
         log_retention_days=int(env("LOG_RETENTION_DAYS", "30")),
+        audit_retention_days=int(env("AUDIT_RETENTION_DAYS", "90")),
         emergency_soc=float(env("EMERGENCY_SOC", "30")),
         emergency_soc_recovery=float(env("EMERGENCY_SOC_RECOVERY", "35")),
         cloud_failure_alert_threshold=int(env("GROWATT_CLOUD_FAILURE_ALERT_THRESHOLD", "3")),

@@ -24,6 +24,7 @@ SCHEDULE_COMMANDS = {
     "daily-summary",
     "monthly-summary",
     "rotate-logs",
+    "prune-audit",
     "health-check",
     "battery-alert",
     "weekly-summary",
