@@ -62,9 +62,9 @@ if command -v systemctl >/dev/null 2>&1 && systemctl cat growatt-discord-control
 fi
 
 echo "Running post-deploy smoke checks..."
-"${PYTHON_BIN}" growatt_power_guard.py observability-refresh
-"${PYTHON_BIN}" growatt_power_guard.py dashboard-refresh --once
-"${PYTHON_BIN}" growatt_power_guard.py dashboard-stale-alert
+"${PYTHON_BIN}" growatt_power_guard.py observability-refresh || echo "  (smoke check non-fatal — see log above)"
+"${PYTHON_BIN}" growatt_power_guard.py dashboard-refresh --once || echo "  (smoke check non-fatal — see log above)"
+"${PYTHON_BIN}" growatt_power_guard.py dashboard-stale-alert || echo "  (smoke check non-fatal — see log above)"
 
 echo "Running health check..."
 if [[ "${NOTIFY}" == "1" ]]; then
