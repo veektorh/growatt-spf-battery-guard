@@ -292,6 +292,46 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("Result: OK", stdout.getvalue())
 
+    def test_health_check_pings_betterstack_heartbeat_when_configured(self):
+        config = make_config(
+            dry_run=False,
+            discord_webhook_url="https://discord.com/api/webhooks/example",
+            betterstack_heartbeat_url="https://uptime.betterstack.com/api/v1/heartbeat/test",
+        )
+        status = {"device": {"capacity": "50%"}, "storage_params": {"outputConfig": "0"}}
+        schedule = {"timezone": "Africa/Lagos", "jobs": [{"cron": "30 6 * * *", "command": "preserve-battery"}]}
+
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.state.PAUSE_FILE", Path(tmpdir) / "pause.json"), patch(
+            "growatt_guard.state.COMMAND_LOCK_FILE", Path(tmpdir) / "mode_command.lock"
+        ), patch(
+            "growatt_guard.state.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+        ), patch(
+            "growatt_guard.state.TOPUP_STATE_FILE", Path(tmpdir) / "topup_active.json"
+        ), patch(
+            "growatt_guard.state.LOGIN_COOLDOWN_FILE", Path(tmpdir) / "growatt_login_cooldown.json"
+        ), patch(
+            "growatt_guard.health.DASHBOARD_FILE", Path(tmpdir) / "dashboard.html"
+        ), patch("growatt_guard.health.validate_schedule", return_value=schedule), patch(
+            "growatt_guard.health.validate_schedule_overrides", return_value={"dates": {}}
+        ), patch(
+            "growatt_guard.health.check_cron_schedule",
+            return_value=[HealthCheckItem("Cron jobs", "OK", "1 scheduled job installed.")],
+        ), patch(
+            "growatt_guard.health.load_context",
+            return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
+        ), patch(
+            "growatt_guard.health.choose_preserve_threshold",
+            return_value=ThresholdDecision(50, "weather disabled; using fixed threshold 50%"),
+        ), patch("growatt_guard.health.read_pause_state", return_value=None), patch(
+            "growatt_guard.health.requests.get"
+        ) as heartbeat_mock, redirect_stdout(StringIO()):
+            (Path(tmpdir) / "dashboard.html").write_text("<html></html>", encoding="utf-8")
+            command_health_check(config)
+
+        heartbeat_mock.assert_called_once_with(
+            "https://uptime.betterstack.com/api/v1/heartbeat/test", timeout=10
+        )
+
     def test_estimate_charge_rate_continues_on_utility_when_pcharge_is_zero(self):
         config = make_config(battery_capacity_wh=30_000)
         status1 = {

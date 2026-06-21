@@ -4,6 +4,8 @@ import datetime as dt
 from dataclasses import dataclass
 from typing import Any
 
+import requests
+
 import growatt_guard.state as state_module
 from growatt_guard.config import Config
 from growatt_guard.dashboard import DASHBOARD_FILE, dashboard_freshness
@@ -306,4 +308,11 @@ def command_health_check(config: Config, notify: bool = False) -> int:
                 checks.append(HealthCheckItem("Discord report", "FAIL", "Discord webhook rejected the health report."))
 
     print(format_health_report(checks))
+
+    if config.betterstack_heartbeat_url:
+        try:
+            requests.get(config.betterstack_heartbeat_url, timeout=10)
+        except Exception:  # noqa: BLE001 - heartbeat ping is best-effort
+            pass
+
     return 1 if health_result(checks) == "FAIL" else 0

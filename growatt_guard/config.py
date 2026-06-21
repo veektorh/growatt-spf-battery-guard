@@ -71,6 +71,7 @@ class Config:
     runtime_alert_minutes: float = 0.0
     runtime_alert_clear_minutes: float = 0.0
     growatt_session_ttl_minutes: float = 0.0
+    betterstack_heartbeat_url: str = ""
 
 
 def app_module() -> Any:
@@ -208,4 +209,5 @@ def load_config() -> Config:
         runtime_alert_minutes=float(env("RUNTIME_ALERT_MINUTES", "0")),
         runtime_alert_clear_minutes=float(env("RUNTIME_ALERT_CLEAR_MINUTES", "0")),
         growatt_session_ttl_minutes=float(env("GROWATT_SESSION_TTL_MINUTES", "0")),
+        betterstack_heartbeat_url=env("BETTERSTACK_HEARTBEAT_URL"),
     )
