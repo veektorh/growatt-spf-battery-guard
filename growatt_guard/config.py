@@ -70,6 +70,7 @@ class Config:
     auto_topup_solar_skip_kwh_m2: float = 0.0
     runtime_alert_minutes: float = 0.0
     runtime_alert_clear_minutes: float = 0.0
+    growatt_session_ttl_minutes: float = 0.0
 
 
 def app_module() -> Any:
@@ -206,4 +207,5 @@ def load_config() -> Config:
         auto_topup_solar_skip_kwh_m2=float(env("AUTO_TOPUP_SOLAR_SKIP_KWH_M2", "0")),
         runtime_alert_minutes=float(env("RUNTIME_ALERT_MINUTES", "0")),
         runtime_alert_clear_minutes=float(env("RUNTIME_ALERT_CLEAR_MINUTES", "0")),
+        growatt_session_ttl_minutes=float(env("GROWATT_SESSION_TTL_MINUTES", "0")),
     )

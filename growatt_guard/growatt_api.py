@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import requests
+
 from growatt_guard.notifications import record_growatt_cloud_success
 
 try:
@@ -106,13 +108,36 @@ def login_response_is_locked(login_response: Any) -> bool:
     return "locked" in str(login_response.get("error", "")).lower()
 
 
+def _build_api(config: Any):
+    api = growattServer.GrowattApi(add_random_user_id=True, agent_identifier=config.username)
+    api.server_url = config.server_url
+    return api
+
+
+def _minimal_login_response(login_response: dict[str, Any]) -> dict[str, Any]:
+    """A login_response with only what choose_plant needs — no password hash/token.
+
+    Avoids persisting credentials to disk in the session cache.
+    """
+    user_id = login_response.get("userId")
+    return {
+        "success": True,
+        "userId": user_id,
+        "userLevel": login_response.get("userLevel"),
+        "user": {"id": user_id},
+    }
+
+
 def connect(config: Any):
     require_dependencies()
     from growatt_guard.state import (
         clear_login_cooldown_state,
         login_cooldown_until,
+        read_session_cache,
+        session_cache_age_minutes,
         utc_now,
         write_login_cooldown_state,
+        write_session_cache,
     )
 
     # Circuit breaker: if Growatt locked the account, refuse to attempt another
@@ -125,9 +150,24 @@ def connect(config: Any):
             "Not attempting login to avoid extending the lock."
         )
 
-    api = growattServer.GrowattApi(add_random_user_id=True, agent_identifier=config.username)
-    api.server_url = config.server_url
+    ttl = float(getattr(config, "growatt_session_ttl_minutes", 0.0) or 0.0)
 
+    # Session reuse: restore the cached server-side session cookies and skip the
+    # rate-limited login endpoint entirely. Growatt locks accounts on excessive
+    # *logins*, not data reads, so reuse is the main defence against the lock.
+    # A stale session is cleared by load_context on the resulting failure, which
+    # forces a fresh login on the retry.
+    if ttl > 0:
+        cached = read_session_cache()
+        if cached and isinstance(cached.get("cookies"), dict):
+            age = session_cache_age_minutes(cached)
+            if age is not None and age < ttl:
+                api = _build_api(config)
+                api.session.cookies.update(requests.utils.cookiejar_from_dict(cached["cookies"]))
+                logging.info("Reusing cached Growatt session (age %.0f of %.0f min TTL).", age, ttl)
+                return api, cached.get("login_response") or {"success": True}
+
+    api = _build_api(config)
     logging.info("Logging into Growatt server %s", config.server_url)
     login_response = api.login(config.username, config.password)
     if not isinstance(login_response, dict) or not login_response.get("success"):
@@ -142,6 +182,12 @@ def connect(config: Any):
             )
         raise api_error(f"Growatt login failed: {login_response}")
     clear_login_cooldown_state()
+    if ttl > 0:
+        try:
+            cookies = requests.utils.dict_from_cookiejar(api.session.cookies)
+            write_session_cache(cookies, _minimal_login_response(login_response))
+        except Exception as exc:  # noqa: BLE001 - caching is best-effort
+            logging.warning("Could not cache Growatt session: %s", exc)
     return api, login_response
 
 
@@ -671,6 +717,7 @@ def set_mode(api, config: Any, device: DeviceRef, mode: str) -> dict[str, Any]:
 
 def load_context(config: Any, max_attempts: int = 3):
     from growatt_guard.exceptions import GrowattGuardError as _GrowattGuardError
+    from growatt_guard.state import clear_session_cache
 
     last_exc: Exception | None = None
     for attempt in range(max_attempts):
@@ -683,8 +730,12 @@ def load_context(config: Any, max_attempts: int = 3):
             record_growatt_cloud_success(config)
             return api, device, status
         except _GrowattGuardError:
+            # A reused session that has expired surfaces here; drop it so the
+            # next run logs in fresh instead of replaying the dead session.
+            clear_session_cache()
             raise  # auth failures, bad config, missing device — permanent, don't retry
         except Exception as exc:  # noqa: BLE001
+            clear_session_cache()
             last_exc = exc
             if attempt < max_attempts - 1:
                 delay = (5.0, 10.0)[min(attempt, 1)]

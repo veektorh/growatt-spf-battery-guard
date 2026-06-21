@@ -53,7 +53,7 @@ if [[ "${DASHBOARD_SERVICE}" == "1" ]]; then
   echo "Reinstalling dashboard services..."
   ./install_dashboard_service.sh
 else
-  nohup "${PYTHON_BIN}" growatt_power_guard.py observability-refresh --loop --interval-minutes 10 >> "${ROOT}/logs/cron.log" 2>&1 &
+  nohup "${PYTHON_BIN}" growatt_power_guard.py observability-refresh --loop --interval-minutes 15 >> "${ROOT}/logs/cron.log" 2>&1 &
   echo "Started observability-refresh (PID $!)."
 fi
 if command -v systemctl >/dev/null 2>&1 && systemctl cat growatt-discord-control.service >/dev/null 2>&1; then

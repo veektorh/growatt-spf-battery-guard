@@ -247,6 +247,41 @@ def login_cooldown_until(now: dt.datetime | None = None) -> dt.datetime | None:
     return retry_after
 
 
+SESSION_CACHE_FILE = STATE_DIR / "growatt_session.json"
+
+
+def read_session_cache() -> dict[str, Any] | None:
+    return read_json_state(SESSION_CACHE_FILE, "Growatt session cache")
+
+
+def write_session_cache(cookies: dict[str, Any], login_response: dict[str, Any]) -> None:
+    write_json_state(
+        SESSION_CACHE_FILE,
+        {
+            "cookies": cookies,
+            "login_response": login_response,
+            "saved_at": utc_now().isoformat(),
+        },
+    )
+
+
+def clear_session_cache() -> None:
+    clear_state_file(SESSION_CACHE_FILE)
+
+
+def session_cache_age_minutes(state: dict[str, Any], now: dt.datetime | None = None) -> float | None:
+    """Age of a session cache entry in minutes, or None if it can't be parsed."""
+    saved_at = state.get("saved_at")
+    if not saved_at:
+        return None
+    try:
+        saved = parse_utc_datetime(str(saved_at))
+    except ValueError:
+        return None
+    now = now or utc_now()
+    return (now - saved).total_seconds() / 60.0
+
+
 TOPUP_STATE_FILE = STATE_DIR / "topup_active.json"
 
 

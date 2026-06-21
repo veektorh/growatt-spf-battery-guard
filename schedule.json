@@ -61,13 +61,13 @@
     {
       "id": "auto-topup-check",
       "name": "Start night topup if battery won't reach sunrise",
-      "cron": "*/15 22-23,0-2 * * *",
+      "cron": "*/20 22-23,0-2 * * *",
       "command": "auto-topup-check"
     },
     {
       "id": "topup-complete-check",
       "name": "Resume automation and return to SBU once topup window expires",
-      "cron": "*/15 22-23,0-6 * * *",
+      "cron": "*/20 22-23,0-6 * * *",
       "command": "topup-complete-check"
     },
     {

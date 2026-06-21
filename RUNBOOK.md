@@ -12,8 +12,8 @@
 15:31 weekdays    verify SBU and retry once if needed
 21:00 daily       post Discord daily summary
 */30 always       alert once if battery SOC drops below 30%
-*/15 22-23,0-2   start night auto-topup only if needed
-*/15 22-23,0-6   complete an expired auto-topup and return to SBU
+*/20 22-23,0-2   start night auto-topup only if needed
+*/20 22-23,0-6   complete an expired auto-topup and return to SBU
 21:10 Sundays     post weekly performance summary
 00:10 daily       rotate old generated logs/probes
 ```
@@ -44,6 +44,7 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py pause --hours 6 --reason "maintenance"
 .venv/bin/python growatt_power_guard.py pause-status
 .venv/bin/python growatt_power_guard.py resume
+.venv/bin/python growatt_power_guard.py clear-login-cooldown
 .venv/bin/python growatt_power_guard.py schedule-preview
 .venv/bin/python growatt_power_guard.py schedule-preview --days 14
 .venv/bin/python growatt_power_guard.py run-scheduled morning-preserve --dry-plan
@@ -61,6 +62,43 @@ cd ~/automation
 ```
 
 Mode-changing commands use a local `state/mode_command.lock` file to avoid overlapping Growatt writes.
+
+## Growatt Account Lockout (507)
+
+Growatt locks an account for ~24h after too many logins in a short window. The
+login response looks like:
+
+```text
+Growatt login failed: {'msg': '507', 'lockDuration': '24', 'success': False,
+'error': 'Current account has been locked for 24 hours'}
+```
+
+The lock is a **rolling window** — every fresh login attempt can reset the 24h
+timer, so continuing to hit the API keeps the account locked indefinitely.
+
+**Automatic protection.** On a 507, `connect()` writes a cooldown file
+(`state/growatt_login_cooldown.json`) for `lockDuration` + 15 min and then
+*refuses to attempt any login* until it expires, so scheduled jobs stop hammering
+the account. A successful login clears it. `health-check` reports an active
+cooldown as a WARN ("backing off until X"). Discord is not spammed (the
+cloud-failure `alerted` flag de-dups).
+
+**If you see this alert:**
+
+1. Deploy the latest code if the cooldown logic isn't running yet (see *Diagnostics → update_server.sh*). Once deployed, the next failed login arms the cooldown and the hammering stops on its own.
+2. Leave the account alone — do not repeatedly open ShinePhone/web to "test" it; each manual login can also reset the timer.
+3. The cooldown auto-expires; the next scheduled job then logs in normally.
+
+**If you confirm via ShinePhone that the account unlocked early:**
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py clear-login-cooldown
+```
+
+**Prevent recurrence — enable session reuse** (see *Important Config* below). It
+caches the logged-in session and skips the rate-limited login endpoint on most
+runs, which is what tripped the lock.
 
 ## Change Schedule
 
@@ -101,8 +139,8 @@ Expected jobs:
 31 15 * * 1-5
 0 21 * * *
 */30 * * * *
-*/15 22-23,0-2 * * *
-*/15 22-23,0-6 * * *
+*/20 22-23,0-2 * * *
+*/20 22-23,0-6 * * *
 10 21 * * 0
 10 0 * * *
 ```
@@ -148,6 +186,13 @@ EMERGENCY_SOC_RECOVERY=35
 GROWATT_CLOUD_FAILURE_ALERT_THRESHOLD=3
 DASHBOARD_STALE_MINUTES=30
 GROWATT_MODE_DRIVER=spf5000
+
+# Session reuse: cache the Growatt session and skip re-login for this many
+# minutes (0 = disabled, log in every run). Reduces logins from ~250/day to a
+# handful and is the main defence against the 24h account lock (507).
+# Enable after the account is healthy, then confirm the log shows
+# "Reusing cached Growatt session" between logins. Set back to 0 to disable.
+GROWATT_SESSION_TTL_MINUTES=60
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 DISCORD_BOT_TOKEN=your_bot_token
 DISCORD_CONTROL_CHANNEL_ID=your_private_channel_id
@@ -235,7 +280,7 @@ Open:
 http://localhost:8080/dashboard.html
 ```
 
-The server serves a static file. Growatt is only called by the refresh service every 10 minutes by default.
+The server serves a static file. Growatt is only called by the refresh service every 15 minutes by default (override with `DASHBOARD_REFRESH_MINUTES`).
 That refresh service uses one Growatt read for both `dashboard.html` and PVOutput uploads when PVOutput is enabled.
 The dashboard page shows a freshness badge, and `growatt-dashboard-stale-alert.timer` sends Discord alerts when `dashboard.html` is older than `DASHBOARD_STALE_MINUTES`.
 
