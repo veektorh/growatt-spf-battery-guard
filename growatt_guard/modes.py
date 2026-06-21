@@ -31,6 +31,7 @@ from growatt_guard.growatt_api import (
 from growatt_guard.notifications import (
     embed_auto_topup_started,
     embed_topup_complete_summary,
+    embed_topup_skipped_sunny,
     embed_battery_alert,
     embed_battery_cleared,
     embed_mode_not_confirmed,
@@ -515,7 +516,22 @@ def command_weekly_summary(config: Config) -> int:
 
 
 def command_monthly_summary(config: Config) -> int:
-    summary = build_monthly_summary()
+    now = dt.datetime.now()
+    this_month_start = now - dt.timedelta(days=30)
+    last_month_start = now - dt.timedelta(days=60)
+
+    solar_this: dict = {}
+    solar_last: dict = {}
+    if config.pvoutput_enabled:
+        from growatt_guard.pvoutput import fetch_pvoutput_daily_outputs
+        solar_this = fetch_pvoutput_daily_outputs(config, this_month_start.date(), now.date())
+        solar_last = fetch_pvoutput_daily_outputs(config, last_month_start.date(), this_month_start.date())
+
+    summary = build_monthly_summary(
+        now=now,
+        solar_this_month=solar_this or None,
+        solar_last_month=solar_last or None,
+    )
     if config.discord_webhook_url:
         send_discord_embed(config, embed_summary("Monthly Summary", summary))
     print(summary)
@@ -757,6 +773,26 @@ def command_auto_topup_check(config: Config) -> int:
         logging.info("Topup floor applied: calculated %d min < min %g min; using %g min.", topup_min, config.auto_topup_min_minutes, config.auto_topup_min_minutes)
         topup_min = round(config.auto_topup_min_minutes)
     topup_min = min(topup_min, config.discord_topup_max_minutes)
+
+    if config.auto_topup_solar_skip_kwh_m2 > 0:
+        from growatt_guard.weather import get_tomorrow_solar_kwh_m2
+        tomorrow_kwh = get_tomorrow_solar_kwh_m2(config)
+        if tomorrow_kwh is not None and tomorrow_kwh >= config.auto_topup_solar_skip_kwh_m2:
+            msg = (
+                f"Solar forecast {tomorrow_kwh:.1f} kWh/m² ≥ {config.auto_topup_solar_skip_kwh_m2:g} kWh/m²"
+                f" — skipping {topup_min}min topup (sunny tomorrow)."
+            )
+            logging.info(msg)
+            print(msg)
+            append_mode_audit(
+                config, "auto-topup-check", soc=soc, previous_mode=previous_mode,
+                action="topup-skipped-sunny", result="ok",
+                note=f"solar {tomorrow_kwh:.1f} kWh/m², threshold {config.auto_topup_solar_skip_kwh_m2:g}",
+            )
+            if config.discord_notify_success and not config.dry_run:
+                send_discord_embed(config, embed_topup_skipped_sunny(soc, topup_min, tomorrow_kwh, config.auto_topup_solar_skip_kwh_m2))
+            return 0
+
     reason = f"Auto-topup: {topup_min}min needed for {hrs:.1f}h until sunrise"
     paused_until = utc_now() + dt.timedelta(minutes=topup_min)
 

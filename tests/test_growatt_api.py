@@ -858,5 +858,92 @@ class TopupCompleteFeedbackTests(unittest.TestCase):
         self.assertIn("remaining", buf.getvalue())
 
 
+class SolarSkipTopupTests(unittest.TestCase):
+    """Tests for AUTO_TOPUP_SOLAR_SKIP_KWH_M2 solar-forecast skip in command_auto_topup_check."""
+
+    def _make_status(self, soc: float = 35.0, discharge_w: float = 1800.0) -> dict:
+        return {
+            "datalogSn": "SN1",
+            "deviceSn": "SN1",
+            "data": {"soc": soc, "pDischarge": discharge_w, "outputConfig": "0"},
+        }
+
+    def _base_cfg(self, **overrides) -> "Config":
+        return make_config(
+            auto_topup_enabled=True,
+            auto_topup_min_hours_to_sunrise=4.0,
+            battery_capacity_wh=30000.0,
+            battery_charge_rate_w=3000.0,
+            battery_bms_cutoff_soc=25.0,
+            dry_run=True,
+            **overrides,
+        )
+
+    def _run(self, cfg, status, tomorrow_kwh=None):
+        from growatt_guard.modes import command_auto_topup_check
+        from growatt_guard import state as state_mod
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        written = {}
+
+        def fake_write_topup_state(minutes, reason, paused_until, start_soc=None, start_load_w=None):
+            written["minutes"] = minutes
+
+        buf = StringIO()
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            patches = [
+                patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "topup_active.json"),
+                patch.object(state_mod, "PAUSE_FILE", tmp / "pause.json"),
+                patch("growatt_guard.modes.read_pause_state", return_value=None),
+                patch("growatt_guard.modes.topup_is_active", return_value=False),
+                patch("growatt_guard.modes.hours_until_next_sunrise", return_value=5.0),
+                patch("growatt_guard.modes.load_context", return_value=(None, None, status)),
+                patch("growatt_guard.modes.set_mode", return_value="ok"),
+                patch("growatt_guard.modes.command_pause", return_value=0),
+                patch("growatt_guard.modes.write_topup_state", side_effect=fake_write_topup_state),
+                patch("growatt_guard.modes.append_mode_audit"),
+                patch("growatt_guard.weather.get_tomorrow_solar_kwh_m2", return_value=tomorrow_kwh),
+            ]
+            with patches[0], patches[1], patches[2], patches[3], patches[4], \
+                 patches[5], patches[6], patches[7], patches[8], patches[9], \
+                 patches[10], redirect_stdout(buf):
+                rc = command_auto_topup_check(cfg)
+
+        return rc, buf.getvalue(), written
+
+    def test_topup_skipped_when_solar_forecast_above_threshold(self):
+        cfg = self._base_cfg(auto_topup_solar_skip_kwh_m2=4.0)
+        rc, out, written = self._run(cfg, self._make_status(), tomorrow_kwh=5.2)
+        self.assertEqual(rc, 0)
+        self.assertIn("skipping", out)
+        self.assertIn("5.2 kWh/m²", out)
+        self.assertNotIn("minutes", written)
+
+    def test_topup_proceeds_when_solar_forecast_below_threshold(self):
+        cfg = self._base_cfg(auto_topup_solar_skip_kwh_m2=4.0)
+        rc, out, written = self._run(cfg, self._make_status(), tomorrow_kwh=2.8)
+        self.assertIn("minutes", written)
+
+    def test_topup_proceeds_when_feature_disabled(self):
+        cfg = self._base_cfg(auto_topup_solar_skip_kwh_m2=0.0)
+        rc, out, written = self._run(cfg, self._make_status(), tomorrow_kwh=9.9)
+        self.assertIn("minutes", written)
+
+    def test_topup_proceeds_when_solar_forecast_unavailable(self):
+        cfg = self._base_cfg(auto_topup_solar_skip_kwh_m2=4.0)
+        rc, out, written = self._run(cfg, self._make_status(), tomorrow_kwh=None)
+        self.assertIn("minutes", written)
+
+    def test_topup_skipped_exactly_at_threshold(self):
+        cfg = self._base_cfg(auto_topup_solar_skip_kwh_m2=4.0)
+        rc, out, written = self._run(cfg, self._make_status(), tomorrow_kwh=4.0)
+        self.assertNotIn("minutes", written)
+        self.assertIn("skipping", out)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -365,6 +365,106 @@ class WeeklySolarYieldTests(unittest.TestCase):
         self.assertNotIn("panel cleanliness", result)
 
 
+class MonthlySolarYieldTests(unittest.TestCase):
+    def test_solar_section_appears_in_monthly_summary(self):
+        from growatt_guard.audit import build_monthly_summary
+        solar_this = {"2026-05-22": 12000, "2026-05-23": 14000, "2026-05-24": 11000}
+        solar_last = {"2026-04-22": 15000, "2026-04-23": 16000, "2026-04-24": 14000}
+        result = build_monthly_summary(
+            now=dt.datetime(2026, 6, 21),
+            solar_this_month=solar_this,
+            solar_last_month=solar_last,
+        )
+        self.assertIn("Solar this month", result)
+        self.assertIn("Solar last month", result)
+        self.assertIn("Month-over-month yield", result)
+
+    def test_no_solar_section_when_no_data(self):
+        from growatt_guard.audit import build_monthly_summary
+        result = build_monthly_summary(now=dt.datetime(2026, 6, 21))
+        self.assertNotIn("Solar this month", result)
+
+    def test_month_over_month_direction_up(self):
+        from growatt_guard.audit import build_monthly_summary
+        # This month avg: 15 kWh/day, last month avg: 10 kWh/day → +50%
+        solar_this = {"2026-05-22": 15000}
+        solar_last = {"2026-04-22": 10000}
+        result = build_monthly_summary(
+            now=dt.datetime(2026, 6, 21),
+            solar_this_month=solar_this,
+            solar_last_month=solar_last,
+        )
+        self.assertIn("▲", result)
+        self.assertNotIn("▼", result)
+
+    def test_month_over_month_direction_down(self):
+        from growatt_guard.audit import build_monthly_summary
+        # This month avg: 10 kWh/day, last month avg: 15 kWh/day → -33%
+        solar_this = {"2026-05-22": 10000}
+        solar_last = {"2026-04-22": 15000}
+        result = build_monthly_summary(
+            now=dt.datetime(2026, 6, 21),
+            solar_this_month=solar_this,
+            solar_last_month=solar_last,
+        )
+        self.assertIn("▼", result)
+
+
+class DailySolarTodayTests(unittest.TestCase):
+    def test_solar_today_line_appears_when_uploaded_today(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from growatt_guard.audit import build_daily_summary
+
+        status = {"device": {"capacity": "70 %"}}
+        today = dt.datetime.now()
+        pv_state = {"uploaded_at": today.strftime("%Y-%m-%dT12:00:00"), "fields": {"v1": 17500}}
+        with TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "pvoutput_last.json"
+            with patch("growatt_guard.audit.summarize_today_log_counts", return_value={
+                "success": 1, "failure": 0, "watchdog_repairs": 0,
+                "preserve_actions": 0, "return_sbu_actions": 0,
+            }), patch("growatt_guard.pvoutput.PVOUTPUT_STATE_FILE", state_path):
+                import json
+                state_path.write_text(json.dumps(pv_state))
+                summary = build_daily_summary(status)
+        self.assertIn("Solar today: 17.50 kWh", summary)
+
+    def test_solar_today_absent_when_uploaded_yesterday(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from growatt_guard.audit import build_daily_summary
+
+        status = {"device": {"capacity": "70 %"}}
+        yesterday = (dt.datetime.now() - dt.timedelta(days=1)).strftime("%Y-%m-%dT21:00:00")
+        pv_state = {"uploaded_at": yesterday, "fields": {"v1": 14000}}
+        with TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "pvoutput_last.json"
+            with patch("growatt_guard.audit.summarize_today_log_counts", return_value={
+                "success": 1, "failure": 0, "watchdog_repairs": 0,
+                "preserve_actions": 0, "return_sbu_actions": 0,
+            }), patch("growatt_guard.pvoutput.PVOUTPUT_STATE_FILE", state_path):
+                import json
+                state_path.write_text(json.dumps(pv_state))
+                summary = build_daily_summary(status)
+        self.assertNotIn("Solar today", summary)
+
+    def test_solar_today_absent_when_no_state_file(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from growatt_guard.audit import build_daily_summary
+
+        status = {"device": {"capacity": "70 %"}}
+        with TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "pvoutput_last.json"
+            with patch("growatt_guard.audit.summarize_today_log_counts", return_value={
+                "success": 1, "failure": 0, "watchdog_repairs": 0,
+                "preserve_actions": 0, "return_sbu_actions": 0,
+            }), patch("growatt_guard.pvoutput.PVOUTPUT_STATE_FILE", state_path):
+                summary = build_daily_summary(status)
+        self.assertNotIn("Solar today", summary)
+
+
 class PvoutputParserTests(unittest.TestCase):
     def test_pvoutput_upload_command_is_registered(self):
         from growatt_guard.cli import build_parser

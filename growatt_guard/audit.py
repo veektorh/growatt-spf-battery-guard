@@ -314,7 +314,11 @@ def _weekly_recommendations(
     return tips
 
 
-def build_monthly_summary(now: dt.datetime | None = None) -> str:
+def build_monthly_summary(
+    now: dt.datetime | None = None,
+    solar_this_month: dict[str, int] | None = None,
+    solar_last_month: dict[str, int] | None = None,
+) -> str:
     now = now or dt.datetime.now()
     since = now - dt.timedelta(days=30)
     rows = read_mode_audit_rows(since=since)
@@ -349,6 +353,28 @@ def build_monthly_summary(now: dt.datetime | None = None) -> str:
             f"{last_row.get('timestamp', '')} {last_row.get('command', '')} "
             f"{last_row.get('action', '')} SOC={last_row.get('soc', '')}%"
         )
+
+    if solar_this_month:
+        days = len(solar_this_month)
+        total_wh = sum(solar_this_month.values())
+        avg_wh = total_wh / days
+        lines.append(
+            f"Solar this month: {total_wh / 1000:.1f} kWh total, "
+            f"{avg_wh / 1000:.2f} kWh/day avg ({days} day{'s' if days != 1 else ''} data)"
+        )
+        if solar_last_month:
+            days_last = len(solar_last_month)
+            total_last_wh = sum(solar_last_month.values())
+            avg_last_wh = total_last_wh / days_last
+            lines.append(
+                f"Solar last month: {total_last_wh / 1000:.1f} kWh total, "
+                f"{avg_last_wh / 1000:.2f} kWh/day avg"
+            )
+            if avg_last_wh > 0:
+                change = (avg_wh - avg_last_wh) / avg_last_wh * 100
+                direction = "▲" if change >= 0 else "▼"
+                lines.append(f"Month-over-month yield: {direction} {abs(change):.0f}%")
+
     return "\n".join(lines)
 
 
@@ -384,6 +410,19 @@ def build_daily_summary(status: dict[str, Any]) -> str:
         formatted = format_metric(status, label, keys, unit)
         if formatted:
             lines.append(formatted)
+
+    try:
+        from growatt_guard.pvoutput import read_pvoutput_state
+        pv_state = read_pvoutput_state()
+        if pv_state:
+            uploaded_at = pv_state.get("uploaded_at", "")
+            today_str = dt.datetime.now().strftime("%Y-%m-%d")
+            if uploaded_at.startswith(today_str):
+                v1 = pv_state.get("fields", {}).get("v1")
+                if v1 is not None:
+                    lines.append(f"Solar today: {int(v1) / 1000:.2f} kWh")
+    except Exception:
+        pass
 
     counts = summarize_today_log_counts()
     lines.extend(

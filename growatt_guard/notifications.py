@@ -264,6 +264,19 @@ def embed_runtime_alert_cleared(runtime_min: float | None, soc: float) -> dict:
     return _embed("✅ Runtime alert cleared", _COLOR_OK, fields)
 
 
+def embed_topup_skipped_sunny(
+    soc: float, skipped_min: int, forecast_kwh_m2: float, threshold_kwh_m2: float
+) -> dict:
+    from growatt_guard.growatt_api import format_duration_minutes
+    fields = [
+        _f("Battery SOC", f"{soc:g}%"),
+        _f("Skipped topup", format_duration_minutes(skipped_min)),
+        _f("Solar forecast", f"{forecast_kwh_m2:.1f} kWh/m²"),
+        _f("Threshold", f"{threshold_kwh_m2:g} kWh/m²"),
+    ]
+    return _embed("☀️ Topup skipped — sunny forecast", _COLOR_OK, fields)
+
+
 def embed_auto_topup_started(soc: float, topup_min: int, hours_to_sunrise: float, load_w: float) -> dict:
     from growatt_guard.growatt_api import format_duration_minutes
     fields = [

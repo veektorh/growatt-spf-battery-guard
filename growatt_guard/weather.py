@@ -211,7 +211,7 @@ def fetch_weather_forecast(config: Any) -> dict[str, Any]:
         params={
             "latitude": config.weather_lat,
             "longitude": config.weather_lon,
-            "hourly": "precipitation,cloud_cover",
+            "hourly": "precipitation,cloud_cover,shortwave_radiation",
             "forecast_days": 2,
             "timezone": config.weather_timezone,
         },
@@ -221,6 +221,42 @@ def fetch_weather_forecast(config: Any) -> dict[str, Any]:
     forecast = response.json()
     _write_weather_cache(forecast)
     return forecast
+
+
+def get_tomorrow_solar_kwh_m2(config: Any, now: dt.datetime | None = None) -> float | None:
+    """Return forecasted total solar irradiance (kWh/m²) for the next calendar day.
+
+    Sums hourly shortwave_radiation values from Open-Meteo for tomorrow's date.
+    Returns None if coordinates are missing, the API is unreachable, or data is absent.
+    """
+    if not getattr(config, "weather_lat", None) or not getattr(config, "weather_lon", None):
+        return None
+    try:
+        forecast = fetch_weather_forecast(config)
+    except Exception as exc:  # noqa: BLE001
+        logging.debug("Solar forecast unavailable: %s", exc)
+        return None
+
+    hourly = forecast.get("hourly", {})
+    times = hourly.get("time", [])
+    radiation = hourly.get("shortwave_radiation", [])
+    if not times or not radiation:
+        return None
+
+    _now = now or dt.datetime.now()
+    tomorrow = (_now + dt.timedelta(days=1)).date()
+
+    total_wh_m2 = 0.0
+    found = False
+    for index, time_value in enumerate(times):
+        if index >= len(radiation) or radiation[index] is None:
+            continue
+        forecast_time = parse_forecast_time(str(time_value))
+        if forecast_time.date() == tomorrow:
+            total_wh_m2 += float(radiation[index])
+            found = True
+
+    return total_wh_m2 / 1000.0 if found else None
 
 
 def analyze_weather_window(config: Any, forecast: dict[str, Any]) -> ThresholdDecision:

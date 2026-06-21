@@ -199,5 +199,63 @@ class LoadAdjustmentTests(unittest.TestCase):
         self.assertIsNone(result.cloud_cover)
 
 
+class GetTomorrowSolarKwhM2Tests(unittest.TestCase):
+    def _make_forecast(self, tomorrow_date: dt.date, radiation_values: list) -> dict:
+        """Build a minimal Open-Meteo-style forecast with shortwave_radiation for tomorrow."""
+        times = [
+            f"{tomorrow_date.isoformat()}T{h:02d}:00" for h in range(len(radiation_values))
+        ]
+        return {"hourly": {"time": times, "shortwave_radiation": radiation_values}}
+
+    def test_sums_tomorrow_radiation_to_kwh(self):
+        from growatt_guard.weather import get_tomorrow_solar_kwh_m2
+        cfg = make_config(weather_lat=6.5, weather_lon=3.4)
+        now = dt.datetime(2026, 6, 20, 22, 0)
+        tomorrow = dt.date(2026, 6, 21)
+        # 24 hours × 250 W/m² = 6000 Wh/m² = 6.0 kWh/m²
+        forecast = self._make_forecast(tomorrow, [250.0] * 24)
+        with patch("growatt_guard.weather.fetch_weather_forecast", return_value=forecast):
+            result = get_tomorrow_solar_kwh_m2(cfg, now=now)
+        self.assertAlmostEqual(result, 6.0)
+
+    def test_only_counts_tomorrows_date(self):
+        from growatt_guard.weather import get_tomorrow_solar_kwh_m2
+        cfg = make_config(weather_lat=6.5, weather_lon=3.4)
+        now = dt.datetime(2026, 6, 20, 22, 0)
+        today = dt.date(2026, 6, 20)
+        tomorrow = dt.date(2026, 6, 21)
+        # Mix today and tomorrow values in the forecast
+        times = (
+            [f"{today.isoformat()}T{h:02d}:00" for h in range(12)]
+            + [f"{tomorrow.isoformat()}T{h:02d}:00" for h in range(12)]
+        )
+        radiation = [1000.0] * 12 + [200.0] * 12
+        forecast = {"hourly": {"time": times, "shortwave_radiation": radiation}}
+        with patch("growatt_guard.weather.fetch_weather_forecast", return_value=forecast):
+            result = get_tomorrow_solar_kwh_m2(cfg, now=now)
+        self.assertAlmostEqual(result, 200.0 * 12 / 1000)
+
+    def test_returns_none_when_shortwave_radiation_absent(self):
+        from growatt_guard.weather import get_tomorrow_solar_kwh_m2
+        cfg = make_config(weather_lat=6.5, weather_lon=3.4)
+        forecast = {"hourly": {"time": ["2026-06-21T00:00"], "cloud_cover": [50]}}
+        with patch("growatt_guard.weather.fetch_weather_forecast", return_value=forecast):
+            result = get_tomorrow_solar_kwh_m2(cfg, now=dt.datetime(2026, 6, 20, 22, 0))
+        self.assertIsNone(result)
+
+    def test_returns_none_when_no_coords(self):
+        from growatt_guard.weather import get_tomorrow_solar_kwh_m2
+        cfg = make_config()  # no weather_lat / weather_lon
+        result = get_tomorrow_solar_kwh_m2(cfg, now=dt.datetime(2026, 6, 20, 22, 0))
+        self.assertIsNone(result)
+
+    def test_returns_none_on_api_failure(self):
+        from growatt_guard.weather import get_tomorrow_solar_kwh_m2
+        cfg = make_config(weather_lat=6.5, weather_lon=3.4)
+        with patch("growatt_guard.weather.fetch_weather_forecast", side_effect=RuntimeError("timeout")):
+            result = get_tomorrow_solar_kwh_m2(cfg, now=dt.datetime(2026, 6, 20, 22, 0))
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()
