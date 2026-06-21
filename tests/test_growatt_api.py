@@ -624,6 +624,7 @@ class AutoTopupTargetSocTests(unittest.TestCase):
             ps = common_patches(written_cutoff)
             with (patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "t1.json"),
                   patch.object(state_mod, "PAUSE_FILE", tmp / "p1.json"),
+                  patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", tmp / "dr1.json"),
                   ps[0], ps[1], ps[2], ps[3], ps[4], ps[5], ps[6], ps[7],
                   redirect_stdout(StringIO())):
                 command_auto_topup_check(cfg_cutoff)
@@ -636,6 +637,7 @@ class AutoTopupTargetSocTests(unittest.TestCase):
             ps2 = common_patches(written_target)
             with (patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "t2.json"),
                   patch.object(state_mod, "PAUSE_FILE", tmp / "p2.json"),
+                  patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", tmp / "dr2.json"),
                   ps2[0], ps2[1], ps2[2], ps2[3], ps2[4], ps2[5], ps2[6], ps2[7],
                   redirect_stdout(StringIO())):
                 command_auto_topup_check(cfg_target)
@@ -672,6 +674,7 @@ class AutoTopupTargetSocTests(unittest.TestCase):
             tmp = Path(tmpdir)
             with (patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "t.json"),
                   patch.object(state_mod, "PAUSE_FILE", tmp / "p.json"),
+                  patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", tmp / "dr.json"),
                   patch("growatt_guard.modes.read_pause_state", return_value=None),
                   patch("growatt_guard.modes.topup_is_active", return_value=False),
                   patch("growatt_guard.modes.hours_until_next_sunrise", return_value=5.0),
@@ -728,6 +731,7 @@ class AutoTopupMinMinutesTests(unittest.TestCase):
             with (
                 patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "topup_active.json"),
                 patch.object(state_mod, "PAUSE_FILE", tmp / "pause.json"),
+                patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", tmp / "dr.json"),
                 patch("growatt_guard.modes.read_pause_state", return_value=None),
                 patch("growatt_guard.modes.topup_is_active", return_value=False),
                 patch("growatt_guard.modes.hours_until_next_sunrise", return_value=5.5),
@@ -772,6 +776,7 @@ class AutoTopupMinMinutesTests(unittest.TestCase):
             with (
                 patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "topup_active.json"),
                 patch.object(state_mod, "PAUSE_FILE", tmp / "pause.json"),
+                patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", tmp / "dr.json"),
                 patch("growatt_guard.modes.read_pause_state", return_value=None),
                 patch("growatt_guard.modes.topup_is_active", return_value=False),
                 patch("growatt_guard.modes.hours_until_next_sunrise", return_value=6.0),
@@ -1020,6 +1025,7 @@ class SolarSkipTopupTests(unittest.TestCase):
             patches = [
                 patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "topup_active.json"),
                 patch.object(state_mod, "PAUSE_FILE", tmp / "pause.json"),
+                patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", tmp / "dr.json"),
                 patch("growatt_guard.modes.read_pause_state", return_value=None),
                 patch("growatt_guard.modes.topup_is_active", return_value=False),
                 patch("growatt_guard.modes.hours_until_next_sunrise", return_value=5.0),
@@ -1032,7 +1038,7 @@ class SolarSkipTopupTests(unittest.TestCase):
             ]
             with patches[0], patches[1], patches[2], patches[3], patches[4], \
                  patches[5], patches[6], patches[7], patches[8], patches[9], \
-                 patches[10], redirect_stdout(buf):
+                 patches[10], patches[11], redirect_stdout(buf):
                 rc = command_auto_topup_check(cfg)
 
         return rc, buf.getvalue(), written
@@ -1217,6 +1223,118 @@ class PruneAuditTests(unittest.TestCase):
                   redirect_stdout(buf)):
                 command_prune_audit(cfg)
         self.assertIn("pruned", buf.getvalue())
+
+
+class DischargeRateHistoryTests(unittest.TestCase):
+    """Tests for discharge rate rolling average in state.py."""
+
+    def test_appends_reading_and_returns_list(self):
+        from growatt_guard import state as state_mod
+        with TemporaryDirectory() as tmpdir:
+            with patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", Path(tmpdir) / "dr.json"):
+                readings = state_mod.append_discharge_rate_reading(1500.0)
+        self.assertEqual(len(readings), 1)
+        self.assertEqual(readings[0]["rate_w"], 1500)
+
+    def test_trims_to_max_readings(self):
+        from growatt_guard import state as state_mod
+        with TemporaryDirectory() as tmpdir:
+            with patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", Path(tmpdir) / "dr.json"):
+                for i in range(12):
+                    readings = state_mod.append_discharge_rate_reading(float(1000 + i * 100))
+        self.assertEqual(len(readings), state_mod._DISCHARGE_RATE_MAX_READINGS)
+        self.assertEqual(readings[-1]["rate_w"], 2100)
+
+    def test_read_returns_empty_list_when_missing(self):
+        from growatt_guard import state as state_mod
+        with TemporaryDirectory() as tmpdir:
+            with patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", Path(tmpdir) / "dr.json"):
+                result = state_mod.read_discharge_rate_history()
+        self.assertEqual(result, [])
+
+    def test_accumulates_across_calls(self):
+        from growatt_guard import state as state_mod
+        with TemporaryDirectory() as tmpdir:
+            with patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", Path(tmpdir) / "dr.json"):
+                state_mod.append_discharge_rate_reading(1200.0)
+                state_mod.append_discharge_rate_reading(1800.0)
+                readings = state_mod.read_discharge_rate_history()
+        self.assertEqual(len(readings), 2)
+        self.assertEqual(readings[0]["rate_w"], 1200)
+        self.assertEqual(readings[1]["rate_w"], 1800)
+
+
+class DischargeRateAverageTests(unittest.TestCase):
+    """Tests that command_auto_topup_check uses the rolling discharge average."""
+
+    def _run_check(self, cfg, tmpdir, discharge_w: float, prior_readings: list[float]) -> dict:
+        from growatt_guard.modes import command_auto_topup_check
+        from growatt_guard import state as state_mod
+
+        status = {
+            "datalogSn": "SN1", "deviceSn": "SN1",
+            "data": {"soc": 40.0, "pDischarge": discharge_w, "outputConfig": "0"},
+        }
+        captured: dict = {}
+
+        def fake_write(minutes, reason, paused_until, start_soc=None, start_load_w=None):
+            captured["minutes"] = minutes
+            captured["start_load_w"] = start_load_w
+
+        tmp = Path(tmpdir)
+        dr_file = tmp / "dr.json"
+        with patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", dr_file):
+            for r in prior_readings:
+                state_mod.append_discharge_rate_reading(r)
+
+        with (patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", dr_file),
+              patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "topup.json"),
+              patch.object(state_mod, "PAUSE_FILE", tmp / "pause.json"),
+              patch("growatt_guard.modes.read_pause_state", return_value=None),
+              patch("growatt_guard.modes.topup_is_active", return_value=False),
+              patch("growatt_guard.modes.hours_until_next_sunrise", return_value=5.0),
+              patch("growatt_guard.modes.load_context", return_value=(None, None, status)),
+              patch("growatt_guard.modes.set_mode", return_value="ok"),
+              patch("growatt_guard.modes.command_pause", return_value=0),
+              patch("growatt_guard.modes.write_topup_state", side_effect=fake_write),
+              patch("growatt_guard.modes.append_mode_audit"),
+              redirect_stdout(StringIO())):
+            command_auto_topup_check(cfg)
+
+        return captured
+
+    def _make_cfg(self):
+        return make_config(
+            auto_topup_enabled=True,
+            battery_capacity_wh=30000.0,
+            battery_charge_rate_w=3000.0,
+            battery_bms_cutoff_soc=25.0,
+            dry_run=True,
+        )
+
+    def test_uses_live_reading_when_history_has_only_one_entry(self):
+        cfg = self._make_cfg()
+        with TemporaryDirectory() as tmpdir:
+            result = self._run_check(cfg, tmpdir, discharge_w=1500.0, prior_readings=[])
+        # After appending live (1500), history has 1 entry → uses live
+        self.assertAlmostEqual(result["start_load_w"], 1500.0, delta=1.0)
+
+    def test_uses_average_when_history_has_prior_readings(self):
+        cfg = self._make_cfg()
+        with TemporaryDirectory() as tmpdir:
+            # Seed one prior reading at 600 W; live spike = 3000 W
+            # After appending live: history = [600, 3000] → avg = 1800 W
+            result = self._run_check(cfg, tmpdir, discharge_w=3000.0, prior_readings=[600.0])
+        self.assertAlmostEqual(result["start_load_w"], 1800.0, delta=1.0)
+
+    def test_average_produces_different_topup_than_spike(self):
+        cfg = self._make_cfg()
+        with TemporaryDirectory() as tmpdir:
+            spike_result = self._run_check(cfg, tmpdir, discharge_w=3000.0, prior_readings=[])
+        with TemporaryDirectory() as tmpdir:
+            avg_result = self._run_check(cfg, tmpdir, discharge_w=3000.0, prior_readings=[600.0])
+        # Spike (3000 W) should demand more topup minutes than the smoothed avg (1800 W)
+        self.assertGreater(spike_result.get("minutes", 0), avg_result.get("minutes", 0))
 
 
 if __name__ == "__main__":

@@ -56,12 +56,14 @@ from growatt_guard.schedule import (
 )
 from growatt_guard.state import (
     append_charge_rate_reading,
+    append_discharge_rate_reading,
     clear_battery_alert_state,
     clear_runtime_alert_state,
     clear_topup_state,
     parse_utc_datetime,
     pause_message,
     read_battery_alert_state,
+    read_discharge_rate_history,
     read_pause_state,
     read_runtime_alert_state,
     read_topup_state,
@@ -775,6 +777,16 @@ def command_auto_topup_check(config: Config) -> int:
     if not load_w or load_w <= 0:
         print(f"Battery not discharging; no auto-topup needed.")
         return 0
+
+    append_discharge_rate_reading(load_w)
+    history = read_discharge_rate_history()
+    if len(history) >= 2:
+        avg_load_w = sum(r["rate_w"] for r in history) / len(history)
+        logging.info(
+            "Using avg discharge rate %.0f W (%d readings) instead of live %.0f W",
+            avg_load_w, len(history), load_w,
+        )
+        load_w = avg_load_w
 
     effective_target_soc = max(config.battery_bms_cutoff_soc, config.auto_topup_target_soc)
     topup_min_f = estimate_topup_for_sunrise(

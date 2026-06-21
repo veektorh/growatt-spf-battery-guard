@@ -255,6 +255,28 @@ def append_charge_rate_reading(rate_w: float) -> list[dict]:
     return readings
 
 
+DISCHARGE_RATE_HISTORY_FILE = STATE_DIR / "discharge_rate_history.json"
+_DISCHARGE_RATE_MAX_READINGS = 10
+
+
+def read_discharge_rate_history() -> list[dict]:
+    state = read_json_state(DISCHARGE_RATE_HISTORY_FILE, "discharge rate history")
+    if not state:
+        return []
+    readings = state.get("readings")
+    if not isinstance(readings, list):
+        return []
+    return readings
+
+
+def append_discharge_rate_reading(rate_w: float) -> list[dict]:
+    readings = read_discharge_rate_history()
+    readings.append({"rate_w": round(rate_w), "recorded_at": utc_now().isoformat()})
+    readings = readings[-_DISCHARGE_RATE_MAX_READINGS:]
+    write_json_state(DISCHARGE_RATE_HISTORY_FILE, {"readings": readings})
+    return readings
+
+
 RUNTIME_ALERT_FILE = STATE_DIR / "runtime_alert.json"
 
 
