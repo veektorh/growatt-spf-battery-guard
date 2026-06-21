@@ -276,6 +276,95 @@ class PvoutputStateTests(unittest.TestCase):
         self.assertIn("v2", raw["fields"])
 
 
+class FetchPvoutputDailyOutputsTests(unittest.TestCase):
+    def _config(self, enabled=True):
+        return make_config(pvoutput_enabled=enabled, pvoutput_api_key="KEY", pvoutput_system_id="12345")
+
+    def test_returns_empty_when_pvoutput_disabled(self):
+        from growatt_guard.pvoutput import fetch_pvoutput_daily_outputs
+        cfg = self._config(enabled=False)
+        result = fetch_pvoutput_daily_outputs(cfg, dt.date(2026, 6, 13), dt.date(2026, 6, 20))
+        self.assertEqual(result, {})
+
+    def test_parses_csv_response(self):
+        from growatt_guard.pvoutput import fetch_pvoutput_daily_outputs
+        csv = "20260613,12500,0,\n20260614,14200,0,\n20260615,9800,0,\n"
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = csv
+        with patch("growatt_guard.pvoutput.requests.get", return_value=mock_resp):
+            result = fetch_pvoutput_daily_outputs(
+                self._config(), dt.date(2026, 6, 13), dt.date(2026, 6, 15)
+            )
+        self.assertEqual(result["2026-06-13"], 12500)
+        self.assertEqual(result["2026-06-14"], 14200)
+        self.assertEqual(result["2026-06-15"], 9800)
+
+    def test_returns_empty_on_non_200(self):
+        from growatt_guard.pvoutput import fetch_pvoutput_daily_outputs
+        mock_resp = MagicMock()
+        mock_resp.status_code = 403
+        mock_resp.text = "Forbidden"
+        with patch("growatt_guard.pvoutput.requests.get", return_value=mock_resp):
+            result = fetch_pvoutput_daily_outputs(
+                self._config(), dt.date(2026, 6, 13), dt.date(2026, 6, 20)
+            )
+        self.assertEqual(result, {})
+
+    def test_returns_empty_on_network_error(self):
+        import requests as req
+        from growatt_guard.pvoutput import fetch_pvoutput_daily_outputs
+        with patch("growatt_guard.pvoutput.requests.get", side_effect=req.RequestException("timeout")):
+            result = fetch_pvoutput_daily_outputs(
+                self._config(), dt.date(2026, 6, 13), dt.date(2026, 6, 20)
+            )
+        self.assertEqual(result, {})
+
+
+class WeeklySolarYieldTests(unittest.TestCase):
+    def test_solar_section_appears_in_weekly_summary(self):
+        from growatt_guard.audit import build_weekly_summary
+        solar_this = {"2026-06-14": 12000, "2026-06-15": 14000, "2026-06-16": 11000}
+        solar_last = {"2026-06-07": 15000, "2026-06-08": 16000, "2026-06-09": 14000}
+        result = build_weekly_summary(
+            now=dt.datetime(2026, 6, 21),
+            solar_this_week=solar_this,
+            solar_last_week=solar_last,
+        )
+        self.assertIn("Solar this week", result)
+        self.assertIn("Solar last week", result)
+        self.assertIn("Week-over-week yield", result)
+
+    def test_no_solar_section_when_no_data(self):
+        from growatt_guard.audit import build_weekly_summary
+        result = build_weekly_summary(now=dt.datetime(2026, 6, 21))
+        self.assertNotIn("Solar this week", result)
+
+    def test_yield_drop_recommendation_fires_at_minus_20_percent(self):
+        from growatt_guard.audit import build_weekly_summary
+        # This week avg: 10 kWh/day, last week avg: 15 kWh/day → -33%
+        solar_this = {"2026-06-14": 10000}
+        solar_last = {"2026-06-07": 15000}
+        result = build_weekly_summary(
+            now=dt.datetime(2026, 6, 21),
+            solar_this_week=solar_this,
+            solar_last_week=solar_last,
+        )
+        self.assertIn("panel cleanliness", result)
+
+    def test_yield_drop_recommendation_silent_below_20_percent(self):
+        from growatt_guard.audit import build_weekly_summary
+        # This week avg: 13 kWh/day, last week avg: 15 kWh/day → -13%
+        solar_this = {"2026-06-14": 13000}
+        solar_last = {"2026-06-07": 15000}
+        result = build_weekly_summary(
+            now=dt.datetime(2026, 6, 21),
+            solar_this_week=solar_this,
+            solar_last_week=solar_last,
+        )
+        self.assertNotIn("panel cleanliness", result)
+
+
 class PvoutputParserTests(unittest.TestCase):
     def test_pvoutput_upload_command_is_registered(self):
         from growatt_guard.cli import build_parser

@@ -492,7 +492,22 @@ def command_daily_summary(config: Config) -> int:
 
 
 def command_weekly_summary(config: Config) -> int:
-    summary = build_weekly_summary()
+    now = dt.datetime.now()
+    since = now - dt.timedelta(days=7)
+    prev_week_start = now - dt.timedelta(days=14)
+
+    solar_this: dict = {}
+    solar_last: dict = {}
+    if config.pvoutput_enabled:
+        from growatt_guard.pvoutput import fetch_pvoutput_daily_outputs
+        solar_this = fetch_pvoutput_daily_outputs(config, since.date(), now.date())
+        solar_last = fetch_pvoutput_daily_outputs(config, prev_week_start.date(), since.date())
+
+    summary = build_weekly_summary(
+        now=now,
+        solar_this_week=solar_this or None,
+        solar_last_week=solar_last or None,
+    )
     if config.discord_webhook_url:
         send_discord_embed(config, embed_summary("Weekly Summary", summary))
     print(summary)

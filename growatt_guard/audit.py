@@ -181,7 +181,11 @@ def build_chart_data(now: dt.datetime | None = None, days: int = 7) -> dict[str,
     }
 
 
-def build_weekly_summary(now: dt.datetime | None = None) -> str:
+def build_weekly_summary(
+    now: dt.datetime | None = None,
+    solar_this_week: dict[str, int] | None = None,
+    solar_last_week: dict[str, int] | None = None,
+) -> str:
     now = now or dt.datetime.now()
     since = now - dt.timedelta(days=7)
     rows = read_mode_audit_rows(since=since)
@@ -217,12 +221,35 @@ def build_weekly_summary(now: dt.datetime | None = None) -> str:
             f"{last_row.get('action', '')} SOC={last_row.get('soc', '')}%"
         )
 
+    solar_yield_change: float | None = None
+    if solar_this_week:
+        days = len(solar_this_week)
+        total_wh = sum(solar_this_week.values())
+        avg_wh = total_wh / days
+        lines.append(
+            f"Solar this week: {total_wh / 1000:.1f} kWh total, "
+            f"{avg_wh / 1000:.2f} kWh/day avg ({days} day{'s' if days != 1 else ''} data)"
+        )
+        if solar_last_week:
+            days_last = len(solar_last_week)
+            total_last_wh = sum(solar_last_week.values())
+            avg_last_wh = total_last_wh / days_last
+            lines.append(
+                f"Solar last week: {total_last_wh / 1000:.1f} kWh total, "
+                f"{avg_last_wh / 1000:.2f} kWh/day avg"
+            )
+            if avg_last_wh > 0:
+                solar_yield_change = (avg_wh - avg_last_wh) / avg_last_wh * 100
+                direction = "▲" if solar_yield_change >= 0 else "▼"
+                lines.append(f"Week-over-week yield: {direction} {abs(solar_yield_change):.0f}%")
+
     recommendations = _weekly_recommendations(
         preserve_rows=preserve_rows,
         utility_switches=utility_switches,
         watchdog_repairs=watchdog_repairs,
         failures=failures,
         avg_soc=avg_soc,
+        solar_yield_change=solar_yield_change,
     )
     if recommendations:
         lines.append("")
@@ -240,6 +267,7 @@ def _weekly_recommendations(
     watchdog_repairs: list[dict[str, str]],
     failures: list[dict[str, str]],
     avg_soc: float | None,
+    solar_yield_change: float | None = None,
 ) -> list[str]:
     tips: list[str] = []
 
@@ -275,6 +303,12 @@ def _weekly_recommendations(
         tips.append(
             "Battery maintained SBU all week — conditions may allow a lower threshold "
             "if weather is reliably sunny."
+        )
+
+    if solar_yield_change is not None and solar_yield_change <= -20:
+        tips.append(
+            f"Solar yield dropped {abs(solar_yield_change):.0f}% week-over-week — "
+            "consider checking panel cleanliness or shading."
         )
 
     return tips

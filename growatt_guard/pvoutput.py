@@ -12,6 +12,7 @@ from growatt_guard.growatt_api import extract_first_metric, extract_soc, load_co
 from growatt_guard.state import read_json_state, write_json_state
 
 PVOUTPUT_URL = "https://pvoutput.org/service/r2/addstatus.jsp"
+PVOUTPUT_GETOUTPUT_URL = "https://pvoutput.org/service/r2/getoutput.jsp"
 PVOUTPUT_STATE_FILE = Path(__file__).resolve().parents[1] / "state" / "pvoutput_last.json"
 
 # Keys tried in order; first non-empty value wins.
@@ -227,6 +228,53 @@ def publish_pvoutput_status_from_status(
         return True, f"PVOutput OK: {summary}{suffix}"
 
     return False, "PVOutput upload failed; check logs for details."
+
+
+def fetch_pvoutput_daily_outputs(
+    config: Any,
+    start_date: dt.date,
+    end_date: dt.date,
+) -> dict[str, int]:
+    """Fetch daily PV energy generation (Wh) from PVOutput for a date range.
+
+    Returns a dict mapping ISO date string (YYYY-MM-DD) to energy generated in Wh.
+    Returns empty dict if PVOutput is not enabled, on network error, or non-200 response.
+    """
+    if not getattr(config, "pvoutput_enabled", False):
+        return {}
+    if not config.pvoutput_api_key or not config.pvoutput_system_id:
+        return {}
+    try:
+        response = requests.get(
+            PVOUTPUT_GETOUTPUT_URL,
+            params={
+                "df": start_date.strftime("%Y%m%d"),
+                "dt": end_date.strftime("%Y%m%d"),
+            },
+            headers={
+                "X-Pvoutput-Apikey": config.pvoutput_api_key,
+                "X-Pvoutput-SystemId": str(config.pvoutput_system_id),
+            },
+            timeout=15,
+        )
+    except requests.RequestException as exc:
+        logging.warning("PVOutput getoutput failed: %s", exc)
+        return {}
+    if response.status_code != 200:
+        logging.warning("PVOutput getoutput returned HTTP %s: %s", response.status_code, response.text[:200])
+        return {}
+    result: dict[str, int] = {}
+    for line in response.text.strip().splitlines():
+        parts = line.split(",")
+        if len(parts) < 2:
+            continue
+        try:
+            date_str = dt.datetime.strptime(parts[0].strip(), "%Y%m%d").date().isoformat()
+            energy_wh = int(parts[1].strip())
+            result[date_str] = energy_wh
+        except (ValueError, IndexError):
+            continue
+    return result
 
 
 def command_pvoutput_upload(config: Any) -> int:
