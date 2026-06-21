@@ -161,10 +161,14 @@ def connect(config: Any):
         cached = read_session_cache()
         if cached and isinstance(cached.get("cookies"), dict):
             age = session_cache_age_minutes(cached)
-            if age is not None and age < ttl:
+            # Reuse the session regardless of age; the server will reject stale cookies
+            # with an HTTP error that load_context catches, clears the cache for, and
+            # retries. The 23h ceiling is a safety net in case the server never explicitly
+            # rejects an expired session.
+            if age is not None and age < 23 * 60:
                 api = _build_api(config)
                 api.session.cookies.update(requests.utils.cookiejar_from_dict(cached["cookies"]))
-                logging.info("Reusing cached Growatt session (age %.0f of %.0f min TTL).", age, ttl)
+                logging.info("Reusing cached Growatt session (age %.0f min).", age)
                 return api, cached.get("login_response") or {"success": True}
 
     api = _build_api(config)

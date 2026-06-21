@@ -86,15 +86,18 @@ class SessionReuseTests(unittest.TestCase):
                 for p in patches:
                     p.stop()
 
-    def test_stale_cache_triggers_fresh_login(self):
-        config = make_config(growatt_session_ttl_minutes=30)
+    def test_session_beyond_safety_ceiling_triggers_fresh_login(self):
+        # Sessions older than the 23h safety ceiling are proactively refreshed.
+        # Sessions younger than that are reused and rely on the server to reject
+        # stale cookies (HTTPError → load_context retry path).
+        config = make_config(growatt_session_ttl_minutes=60)
         fake = _FakeServer(SUCCESS)
         with TemporaryDirectory() as tmpdir:
             patches = self._ctx(tmpdir, fake)
             for p in patches:
                 p.start()
             try:
-                old = (state_mod.utc_now() - dt.timedelta(hours=2)).isoformat()
+                old = (state_mod.utc_now() - dt.timedelta(hours=24)).isoformat()
                 state_mod.write_json_state(
                     state_mod.SESSION_CACHE_FILE,
                     {"cookies": {"JSESSIONID": "old"}, "login_response": {"success": True}, "saved_at": old},
