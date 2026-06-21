@@ -271,6 +271,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
         ), patch(
             "growatt_guard.state.TOPUP_STATE_FILE", Path(tmpdir) / "topup_active.json"
         ), patch(
+            "growatt_guard.state.LOGIN_COOLDOWN_FILE", Path(tmpdir) / "growatt_login_cooldown.json"
+        ), patch(
             "growatt_guard.health.DASHBOARD_FILE", Path(tmpdir) / "dashboard.html"
         ), patch("growatt_guard.health.validate_schedule", return_value=schedule), patch(
             "growatt_guard.health.validate_schedule_overrides", return_value={"dates": {}}
