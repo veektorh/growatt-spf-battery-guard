@@ -89,15 +89,59 @@ def require_dependencies() -> None:
         )
 
 
+def parse_lock_hours(value: Any, default: float = 24.0) -> float:
+    try:
+        hours = float(value)
+    except (TypeError, ValueError):
+        return default
+    return hours if hours > 0 else default
+
+
+def login_response_is_locked(login_response: Any) -> bool:
+    """Detect Growatt's account-lock response (msg 507 / 'locked')."""
+    if not isinstance(login_response, dict):
+        return False
+    if str(login_response.get("msg", "")) == "507":
+        return True
+    return "locked" in str(login_response.get("error", "")).lower()
+
+
 def connect(config: Any):
     require_dependencies()
+    from growatt_guard.state import (
+        clear_login_cooldown_state,
+        login_cooldown_until,
+        utc_now,
+        write_login_cooldown_state,
+    )
+
+    # Circuit breaker: if Growatt locked the account, refuse to attempt another
+    # login until the cooldown expires. Growatt's 24h lock is a rolling window,
+    # so every fresh attempt can reset the timer and keep us locked indefinitely.
+    cooldown_until = login_cooldown_until()
+    if cooldown_until is not None:
+        raise api_error(
+            f"Growatt login skipped: account locked until {cooldown_until.isoformat()}. "
+            "Not attempting login to avoid extending the lock."
+        )
+
     api = growattServer.GrowattApi(add_random_user_id=True, agent_identifier=config.username)
     api.server_url = config.server_url
 
     logging.info("Logging into Growatt server %s", config.server_url)
     login_response = api.login(config.username, config.password)
     if not isinstance(login_response, dict) or not login_response.get("success"):
+        if login_response_is_locked(login_response):
+            hours = parse_lock_hours(login_response.get("lockDuration"))
+            # Add a 15-min buffer for clock skew and the rolling-window edge.
+            retry_after = utc_now() + dt.timedelta(hours=hours) + dt.timedelta(minutes=15)
+            write_login_cooldown_state(retry_after, f"Growatt account locked: {login_response}")
+            logging.error(
+                "Growatt account locked for ~%.0fh; backing off all logins until %s.",
+                hours, retry_after.isoformat(),
+            )
         raise api_error(f"Growatt login failed: {login_response}")
+    clear_login_cooldown_state()
     return api, login_response
 
 

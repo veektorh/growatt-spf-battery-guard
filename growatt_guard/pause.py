@@ -9,9 +9,11 @@ from growatt_guard.state import (
     COMMAND_LOCK_FILE,
     COMMAND_LOCK_STALE_SECONDS,
     acquire_command_lock,
+    clear_login_cooldown_state,
     clear_pause_state,
     command_lock_is_stale,
     format_local_time,
+    login_cooldown_until,
     pause_message,
     read_command_lock_state,
     read_pause_state,
@@ -107,4 +109,19 @@ def command_clear_stale_lock(config: Config) -> int:
 
     logging.info("Cleared stale lock for %s (started %s).", locked_command, created_at)
     print(f"Cleared stale lock: `{locked_command}` started {created_at}.")
+    return 0
+
+
+def command_clear_login_cooldown(config: Config) -> int:
+    _ = config
+    until = login_cooldown_until()
+    if until is None:
+        print("No active Growatt login cooldown.")
+        return 0
+    clear_login_cooldown_state()
+    logging.info("Cleared Growatt login cooldown (was active until %s).", until.isoformat())
+    print(
+        f"Cleared Growatt login cooldown (was active until {format_local_time(until)}). "
+        "Next scheduled job will attempt a login again."
+    )
     return 0

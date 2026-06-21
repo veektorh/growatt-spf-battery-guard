@@ -115,6 +115,17 @@ def command_health_check(config: Config, notify: bool = False) -> int:
             )
         )
 
+    cooldown_until = state_module.login_cooldown_until()
+    if cooldown_until is not None:
+        checks.append(
+            HealthCheckItem(
+                "Growatt login cooldown",
+                "WARN",
+                f"account was locked; backing off all logins until {state_module.format_local_time(cooldown_until)}. "
+                "Run clear-login-cooldown to override.",
+            )
+        )
+
     try:
         freshness = dashboard_freshness(DASHBOARD_FILE, config.dashboard_stale_minutes)
     except OSError as exc:

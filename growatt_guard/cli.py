@@ -96,6 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("resume", help="Resume scheduled mode-changing automation.")
     subparsers.add_parser("pause-status", help="Show whether automation is currently paused.")
     subparsers.add_parser("clear-stale-lock", help="Remove a stale mode-command lock file if one exists.")
+    subparsers.add_parser("clear-login-cooldown", help="Clear the Growatt login cooldown set after an account lock (507).")
     preview_parser = subparsers.add_parser(
         "schedule-preview", help="Print upcoming scheduled jobs for the next N days, including overrides."
     )
@@ -244,6 +245,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_pause_status(config)
         if command == "clear-stale-lock":
             return app.command_clear_stale_lock(config)
+        if command == "clear-login-cooldown":
+            return app.command_clear_login_cooldown(config)
         if command == "schedule-preview":
             return app.command_schedule_preview(config, args.days)
         if command == "schedule-override":

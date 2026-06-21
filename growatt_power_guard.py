@@ -108,6 +108,7 @@ from growatt_guard.notifications import (
     truncate_discord_message,
 )
 from growatt_guard.pause import (
+    command_clear_login_cooldown,
     command_clear_stale_lock,
     command_pause,
     command_pause_status,

@@ -204,6 +204,49 @@ def clear_growatt_cloud_failure_state() -> None:
     clear_state_file(GROWATT_CLOUD_FAILURE_FILE)
 
 
+LOGIN_COOLDOWN_FILE = STATE_DIR / "growatt_login_cooldown.json"
+
+
+def read_login_cooldown_state() -> dict[str, Any] | None:
+    return read_json_state(LOGIN_COOLDOWN_FILE, "Growatt login cooldown")
+
+
+def write_login_cooldown_state(retry_after: dt.datetime, reason: str) -> None:
+    write_json_state(
+        LOGIN_COOLDOWN_FILE,
+        {
+            "retry_after": retry_after.isoformat(),
+            "reason": reason,
+            "created_at": utc_now().isoformat(),
+        },
+    )
+
+
+def clear_login_cooldown_state() -> None:
+    clear_state_file(LOGIN_COOLDOWN_FILE)
+
+
+def login_cooldown_until(now: dt.datetime | None = None) -> dt.datetime | None:
+    """Return the time login attempts may resume, or None if no cooldown is active.
+
+    Auto-clears the cooldown file once it has expired so a stale file never
+    blocks logins forever.
+    """
+    state = read_login_cooldown_state()
+    if not state:
+        return None
+    now = now or utc_now()
+    try:
+        retry_after = parse_utc_datetime(str(state["retry_after"]))
+    except (KeyError, ValueError):
+        clear_login_cooldown_state()
+        return None
+    if retry_after <= now:
+        clear_login_cooldown_state()
+        return None
+    return retry_after
+
+
 TOPUP_STATE_FILE = STATE_DIR / "topup_active.json"
 
 
