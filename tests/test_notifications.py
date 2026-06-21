@@ -105,6 +105,26 @@ class NotificationsTests(unittest.TestCase):
         self.assertIn("Command", field_names)
         self.assertIn("Error", field_names)
 
+    def test_login_cooldown_error_is_deduped_not_spammed(self):
+        config = make_config(
+            discord_webhook_url="https://discord.com/api/webhooks/example",
+            cloud_failure_alert_threshold=3,
+        )
+        cooldown_msg = "Growatt login skipped: account locked until 2026-06-22T08:47:33+00:00. Not attempting login."
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.state.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+        ), patch("growatt_guard.notifications.send_discord_embed", return_value=True) as send_mock:
+            notify_failure(config, "observability-refresh", cooldown_msg)
+            notify_failure(config, "observability-refresh", cooldown_msg)
+            self.assertEqual(send_mock.call_count, 0)
+            notify_failure(config, "observability-refresh", cooldown_msg)
+            self.assertEqual(send_mock.call_count, 1)
+            # Subsequent calls are silent — alerted flag set.
+            notify_failure(config, "observability-refresh", cooldown_msg)
+            notify_failure(config, "observability-refresh", cooldown_msg)
+            self.assertEqual(send_mock.call_count, 1)
+
 
 class EmbedBuilderTests(unittest.TestCase):
     def _field_names(self, embed):

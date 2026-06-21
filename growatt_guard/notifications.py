@@ -174,6 +174,7 @@ def embed_summary(title: str, text: str) -> dict:
 
 GROWATT_CLOUD_FAILURE_PATTERNS = (
     "growatt login failed",
+    "growatt login skipped",
     "login succeeded but no user id",
     "no growatt plants found",
     "no devices found",
