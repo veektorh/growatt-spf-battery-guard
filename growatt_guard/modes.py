@@ -737,7 +737,11 @@ def command_auto_topup_check(config: Config) -> int:
         print(f"Battery sufficient to reach sunrise (SOC={soc:.0f}%, {hrs:.1f}h remaining).")
         return 0
 
-    topup_min = min(round(topup_min_f), config.discord_topup_max_minutes)
+    topup_min = round(topup_min_f)
+    if config.auto_topup_min_minutes > 0 and topup_min < config.auto_topup_min_minutes:
+        logging.info("Topup floor applied: calculated %d min < min %g min; using %g min.", topup_min, config.auto_topup_min_minutes, config.auto_topup_min_minutes)
+        topup_min = round(config.auto_topup_min_minutes)
+    topup_min = min(topup_min, config.discord_topup_max_minutes)
     reason = f"Auto-topup: {topup_min}min needed for {hrs:.1f}h until sunrise"
     paused_until = utc_now() + dt.timedelta(minutes=topup_min)
 
