@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import logging
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +42,20 @@ def read_json_state(path: Path, description: str) -> dict[str, Any] | None:
 
 def write_json_state(path: Path, state: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+    payload = json.dumps(state, indent=2, sort_keys=True)
+    # Atomic write: a crash mid-write must never leave a half-written state
+    # file (these control inverter/pause behaviour for scheduled jobs).
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(payload)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def clear_state_file(path: Path) -> None:

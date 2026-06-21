@@ -3,6 +3,8 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -126,10 +128,23 @@ def prune_audit_rows(cutoff: dt.datetime) -> tuple[int, int]:
         else:
             removed += 1
     if removed > 0:
-        with MODE_AUDIT_FILE.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(kept)
+        # Atomic rewrite: never truncate the audit log in place, or a failed
+        # write (disk full, killed process) would destroy all history.
+        fd, tmp = tempfile.mkstemp(
+            dir=MODE_AUDIT_FILE.parent, prefix=MODE_AUDIT_FILE.name, suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(kept)
+            os.replace(tmp, MODE_AUDIT_FILE)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
     return removed, len(kept)
 
 

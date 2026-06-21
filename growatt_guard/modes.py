@@ -780,11 +780,12 @@ def command_auto_topup_check(config: Config) -> int:
 
     append_discharge_rate_reading(load_w)
     history = read_discharge_rate_history()
-    if len(history) >= 2:
-        avg_load_w = sum(r["rate_w"] for r in history) / len(history)
+    rates = [r["rate_w"] for r in history if isinstance(r.get("rate_w"), (int, float))]
+    if len(rates) >= 2:
+        avg_load_w = sum(rates) / len(rates)
         logging.info(
             "Using avg discharge rate %.0f W (%d readings) instead of live %.0f W",
-            avg_load_w, len(history), load_w,
+            avg_load_w, len(rates), load_w,
         )
         load_w = avg_load_w
 
@@ -797,7 +798,9 @@ def command_auto_topup_check(config: Config) -> int:
         print(f"Battery sufficient to reach sunrise (SOC={soc:.0f}%, {hrs:.1f}h remaining).")
         return 0
 
-    topup_min = round(topup_min_f)
+    # Floor at 1 min: topup_min_f can be e.g. 0.3 (passes the >0 check above) yet
+    # round to 0, which would make command_pause raise on a 0-hour pause.
+    topup_min = max(1, round(topup_min_f))
     if config.auto_topup_min_minutes > 0 and topup_min < config.auto_topup_min_minutes:
         logging.info("Topup floor applied: calculated %d min < min %g min; using %g min.", topup_min, config.auto_topup_min_minutes, config.auto_topup_min_minutes)
         topup_min = round(config.auto_topup_min_minutes)
@@ -889,7 +892,6 @@ def command_topup_complete_check(config: Config) -> int:
             return None
 
     start_soc = _f(state.get("start_soc"))
-    start_load_w = _f(state.get("start_load_w"))
     started_at_str = state.get("started_at")
     planned_min = _f(state.get("minutes")) or 0.0
 
@@ -900,10 +902,13 @@ def command_topup_complete_check(config: Config) -> int:
         except ValueError:
             pass
 
-    if end_soc is not None and start_soc is not None and start_load_w is not None and config.battery_capacity_wh > 0:
+    if end_soc is not None and start_soc is not None and config.battery_capacity_wh > 0:
         soc_gain = end_soc - start_soc
         if soc_gain > 0:
-            energy_wh = soc_gain / 100.0 * config.battery_capacity_wh + start_load_w * (actual_min / 60.0)
+            # On Utility mode the load is grid-served, so the battery only
+            # charges — net gain is the SOC delta alone (matches
+            # estimate-charge-rate). Do not add load power here.
+            energy_wh = soc_gain / 100.0 * config.battery_capacity_wh
             implied_rate_w = energy_wh / (actual_min / 60.0)
 
             history = append_charge_rate_reading(implied_rate_w)

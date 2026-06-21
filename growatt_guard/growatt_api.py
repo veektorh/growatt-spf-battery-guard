@@ -604,13 +604,22 @@ def set_mode(api, config: Any, device: DeviceRef, mode: str) -> dict[str, Any]:
 
     url = api.get_url(config.set_mode_path)
     method = config.set_mode_method
-    if method == "post":
-        response = api.session.post(url, params=params)
-    elif method == "get":
-        response = api.session.get(url, params=params)
-    else:
+    if method not in {"post", "get"}:
         raise api_error("GROWATT_SET_MODE_METHOD must be 'post' or 'get'.")
-    result = response.json()
+    try:
+        if method == "post":
+            response = api.session.post(url, params=params, timeout=35)
+        else:
+            response = api.session.get(url, params=params, timeout=35)
+    except Exception as exc:  # noqa: BLE001 - preserve Growatt response text from request hooks
+        body = response_error_text(exc)
+        if body:
+            raise api_error(f"Growatt {mode} mode request failed: {exc}; body={body}") from exc
+        raise api_error(f"Growatt {mode} mode request failed: {exc}") from exc
+    try:
+        result = response.json()
+    except ValueError as exc:
+        raise api_error(f"Growatt returned non-JSON response for {mode} mode: {response.text}") from exc
     ensure_growatt_success(result, f"{mode} mode command")
     logging.info("Growatt %s mode response: %s", mode, result)
     return result
