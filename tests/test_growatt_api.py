@@ -1044,8 +1044,8 @@ class SolarSkipTopupTests(unittest.TestCase):
         return rc, buf.getvalue(), written
 
     def test_topup_skipped_when_solar_forecast_above_threshold(self):
-        cfg = self._base_cfg(auto_topup_solar_skip_kwh_m2=4.0)
-        rc, out, written = self._run(cfg, self._make_status(), tomorrow_kwh=5.2)
+        cfg = self._base_cfg(auto_topup_solar_skip_kwh_m2=4.0, auto_topup_target_soc=50.0)
+        rc, out, written = self._run(cfg, self._make_status(soc=55.0, discharge_w=1000.0), tomorrow_kwh=5.2)
         self.assertEqual(rc, 0)
         self.assertIn("skipping", out)
         self.assertIn("5.2 kWh/m²", out)
@@ -1055,6 +1055,12 @@ class SolarSkipTopupTests(unittest.TestCase):
         cfg = self._base_cfg(auto_topup_solar_skip_kwh_m2=4.0)
         rc, out, written = self._run(cfg, self._make_status(), tomorrow_kwh=2.8)
         self.assertIn("minutes", written)
+
+    def test_topup_proceeds_when_sunny_but_survival_margin_needs_topup(self):
+        cfg = self._base_cfg(auto_topup_solar_skip_kwh_m2=4.0)
+        rc, out, written = self._run(cfg, self._make_status(soc=35.0, discharge_w=1800.0), tomorrow_kwh=5.2)
+        self.assertIn("minutes", written)
+        self.assertIn("Auto-topup started", out)
 
     def test_topup_proceeds_when_feature_disabled(self):
         cfg = self._base_cfg(auto_topup_solar_skip_kwh_m2=0.0)
@@ -1067,8 +1073,8 @@ class SolarSkipTopupTests(unittest.TestCase):
         self.assertIn("minutes", written)
 
     def test_topup_skipped_exactly_at_threshold(self):
-        cfg = self._base_cfg(auto_topup_solar_skip_kwh_m2=4.0)
-        rc, out, written = self._run(cfg, self._make_status(), tomorrow_kwh=4.0)
+        cfg = self._base_cfg(auto_topup_solar_skip_kwh_m2=4.0, auto_topup_target_soc=50.0)
+        rc, out, written = self._run(cfg, self._make_status(soc=55.0, discharge_w=1000.0), tomorrow_kwh=4.0)
         self.assertNotIn("minutes", written)
         self.assertIn("skipping", out)
 

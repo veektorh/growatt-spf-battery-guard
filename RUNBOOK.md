@@ -13,7 +13,7 @@
 21:00 daily       post Discord daily summary
 */30 always       alert once if battery SOC drops below 30%
 */20 22-23,0-2   start night auto-topup only if needed
-*/20 22-23,0-6   complete an expired auto-topup and return to SBU
+*/10 22-23,0-6   complete an expired auto-topup and return to SBU
 21:10 Sundays     post weekly performance summary
 00:10 daily       rotate old generated logs/probes
 ```
@@ -140,7 +140,7 @@ Expected jobs:
 0 21 * * *
 */30 * * * *
 */20 22-23,0-2 * * *
-*/20 22-23,0-6 * * *
+*/10 22-23,0-6 * * *
 10 21 * * 0
 10 0 * * *
 ```
@@ -215,6 +215,9 @@ BATTERY_CHARGE_TARGET_SOC=0
 # Auto-topup: charge at night when battery won't last until sunrise (requires weather)
 AUTO_TOPUP_ENABLED=false
 AUTO_TOPUP_MIN_HOURS_TO_SUNRISE=4    # skip topup if sunrise is less than N hours away (0 = disabled)
+AUTO_TOPUP_TARGET_SOC=0              # optional reserve SOC at sunrise
+AUTO_TOPUP_SOLAR_SKIP_KWH_M2=0       # sunny forecast skip threshold (0 = disabled)
+AUTO_TOPUP_SOLAR_SKIP_MIN_MARGIN_MINUTES=60
 
 # Low runtime alert: Discord alert when estimated runtime drops below this (0 = disabled)
 RUNTIME_ALERT_MINUTES=0

@@ -16,7 +16,12 @@ from unittest.mock import patch
 
 from helpers import make_config
 from growatt_guard.modes import command_topup_complete_check
-from growatt_guard.state import write_json_state, read_json_state
+from growatt_guard.state import (
+    read_json_state,
+    topup_skip_notification_due,
+    write_json_state,
+    write_topup_skip_notification_state,
+)
 
 
 class AtomicStateWriteTests(unittest.TestCase):
@@ -36,6 +41,18 @@ class AtomicStateWriteTests(unittest.TestCase):
             write_json_state(target, {"v": 1})
             write_json_state(target, {"v": 2})
             self.assertEqual(read_json_state(target, "test"), {"v": 2})
+
+
+class TopupSkipNotificationThrottleTests(unittest.TestCase):
+    def test_repeated_same_key_is_throttled(self):
+        from growatt_guard import state as state_mod
+
+        with TemporaryDirectory() as tmpdir:
+            with patch.object(state_mod, "TOPUP_SKIP_NOTIFICATION_FILE", Path(tmpdir) / "skip.json"):
+                self.assertTrue(topup_skip_notification_due("sunny"))
+                write_topup_skip_notification_state("sunny", {"reason": "forecast"})
+                self.assertFalse(topup_skip_notification_due("sunny", cooldown_minutes=180))
+                self.assertTrue(topup_skip_notification_due("different", cooldown_minutes=180))
 
 
 class PruneAuditRowsTests(unittest.TestCase):

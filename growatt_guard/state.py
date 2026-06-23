@@ -283,6 +283,7 @@ def session_cache_age_minutes(state: dict[str, Any], now: dt.datetime | None = N
 
 
 TOPUP_STATE_FILE = STATE_DIR / "topup_active.json"
+TOPUP_SKIP_NOTIFICATION_FILE = STATE_DIR / "topup_skip_notification.json"
 
 
 def read_topup_state() -> dict[str, Any] | None:
@@ -311,6 +312,38 @@ def write_topup_state(
 
 def clear_topup_state() -> None:
     clear_state_file(TOPUP_STATE_FILE)
+
+
+def read_topup_skip_notification_state() -> dict[str, Any] | None:
+    return read_json_state(TOPUP_SKIP_NOTIFICATION_FILE, "topup skip notification")
+
+
+def topup_skip_notification_due(
+    key: str,
+    cooldown_minutes: float = 180.0,
+    now: dt.datetime | None = None,
+) -> bool:
+    state = read_topup_skip_notification_state()
+    if not state:
+        return True
+    if state.get("key") != key:
+        return True
+    try:
+        last_notified_at = parse_utc_datetime(str(state["last_notified_at"]))
+    except (KeyError, ValueError):
+        return True
+    now = now or utc_now()
+    return (now - last_notified_at).total_seconds() >= cooldown_minutes * 60
+
+
+def write_topup_skip_notification_state(key: str, detail: dict[str, Any] | None = None) -> None:
+    state: dict[str, Any] = {
+        "key": key,
+        "last_notified_at": utc_now().isoformat(),
+    }
+    if detail:
+        state["detail"] = detail
+    write_json_state(TOPUP_SKIP_NOTIFICATION_FILE, state)
 
 
 def topup_is_active(now: dt.datetime | None = None) -> bool:

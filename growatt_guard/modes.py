@@ -67,10 +67,12 @@ from growatt_guard.state import (
     read_pause_state,
     read_runtime_alert_state,
     read_topup_state,
+    topup_skip_notification_due,
     topup_is_active,
     utc_now,
     write_battery_alert_state,
     write_runtime_alert_state,
+    write_topup_skip_notification_state,
     write_topup_state,
 )
 from growatt_guard.weather import apply_load_adjustment, choose_preserve_threshold, hours_until_next_sunrise
@@ -789,13 +791,28 @@ def command_auto_topup_check(config: Config) -> int:
         )
         load_w = avg_load_w
 
+    survival_topup_min_f = estimate_topup_for_sunrise(
+        soc, load_w, config.battery_capacity_wh, config.battery_bms_cutoff_soc,
+        config.battery_charge_rate_w, hrs,
+    )
+    margin_minutes = max(0.0, config.auto_topup_solar_skip_min_margin_minutes)
+    margin_topup_min_f = estimate_topup_for_sunrise(
+        soc, load_w, config.battery_capacity_wh, config.battery_bms_cutoff_soc,
+        config.battery_charge_rate_w, hrs + margin_minutes / 60.0,
+    ) if margin_minutes > 0 else survival_topup_min_f
     effective_target_soc = max(config.battery_bms_cutoff_soc, config.auto_topup_target_soc)
-    topup_min_f = estimate_topup_for_sunrise(
+    target_topup_min_f = estimate_topup_for_sunrise(
         soc, load_w, config.battery_capacity_wh, effective_target_soc,
         config.battery_charge_rate_w, hrs,
     )
+    topup_candidates = [
+        value for value in (target_topup_min_f, margin_topup_min_f)
+        if value is not None
+    ]
+    topup_min_f = max(topup_candidates) if topup_candidates else None
     if topup_min_f is None or topup_min_f <= 0:
-        print(f"Battery sufficient to reach sunrise (SOC={soc:.0f}%, {hrs:.1f}h remaining).")
+        margin_text = f" plus {margin_minutes:.0f}min margin" if margin_minutes > 0 else ""
+        print(f"Battery sufficient to reach sunrise{margin_text} (SOC={soc:.0f}%, {hrs:.1f}h remaining).")
         return 0
 
     # Floor at 1 min: topup_min_f can be e.g. 0.3 (passes the >0 check above) yet
@@ -810,6 +827,17 @@ def command_auto_topup_check(config: Config) -> int:
         from growatt_guard.weather import get_tomorrow_solar_kwh_m2
         tomorrow_kwh = get_tomorrow_solar_kwh_m2(config)
         if tomorrow_kwh is not None and tomorrow_kwh >= config.auto_topup_solar_skip_kwh_m2:
+            survival_safe = survival_topup_min_f is not None and survival_topup_min_f <= 0
+            margin_safe = margin_topup_min_f is not None and margin_topup_min_f <= 0
+            if not (survival_safe and margin_safe):
+                logging.info(
+                    "Sunny forecast %.1f kWh/m2 ignored: survival_topup=%s, margin_topup=%s.",
+                    tomorrow_kwh,
+                    "unknown" if survival_topup_min_f is None else f"{survival_topup_min_f:.0f}min",
+                    "unknown" if margin_topup_min_f is None else f"{margin_topup_min_f:.0f}min",
+                )
+                tomorrow_kwh = None
+        if tomorrow_kwh is not None and tomorrow_kwh >= config.auto_topup_solar_skip_kwh_m2:
             msg = (
                 f"Solar forecast {tomorrow_kwh:.1f} kWh/m² ≥ {config.auto_topup_solar_skip_kwh_m2:g} kWh/m²"
                 f" — skipping {topup_min}min topup (sunny tomorrow)."
@@ -822,10 +850,32 @@ def command_auto_topup_check(config: Config) -> int:
                 note=f"solar {tomorrow_kwh:.1f} kWh/m², threshold {config.auto_topup_solar_skip_kwh_m2:g}",
             )
             if config.discord_notify_success and not config.dry_run:
-                send_discord_embed(config, embed_topup_skipped_sunny(soc, topup_min, tomorrow_kwh, config.auto_topup_solar_skip_kwh_m2))
+                notify_key = "sunny-topup-skip"
+                if topup_skip_notification_due(notify_key):
+                    if send_discord_embed(
+                        config,
+                        embed_topup_skipped_sunny(
+                            soc,
+                            topup_min,
+                            tomorrow_kwh,
+                            config.auto_topup_solar_skip_kwh_m2,
+                        ),
+                    ):
+                        write_topup_skip_notification_state(
+                            notify_key,
+                            {
+                                "soc": soc,
+                                "topup_min": topup_min,
+                                "forecast_kwh_m2": tomorrow_kwh,
+                                "threshold_kwh_m2": config.auto_topup_solar_skip_kwh_m2,
+                                "margin_minutes": margin_minutes,
+                            },
+                        )
             return 0
 
     reason = f"Auto-topup: {topup_min}min needed for {hrs:.1f}h until sunrise"
+    if margin_minutes > 0:
+        reason += f" (+{margin_minutes:.0f}min margin)"
     if effective_target_soc > config.battery_bms_cutoff_soc:
         reason += f" (target {effective_target_soc:g}% SOC at sunrise)"
     paused_until = utc_now() + dt.timedelta(minutes=topup_min)

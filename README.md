@@ -167,17 +167,22 @@ Enable auto-topup to automatically charge from Utility at night when the battery
 ```text
 AUTO_TOPUP_ENABLED=true
 AUTO_TOPUP_MIN_HOURS_TO_SUNRISE=4
+AUTO_TOPUP_TARGET_SOC=0
+AUTO_TOPUP_SOLAR_SKIP_KWH_M2=0
+AUTO_TOPUP_SOLAR_SKIP_MIN_MARGIN_MINUTES=60
 ```
 
 Requires `BATTERY_CAPACITY_WH`, `BATTERY_CHARGE_RATE_W`, `WEATHER_LAT`, and `WEATHER_LON`.
 
 `AUTO_TOPUP_MIN_HOURS_TO_SUNRISE` prevents late-night fires: if sunrise is less than 4 hours away, `auto-topup-check` exits immediately. With a 06:30 sunrise that means no new topups after ~02:30. Set to `0` to disable the cutoff.
 
-Add these two cron jobs (e.g. every 15 min from 22:00–05:00):
+`AUTO_TOPUP_TARGET_SOC` is an optional reserve target for sunrise. `AUTO_TOPUP_SOLAR_SKIP_KWH_M2` may skip only optional reserve topups on sunny forecasts; it will not skip topups needed to reach sunrise plus `AUTO_TOPUP_SOLAR_SKIP_MIN_MARGIN_MINUTES`.
+
+The bundled schedule uses 20-minute start checks and 10-minute completion checks:
 
 ```text
-*/15 22-23,0-4 * * *  auto-topup-check   # starts a topup if needed, exits immediately
-*/15 22-23,0-4 * * *  topup-complete-check  # resumes automation once the topup window expires
+*/20 22-23,0-2 * * *  auto-topup-check      # starts a topup if needed, exits immediately
+*/10 22-23,0-6 * * *  topup-complete-check  # resumes automation once the topup window expires
 ```
 
 `auto-topup-check` is non-blocking: it evaluates whether a topup is needed, starts one if so (pausing automation, switching to Utility, writing state), and exits in seconds. `topup-complete-check` detects when the window has elapsed, resumes automation, and calls `return-sbu`.
