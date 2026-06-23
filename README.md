@@ -550,6 +550,10 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py weekly-summary
 ```
 
+The weekly summary includes a threshold tuning block with the observed SOC range,
+near-cutoff count, auto-topup start SOC, and a conservative recommendation on
+whether to hold or trial a slightly lower `LOW_BATTERY_SOC`.
+
 Generate the dashboard once:
 
 ```bash

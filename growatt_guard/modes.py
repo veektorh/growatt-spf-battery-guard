@@ -517,6 +517,8 @@ def command_weekly_summary(config: Config) -> int:
         solar_this_week=solar_this or None,
         solar_last_week=solar_last or None,
         charge_rate_w=config.battery_charge_rate_w,
+        low_battery_soc=config.low_battery_soc,
+        battery_bms_cutoff_soc=config.battery_bms_cutoff_soc,
     )
     if config.discord_webhook_url:
         send_discord_embed(config, embed_summary("Weekly Summary", summary))

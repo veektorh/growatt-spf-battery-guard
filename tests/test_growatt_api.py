@@ -1135,6 +1135,67 @@ class TopupStatsWeeklySummaryTests(unittest.TestCase):
                 result = build_weekly_summary(now=now)
         self.assertIn("Auto-topups: 0", result)
 
+    def test_threshold_tuning_warns_when_soc_near_cutoff(self):
+        import datetime as dt
+        from growatt_guard.audit import build_weekly_summary
+        now = dt.datetime(2026, 6, 21, 21, 0)
+        rows = [
+            {
+                "timestamp": "2026-06-20T01:00:00",
+                "command": "auto-topup-check",
+                "soc": "29",
+                "action": "auto-topup-started",
+                "note": "20min, 5.0h to sunrise",
+            },
+            {
+                "timestamp": "2026-06-20T06:30:00",
+                "command": "preserve-battery",
+                "soc": "35",
+                "threshold": "50",
+                "action": "switch-to-utility",
+            },
+        ]
+        with TemporaryDirectory() as tmpdir:
+            audit_path = Path(tmpdir) / "mode_decisions.csv"
+            self._write_audit(audit_path, rows)
+            with patch("growatt_guard.audit.MODE_AUDIT_FILE", audit_path):
+                result = build_weekly_summary(
+                    now=now,
+                    low_battery_soc=50.0,
+                    battery_bms_cutoff_soc=25.0,
+                )
+
+        self.assertIn("Threshold tuning:", result)
+        self.assertIn("Near-cutoff readings (<= 30%): 1", result)
+        self.assertIn("Do not lower yet", result)
+
+    def test_threshold_tuning_allows_small_lower_trial_when_week_is_comfortable(self):
+        import datetime as dt
+        from growatt_guard.audit import build_weekly_summary
+        now = dt.datetime(2026, 6, 21, 21, 0)
+        rows = [
+            {
+                "timestamp": f"2026-06-{15 + (i // 2):02d}T{6 + (i % 2):02d}:30:00",
+                "command": "preserve-battery",
+                "soc": "56",
+                "threshold": "50",
+                "action": "no-change",
+            }
+            for i in range(12)
+        ]
+        with TemporaryDirectory() as tmpdir:
+            audit_path = Path(tmpdir) / "mode_decisions.csv"
+            self._write_audit(audit_path, rows)
+            with patch("growatt_guard.audit.MODE_AUDIT_FILE", audit_path):
+                result = build_weekly_summary(
+                    now=now,
+                    low_battery_soc=50.0,
+                    battery_bms_cutoff_soc=25.0,
+                )
+
+        self.assertIn("Observed SOC range: 56% to 56%", result)
+        self.assertIn("Could trial lowering LOW_BATTERY_SOC by 2-3%", result)
+
 
 class DailyTomorrowForecastTests(unittest.TestCase):
     """Tests for tomorrow's solar forecast line in build_daily_summary."""

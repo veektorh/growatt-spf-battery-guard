@@ -50,6 +50,9 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py run-scheduled morning-preserve --dry-plan
 ```
 
+`weekly-summary` includes threshold tuning guidance based on the last 7 days of
+audit rows, including lowest SOC, near-cutoff readings, and auto-topup behavior.
+
 ## Pause Automation
 
 Pause mode prevents scheduled mode changes while still allowing read-only checks, summaries, alerts, and dashboard generation:

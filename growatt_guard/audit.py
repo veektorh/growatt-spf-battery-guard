@@ -4,6 +4,7 @@ import csv
 import datetime as dt
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -192,6 +193,16 @@ def average(values: list[float]) -> float | None:
     return sum(values) / len(values) if values else None
 
 
+def parse_topup_minutes(row: dict[str, str]) -> int | None:
+    match = re.search(r"(\d+(?:\.\d+)?)\s*min", row.get("note", ""))
+    if match is None:
+        return None
+    try:
+        return round(float(match.group(1)))
+    except ValueError:
+        return None
+
+
 def build_chart_data(now: dt.datetime | None = None, days: int = 7) -> dict[str, Any]:
     now = now or dt.datetime.now()
     since = now - dt.timedelta(days=days)
@@ -225,6 +236,8 @@ def build_weekly_summary(
     solar_this_week: dict[str, int] | None = None,
     solar_last_week: dict[str, int] | None = None,
     charge_rate_w: float = 0.0,
+    low_battery_soc: float | None = None,
+    battery_bms_cutoff_soc: float = 25.0,
 ) -> str:
     now = now or dt.datetime.now()
     since = now - dt.timedelta(days=7)
@@ -241,12 +254,19 @@ def build_weekly_summary(
 
     topup_total_min = 0
     for row in topup_rows:
-        try:
-            topup_total_min += int(row.get("note", "").split("min")[0])
-        except (ValueError, IndexError):
-            pass
+        minutes = parse_topup_minutes(row)
+        if minutes is not None:
+            topup_total_min += minutes
 
     avg_soc = average(preserve_socs)
+    tuning_lines = _weekly_tuning_lines(
+        rows=rows,
+        preserve_socs=preserve_socs,
+        topup_rows=topup_rows,
+        topup_total_min=topup_total_min,
+        low_battery_soc=low_battery_soc,
+        battery_bms_cutoff_soc=battery_bms_cutoff_soc,
+    )
     lines = [
         f"Growatt weekly performance - {since.strftime('%Y-%m-%d')} to {now.strftime('%Y-%m-%d')}",
         f"Audit rows: {len(rows)}",
@@ -271,6 +291,10 @@ def build_weekly_summary(
         lines.append(f"Lowest preserve-check SOC: {min(preserve_socs):g}%")
     else:
         lines.append("Average preserve-check SOC: not enough data")
+    if tuning_lines:
+        lines.append("")
+        lines.append("Threshold tuning:")
+        lines.extend(f"  - {line}" for line in tuning_lines)
     if last_row:
         lines.append(
             "Last action: "
@@ -315,6 +339,66 @@ def build_weekly_summary(
             lines.append(f"  - {tip}")
 
     return "\n".join(lines)
+
+
+def _weekly_tuning_lines(
+    *,
+    rows: list[dict[str, str]],
+    preserve_socs: list[float],
+    topup_rows: list[dict[str, str]],
+    topup_total_min: int,
+    low_battery_soc: float | None,
+    battery_bms_cutoff_soc: float,
+) -> list[str]:
+    socs = [soc for row in rows if (soc := parse_audit_float(row, "soc")) is not None]
+    if not socs:
+        return ["Need more SOC data before recommending a threshold change."]
+
+    lowest_soc = min(socs)
+    highest_soc = max(socs)
+    topup_start_socs = [soc for row in topup_rows if (soc := parse_audit_float(row, "soc")) is not None]
+    near_cutoff_limit = battery_bms_cutoff_soc + 5
+    near_cutoff_count = len([soc for soc in socs if soc <= near_cutoff_limit])
+    configured_threshold = low_battery_soc
+    if configured_threshold is None:
+        thresholds = [value for row in rows if (value := parse_audit_float(row, "threshold")) is not None]
+        configured_threshold = max(thresholds) if thresholds else None
+
+    lines = [
+        f"Observed SOC range: {lowest_soc:g}% to {highest_soc:g}%",
+    ]
+    if battery_bms_cutoff_soc > 0:
+        lines.append(f"Lowest margin above BMS cutoff: {lowest_soc - battery_bms_cutoff_soc:+g}%")
+        lines.append(f"Near-cutoff readings (<= {near_cutoff_limit:g}%): {near_cutoff_count}")
+    if topup_start_socs:
+        avg_topup_soc = average(topup_start_socs)
+        if avg_topup_soc is not None:
+            lines.append(f"Avg auto-topup start SOC: {avg_topup_soc:g}%")
+
+    hint = "Hold current threshold until another few nights of data confirm the pattern."
+    if near_cutoff_count > 0:
+        hint = "Do not lower yet; at least one reading was close to BMS cutoff."
+    elif topup_rows and topup_total_min >= 180:
+        hint = "Do not lower yet; grid topup time is still high this week."
+    elif len(topup_rows) >= 4:
+        hint = "Hold current threshold; frequent topups mean the battery is already being used hard overnight."
+    elif configured_threshold is not None and preserve_socs:
+        lowest_preserve = min(preserve_socs)
+        comfortable_week = (
+            len(rows) >= 12
+            and not topup_rows
+            and lowest_soc >= battery_bms_cutoff_soc + 12
+            and lowest_preserve >= configured_threshold + 3
+        )
+        if comfortable_week:
+            hint = "Could trial lowering LOW_BATTERY_SOC by 2-3% in similar weather."
+        elif lowest_soc >= battery_bms_cutoff_soc + 7 and len(topup_rows) <= 2:
+            hint = "Current threshold looks balanced; a tiny 1-2% lower trial is reasonable if you want less grid use."
+        else:
+            hint = "Current threshold looks balanced for the observed load and weather."
+
+    lines.append(f"Tuning hint: {hint}")
+    return lines
 
 
 def _weekly_recommendations(
