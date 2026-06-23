@@ -18,7 +18,7 @@ from growatt_power_guard import (
     read_dashboard_stale_alert_state,
 )
 from growatt_guard.audit import build_chart_data
-from growatt_guard.dashboard import _today_job_rows, _upcoming_override_rows
+from growatt_guard.dashboard import build_dashboard_html, _today_job_rows, _upcoming_override_rows
 
 
 class DashboardTests(unittest.TestCase):
@@ -51,6 +51,50 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Cloud Streak", html)
         self.assertIn("50%", html)
         self.assertIn("SBU priority", html)
+
+    def test_dashboard_topup_estimate_matches_auto_topup_floor(self):
+        status = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {
+                    "bmsSoc": 66,
+                    "pDischarge": 2402,
+                    "pCharge": 0,
+                },
+            }
+        }
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+
+        with patch(
+            "growatt_guard.dashboard.read_discharge_rate_history",
+            return_value=[{"rate_w": 1507}, {"rate_w": 1507}],
+        ), patch("growatt_guard.dashboard.read_pause_state", return_value=None), patch(
+            "growatt_guard.dashboard.read_battery_alert_state", return_value=None
+        ), patch(
+            "growatt_guard.dashboard.read_growatt_cloud_failure_state", return_value={}
+        ), patch(
+            "growatt_guard.dashboard.read_mode_audit_rows", return_value=[]
+        ), patch(
+            "growatt_guard.dashboard.read_pvoutput_state", return_value=None
+        ), patch(
+            "growatt_guard.dashboard.build_chart_data",
+            return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
+        ):
+            html = build_dashboard_html(
+                status,
+                schedule,
+                {"dates": {}},
+                ThresholdDecision(50, "fixed threshold"),
+                battery_capacity_wh=30000,
+                battery_bms_cutoff_soc=25,
+                hours_to_sunrise=8,
+                battery_charge_rate_w=2400,
+                auto_topup_solar_skip_min_margin_minutes=60,
+                auto_topup_min_minutes=20,
+            )
+
+        self.assertIn("Topup to Sunrise", html)
+        self.assertIn("20min", html)
 
     def test_dashboard_refresh_once_writes_and_exits(self):
         config = make_config()

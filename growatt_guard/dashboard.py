@@ -31,6 +31,7 @@ from growatt_guard.state import (
     pause_message,
     read_battery_alert_state,
     read_dashboard_stale_alert_state,
+    read_discharge_rate_history,
     read_growatt_cloud_failure_state,
     read_pause_state,
     utc_now,
@@ -251,6 +252,10 @@ def build_dashboard_html(
     battery_bms_cutoff_soc: float = 25.0,
     hours_to_sunrise: float | None = None,
     battery_charge_rate_w: float = 0.0,
+    auto_topup_target_soc: float = 0.0,
+    auto_topup_solar_skip_min_margin_minutes: float = 60.0,
+    auto_topup_min_minutes: float = 0.0,
+    discord_topup_max_minutes: float = 0.0,
 ) -> str:
     now = dt.datetime.now()
     generated_at = now.astimezone()
@@ -293,12 +298,37 @@ def build_dashboard_html(
     if hours_to_sunrise is not None and hours_to_sunrise > 0:
         sunrise_display = format_duration_minutes(hours_to_sunrise * 60)
         if battery_charge_rate_w > 0 and soc_result and _pdv is not None and _pdv > 0:
-            _ts = estimate_topup_for_sunrise(
-                soc_result[0], _pdv, battery_capacity_wh, battery_bms_cutoff_soc,
-                battery_charge_rate_w, hours_to_sunrise,
-            )
+            topup_load_w = _pdv
+            history = read_discharge_rate_history()
+            rates = [r["rate_w"] for r in history if isinstance(r.get("rate_w"), (int, float))]
+            if len(rates) >= 2:
+                topup_load_w = sum(rates) / len(rates)
+
+            margin_minutes = max(0.0, auto_topup_solar_skip_min_margin_minutes)
+            margin_hours = hours_to_sunrise + margin_minutes / 60.0
+            effective_target_soc = max(battery_bms_cutoff_soc, auto_topup_target_soc)
+            estimates = [
+                estimate_topup_for_sunrise(
+                    soc_result[0], topup_load_w, battery_capacity_wh, battery_bms_cutoff_soc,
+                    battery_charge_rate_w, margin_hours,
+                ),
+                estimate_topup_for_sunrise(
+                    soc_result[0], topup_load_w, battery_capacity_wh, effective_target_soc,
+                    battery_charge_rate_w, hours_to_sunrise,
+                ),
+            ]
+            valid_estimates = [value for value in estimates if value is not None]
+            _ts = max(valid_estimates) if valid_estimates else None
             if _ts is not None:
-                topup_sunrise_display = "not needed" if _ts == 0 else format_duration_minutes(_ts)
+                if _ts <= 0:
+                    topup_sunrise_display = "not needed"
+                else:
+                    topup_min = max(1, round(_ts))
+                    if auto_topup_min_minutes > 0 and topup_min < auto_topup_min_minutes:
+                        topup_min = round(auto_topup_min_minutes)
+                    if discord_topup_max_minutes > 0 and topup_min > discord_topup_max_minutes:
+                        topup_min = round(discord_topup_max_minutes)
+                    topup_sunrise_display = format_duration_minutes(topup_min)
     pause_state = read_pause_state()
     pause = pause_message(pause_state) if pause_state else "active"
     alert_state = read_battery_alert_state()
@@ -571,6 +601,10 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
         status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes,
         config.battery_capacity_wh, config.battery_bms_cutoff_soc,
         hrs_to_sunrise, config.battery_charge_rate_w,
+        config.auto_topup_target_soc,
+        config.auto_topup_solar_skip_min_margin_minutes,
+        config.auto_topup_min_minutes,
+        config.discord_topup_max_minutes,
     )
     # Atomic write: temp file in same directory then rename to avoid serving
     # a partially written file when the browser auto-refreshes mid-write.
