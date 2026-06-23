@@ -250,6 +250,10 @@ cd ~/automation
 ./update_server.sh
 ```
 
+If an auto-topup is active, the update script refuses to continue until the
+topup completes or is cancelled, to avoid leaving the inverter on Utility during
+deploys.
+
 If Discord reports `Schedule job ... has unsupported command` after an update, the VPS is running a stale Python process or mismatched files. Run:
 
 ```bash

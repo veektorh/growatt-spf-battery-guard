@@ -14,6 +14,21 @@ fi
 
 cd "${ROOT}"
 
+if [[ -f "${ROOT}/state/topup_active.json" ]]; then
+  if [[ ! -x "${PYTHON_BIN}" ]]; then
+    echo "Active topup state found, but ${PYTHON_BIN} is unavailable."
+    echo "Refusing update to avoid leaving the inverter on Utility. Retry after the topup completes."
+    exit 1
+  fi
+
+  echo "Active topup state found; attempting to complete it before updating..."
+  "${PYTHON_BIN}" growatt_power_guard.py topup-complete-check || true
+  if [[ -f "${ROOT}/state/topup_active.json" ]]; then
+    echo "Topup is still active. Retry the update after it completes, or cancel the topup first."
+    exit 1
+  fi
+fi
+
 echo "Pulling latest code..."
 git pull --ff-only
 

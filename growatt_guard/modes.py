@@ -9,6 +9,7 @@ from growatt_guard.audit import (
     build_daily_summary,
     build_monthly_summary,
     build_weekly_summary,
+    find_overdue_unclosed_topup,
 )
 from growatt_guard.cli import dispatch_command, parse_command_tokens
 from growatt_guard.config import Config
@@ -913,6 +914,16 @@ def command_auto_topup_check(config: Config) -> int:
 def command_topup_complete_check(config: Config) -> int:
     state = read_topup_state()
     if state is None:
+        overdue = find_overdue_unclosed_topup()
+        if overdue is not None:
+            row = overdue["row"]
+            message = (
+                "No active topup state, but the audit log shows an overdue "
+                f"auto-topup from {row.get('timestamp', 'unknown time')} with no later SBU return; repairing."
+            )
+            logging.warning(message)
+            print(message)
+            return command_return_sbu(config)
         print("No active topup.")
         return 0
     if topup_is_active():

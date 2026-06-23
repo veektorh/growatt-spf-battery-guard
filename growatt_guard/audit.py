@@ -203,6 +203,68 @@ def parse_topup_minutes(row: dict[str, str]) -> int | None:
         return None
 
 
+def _compare_timestamp(ts: dt.datetime, now: dt.datetime) -> dt.datetime:
+    if ts.tzinfo is not None and now.tzinfo is None:
+        return ts.astimezone().replace(tzinfo=None)
+    if ts.tzinfo is None and now.tzinfo is not None:
+        return ts.replace(tzinfo=now.tzinfo)
+    return ts
+
+
+def find_overdue_unclosed_topup(
+    now: dt.datetime | None = None,
+    *,
+    grace_minutes: float = 15.0,
+    lookback_hours: float = 12.0,
+) -> dict[str, Any] | None:
+    """Return the latest overdue auto-topup audit row that has no later SBU return."""
+    now = now or dt.datetime.now()
+    cutoff = now - dt.timedelta(hours=lookback_hours)
+    candidate: tuple[dict[str, str], dt.datetime] | None = None
+
+    for row in read_mode_audit_rows():
+        ts = parse_audit_timestamp(row.get("timestamp", ""))
+        if ts is None:
+            continue
+        comparable_ts = _compare_timestamp(ts, now)
+        if comparable_ts < cutoff:
+            continue
+
+        action = row.get("action", "")
+        command = row.get("command", "")
+        if action == "auto-topup-started":
+            candidate = (row, comparable_ts)
+            continue
+
+        closes_topup = (
+            candidate is not None
+            and comparable_ts >= candidate[1]
+            and (
+                (command == "return-sbu" and action in {"switch-to-sbu", "no-change"})
+                or action == "repair-sbu"
+            )
+        )
+        if closes_topup:
+            candidate = None
+
+    if candidate is None:
+        return None
+
+    row, started_at = candidate
+    minutes = parse_topup_minutes(row)
+    if minutes is None:
+        return None
+    due_at = started_at + dt.timedelta(minutes=minutes + grace_minutes)
+    if now < due_at:
+        return None
+    return {
+        "row": row,
+        "started_at": started_at,
+        "due_at": due_at,
+        "minutes": minutes,
+    }
+
+
 def build_chart_data(now: dt.datetime | None = None, days: int = 7) -> dict[str, Any]:
     now = now or dt.datetime.now()
     since = now - dt.timedelta(days=days)

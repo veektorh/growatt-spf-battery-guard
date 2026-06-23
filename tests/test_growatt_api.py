@@ -833,6 +833,17 @@ class ChargeRateHistoryTests(unittest.TestCase):
 class TopupCompleteFeedbackTests(unittest.TestCase):
     """Tests for command_topup_complete_check charge-rate feedback."""
 
+    def _write_audit(self, path: Path, rows: list[dict]) -> None:
+        import csv as csv_mod
+        from growatt_guard.audit import MODE_AUDIT_FIELDS
+        with path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv_mod.DictWriter(f, fieldnames=MODE_AUDIT_FIELDS)
+            writer.writeheader()
+            for row in rows:
+                full = {k: "" for k in MODE_AUDIT_FIELDS}
+                full.update(row)
+                writer.writerow(full)
+
     def _make_status(self, soc: float) -> dict:
         return {
             "datalogSn": "SN1",
@@ -983,6 +994,75 @@ class TopupCompleteFeedbackTests(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         self.assertIn("remaining", buf.getvalue())
+
+    def test_topup_complete_repairs_overdue_unclosed_topup_when_state_is_missing(self):
+        from growatt_guard.modes import command_topup_complete_check
+
+        import datetime as dt
+        started = (dt.datetime.now() - dt.timedelta(minutes=60)).isoformat(timespec="seconds")
+        rows = [
+            {
+                "timestamp": started,
+                "command": "auto-topup-check",
+                "soc": "66",
+                "previous_mode": "SBU priority [0]",
+                "action": "auto-topup-started",
+                "result": "ok",
+                "note": "20min, 8.2h to sunrise",
+            }
+        ]
+
+        with TemporaryDirectory() as tmpdir:
+            audit_path = Path(tmpdir) / "mode_decisions.csv"
+            self._write_audit(audit_path, rows)
+            buf = StringIO()
+            with (
+                patch("growatt_guard.audit.MODE_AUDIT_FILE", audit_path),
+                patch("growatt_guard.modes.read_topup_state", return_value=None),
+                patch("growatt_guard.modes.command_return_sbu", return_value=0) as return_mock,
+                redirect_stdout(buf),
+            ):
+                rc = command_topup_complete_check(make_config())
+
+        self.assertEqual(rc, 0)
+        return_mock.assert_called_once()
+        self.assertIn("overdue auto-topup", buf.getvalue())
+
+    def test_topup_complete_does_not_repair_when_a_later_sbu_return_exists(self):
+        from growatt_guard.modes import command_topup_complete_check
+
+        import datetime as dt
+        started = (dt.datetime.now() - dt.timedelta(minutes=60)).isoformat(timespec="seconds")
+        returned = (dt.datetime.now() - dt.timedelta(minutes=30)).isoformat(timespec="seconds")
+        rows = [
+            {
+                "timestamp": started,
+                "command": "auto-topup-check",
+                "action": "auto-topup-started",
+                "note": "20min, 8.2h to sunrise",
+            },
+            {
+                "timestamp": returned,
+                "command": "return-sbu",
+                "action": "switch-to-sbu",
+            },
+        ]
+
+        with TemporaryDirectory() as tmpdir:
+            audit_path = Path(tmpdir) / "mode_decisions.csv"
+            self._write_audit(audit_path, rows)
+            buf = StringIO()
+            with (
+                patch("growatt_guard.audit.MODE_AUDIT_FILE", audit_path),
+                patch("growatt_guard.modes.read_topup_state", return_value=None),
+                patch("growatt_guard.modes.command_return_sbu", return_value=0) as return_mock,
+                redirect_stdout(buf),
+            ):
+                rc = command_topup_complete_check(make_config())
+
+        self.assertEqual(rc, 0)
+        return_mock.assert_not_called()
+        self.assertIn("No active topup", buf.getvalue())
 
 
 class SolarSkipTopupTests(unittest.TestCase):
