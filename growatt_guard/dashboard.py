@@ -973,20 +973,99 @@ def build_dashboard_html(
     tonight_badge_class = _status_badge_class(str(tonight_risk.get("level", "unknown")))
     tonight_title = str(tonight_risk.get("title", "Unknown"))
     tonight_detail = str(tonight_risk.get("detail", ""))
+    tonight_projection = tonight_risk.get("projected_sunrise_soc")
+    tonight_projection_display = _fmt_pct(tonight_projection if isinstance(tonight_projection, (int, float)) else None)
+    tonight_topup = tonight_risk.get("topup_minutes")
+    tonight_topup_display = (
+        format_duration_minutes(float(tonight_topup))
+        if isinstance(tonight_topup, (int, float)) and tonight_topup > 0
+        else ("not needed" if tonight_topup == 0 else "--")
+    )
+
+    soc_value = soc_result[0] if soc_result else None
+    soc_gauge_value = max(0.0, min(100.0, float(soc_value))) if isinstance(soc_value, (int, float)) else 0.0
+    if isinstance(soc_value, (int, float)) and soc_value < battery_bms_cutoff_soc + 5:
+        soc_health = "Critical"
+        soc_health_class = "badge-fail"
+        soc_color = "#ef4444"
+    elif isinstance(soc_value, (int, float)) and soc_value < 50:
+        soc_health = "Watch"
+        soc_health_class = "badge-warn"
+        soc_color = "#f59e0b"
+    elif isinstance(soc_value, (int, float)):
+        soc_health = "Ready"
+        soc_health_class = "badge-ok"
+        soc_color = "#22c55e"
+    else:
+        soc_health = "Unknown"
+        soc_health_class = "badge-warn"
+        soc_color = "#94a3b8"
+
+    def _ratio(numerator: Any, denominator: Any) -> float | None:
+        if not isinstance(numerator, (int, float)) or not isinstance(denominator, (int, float)):
+            return None
+        if denominator <= 0:
+            return None
+        return max(0.0, numerator / denominator * 100.0)
+
+    pv_cover = _ratio(live_metrics.get("pv_w"), live_metrics.get("load_w"))
+    pv_cover_display = f"{pv_cover:.0f}%" if pv_cover is not None else "--"
+    solar_share = _ratio(live_metrics.get("pv_today_kwh"), live_metrics.get("load_today_kwh"))
+    solar_share_display = f"{solar_share:.0f}%" if solar_share is not None else "--"
+    solar_share_width = min(100.0, solar_share) if solar_share is not None else 0.0
+    grid_reliance = _ratio(live_metrics.get("grid_today_kwh"), live_metrics.get("load_today_kwh"))
+    grid_reliance_display = f"{grid_reliance:.0f}%" if grid_reliance is not None else "--"
+    grid_reliance_width = min(100.0, grid_reliance) if grid_reliance is not None else 0.0
+    battery_charge_share = _ratio(live_metrics.get("charge_today_kwh"), live_metrics.get("load_today_kwh"))
+    battery_charge_share_display = f"{battery_charge_share:.0f}%" if battery_charge_share is not None else "--"
+    battery_charge_share_width = min(100.0, battery_charge_share) if battery_charge_share is not None else 0.0
+    mode_badge_class = "badge-warn" if "utility" in mode.lower() else ("badge-ok" if "sbu" in mode.lower() else "badge-warn")
+    grid_now_detail = "estimated from load + charge - PV" if grid_source == "estimated" else (grid_detail or "reported by Growatt")
 
     energy_cards = "\n".join(
         [
-            f'<div class="card accent-pv"><div class="label">PV Today</div><div class="value">{esc(pv_today_display)}</div><div class="muted small">solar generation</div></div>',
-            f'<div class="card"><div class="label">Grid Import Today</div><div class="value">{esc(grid_today_display)}</div><div class="muted small">cumulative energy</div></div>',
-            f'<div class="card accent-load"><div class="label">Load Today</div><div class="value">{esc(load_today_display)}</div><div class="muted small">consumption</div></div>',
-            f'<div class="card accent-battery"><div class="label">Battery Charge Today</div><div class="value">{esc(charge_today_display)}</div><div class="muted small">stored energy</div></div>',
-            f'<div class="card accent-battery"><div class="label">Battery Discharge Today</div><div class="value">{esc(discharge_today_display)}</div><div class="muted small">battery output</div></div>',
+            (
+                f'<article class="card metric-card accent-pv"><div class="metric-head">'
+                f'<div><div class="label">PV Today</div><div class="value">{esc(pv_today_display)}</div></div>'
+                f'<div class="metric-icon solar-icon">PV</div></div>'
+                f'<div class="metric-meter"><span style="width:{solar_share_width:.0f}%"></span></div>'
+                f'<div class="muted small">Solar share of load: {esc(solar_share_display)}</div></article>'
+            ),
+            (
+                f'<article class="card metric-card accent-grid"><div class="metric-head">'
+                f'<div><div class="label">Grid Import Today</div><div class="value">{esc(grid_today_display)}</div></div>'
+                f'<div class="metric-icon grid-icon">AC</div></div>'
+                f'<div class="metric-meter grid-meter"><span style="width:{grid_reliance_width:.0f}%"></span></div>'
+                f'<div class="muted small">Grid reliance vs load: {esc(grid_reliance_display)}</div></article>'
+            ),
+            (
+                f'<article class="card metric-card accent-load"><div class="metric-head">'
+                f'<div><div class="label">Load Today</div><div class="value">{esc(load_today_display)}</div></div>'
+                f'<div class="metric-icon load-icon">LD</div></div>'
+                f'<div class="metric-meter load-meter"><span style="width:100%"></span></div>'
+                f'<div class="muted small">Total house consumption</div></article>'
+            ),
+            (
+                f'<article class="card metric-card accent-battery"><div class="metric-head">'
+                f'<div><div class="label">Battery Charge Today</div><div class="value">{esc(charge_today_display)}</div></div>'
+                f'<div class="metric-icon battery-icon">BT</div></div>'
+                f'<div class="metric-meter battery-meter"><span style="width:{battery_charge_share_width:.0f}%"></span></div>'
+                f'<div class="muted small">Stored energy vs load: {esc(battery_charge_share_display)}</div></article>'
+            ),
+            (
+                f'<article class="card metric-card accent-battery"><div class="metric-head">'
+                f'<div><div class="label">Battery Discharge Today</div><div class="value">{esc(discharge_today_display)}</div></div>'
+                f'<div class="metric-icon battery-icon">DC</div></div>'
+                f'<div class="metric-meter battery-meter"><span style="width:100%"></span></div>'
+                f'<div class="muted small">Battery output to inverter</div></article>'
+            ),
         ]
     )
     if pv_total_text:
         energy_cards += (
-            f'\n<div class="card"><div class="label">PV Lifetime</div>'
-            f'<div class="value">{esc(pv_total_text)}</div><div class="muted small">from Growatt</div></div>'
+            f'\n<article class="card metric-card"><div class="metric-head"><div><div class="label">PV Lifetime</div>'
+            f'<div class="value">{esc(pv_total_text)}</div></div><div class="metric-icon solar-icon">ALL</div></div>'
+            f'<div class="muted small">Total production reported by Growatt</div></article>'
         )
 
     next_rows = "\n".join(
@@ -1025,6 +1104,22 @@ def build_dashboard_html(
         "</tr>"
         for d, n, a in upcoming_overrides
     )
+    metric_sources = extract_dashboard_metric_sources(status)
+    source_rows_html = "\n".join(
+        "<tr>"
+        f"<td>{esc(label)}</td>"
+        f"<td><code>{esc(path or 'not reported')}</code></td>"
+        "</tr>"
+        for label, path in [
+            ("SOC", live_metrics.get("soc_source", "")),
+            ("Mode", live_metrics.get("mode_source", "")),
+            ("PV power", metric_sources.get("pv_w", "")),
+            ("PV today", metric_sources.get("pv_today_kwh", "")),
+            ("Load today", metric_sources.get("load_today_kwh", "")),
+            ("Grid today", metric_sources.get("grid_today_kwh", "")),
+            ("Battery charge today", metric_sources.get("charge_today_kwh", "")),
+        ]
+    )
 
     skip_all_banner = (
         '<div class="banner-warn">⚠ All automation jobs are skipped today'
@@ -1035,7 +1130,7 @@ def build_dashboard_html(
     )
     upcoming_override_section = (
         f"<h2>Upcoming Overrides</h2>"
-        f'<table><thead><tr><th>Date</th><th>Note</th><th>Actions</th></tr></thead><tbody>{upcoming_override_rows_html}</tbody></table>'
+        f'<div class="table-wrap"><table><thead><tr><th>Date</th><th>Note</th><th>Actions</th></tr></thead><tbody>{upcoming_override_rows_html}</tbody></table></div>'
         if upcoming_overrides
         else ""
     )
@@ -1048,90 +1143,413 @@ def build_dashboard_html(
   <meta http-equiv="refresh" content="300">
   <title>Growatt Dashboard</title>
   <style>
-    :root {{ color-scheme: light; font-family: Inter, Segoe UI, Arial, sans-serif; }}
-    body {{ margin: 0; background: #f5f7f8; color: #172026; }}
-    main {{ max-width: 1120px; margin: 0 auto; padding: 24px; }}
-    h1 {{ font-size: 28px; margin: 0 0 4px; }}
-    h2 {{ font-size: 18px; margin: 28px 0 12px; }}
-    .muted {{ color: #64727d; font-size: 14px; }}
-    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 20px; }}
-    .flow-grid {{ display: grid; grid-template-columns: repeat(5, minmax(130px, 1fr)); gap: 12px; margin-top: 20px; align-items: stretch; }}
-    .flow-node {{ background: #fff; border: 1px solid #dce3e8; border-radius: 8px; padding: 14px; min-height: 116px; position: relative; }}
-    .flow-node::after {{ content: ""; position: absolute; top: 50%; right: -10px; width: 8px; height: 8px; border-top: 2px solid #8ea0ad; border-right: 2px solid #8ea0ad; transform: translateY(-50%) rotate(45deg); background: #f5f7f8; }}
-    .flow-node:last-child::after {{ display: none; }}
-    .flow-kicker {{ color: #64727d; font-size: 12px; text-transform: uppercase; letter-spacing: 0; }}
-    .flow-value {{ font-size: 24px; font-weight: 800; margin-top: 10px; line-height: 1.12; overflow-wrap: anywhere; }}
-    .flow-detail {{ color: #64727d; font-size: 13px; margin-top: 8px; }}
-    .chart-grid {{ display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, .9fr); gap: 12px; }}
-    .chart-card canvas {{ width: 100%; height: 220px; display: block; }}
-    .chart-card.compact canvas {{ height: 190px; }}
-    .legend {{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; color: #64727d; font-size: 13px; }}
-    .legend span::before {{ content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; background: var(--c); }}
-    .card {{ background: #fff; border: 1px solid #dce3e8; border-radius: 8px; padding: 14px; }}
-    .accent-pv {{ border-left: 4px solid #25b8c7; }}
-    .accent-grid {{ border-left: 4px solid #f0b429; }}
-    .accent-load {{ border-left: 4px solid #f97373; }}
-    .accent-battery {{ border-left: 4px solid #4ade80; }}
-    .label {{ color: #64727d; font-size: 12px; text-transform: uppercase; letter-spacing: 0; }}
-    .value {{ font-size: 22px; font-weight: 700; margin-top: 8px; line-height: 1.15; overflow-wrap: anywhere; }}
+    :root {{
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      --ink: #172026;
+      --muted: #66737d;
+      --surface: #f4f7f6;
+      --panel: #ffffff;
+      --line: #dce5e9;
+      --deep: #15201f;
+      --deep-2: #24322f;
+      --solar: #f4b83f;
+      --pv: #16b8c5;
+      --battery: #23b26b;
+      --grid: #7c6bf2;
+      --load: #f26f6f;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --shadow: 0 22px 70px rgba(23, 32, 38, 0.12);
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      background: linear-gradient(180deg, #eaf1ee 0, #f6f8f7 420px, #f4f7f6 100%);
+      color: var(--ink);
+    }}
+    main {{ max-width: 1480px; margin: 0 auto; padding: 22px; }}
+    h1 {{ font-size: clamp(28px, 4vw, 48px); line-height: 1; margin: 0; letter-spacing: 0; }}
+    h2 {{ font-size: 18px; margin: 30px 0 12px; letter-spacing: 0; }}
+    code {{ color: #39464f; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }}
+    .muted {{ color: var(--muted); font-size: 14px; }}
     .small {{ font-size: 13px; margin-top: 8px; }}
-    .badge {{ display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 9px; font-size: 14px; font-weight: 800; }}
+    .topbar {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 18px;
+    }}
+    .brand {{ display: flex; align-items: center; gap: 12px; min-width: 0; }}
+    .brand-mark {{
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      background: conic-gradient(from 210deg, var(--solar), var(--pv), var(--battery), var(--solar));
+      box-shadow: 0 10px 28px rgba(22, 184, 197, 0.22);
+      flex: 0 0 auto;
+    }}
+    .brand-title {{ font-weight: 850; font-size: 18px; }}
+    .top-actions {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }}
+    .pill {{
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 7px 11px;
+      border: 1px solid rgba(23, 32, 38, 0.1);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.78);
+      color: #39464f;
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }}
+    .hero-grid {{
+      display: grid;
+      grid-template-columns: minmax(360px, 0.92fr) minmax(520px, 1.35fr);
+      gap: 18px;
+      align-items: stretch;
+    }}
+    .hero-panel, .flow-stage, .card, table, .source-drawer {{
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
+    }}
+    .hero-panel {{
+      padding: 24px;
+      min-height: 420px;
+      background:
+        linear-gradient(135deg, rgba(21, 32, 31, 0.98), rgba(36, 50, 47, 0.96)),
+        var(--deep);
+      color: #f7fbf8;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      overflow: hidden;
+    }}
+    .hero-panel .muted {{ color: rgba(247, 251, 248, 0.72); }}
+    .hero-copy {{ display: grid; gap: 10px; }}
+    .hero-kicker {{ color: #aee9d0; font-size: 12px; font-weight: 850; text-transform: uppercase; letter-spacing: 0; }}
+    .hero-subtitle {{ max-width: 620px; font-size: 15px; color: rgba(247, 251, 248, 0.75); line-height: 1.5; }}
+    .soc-command {{
+      display: grid;
+      grid-template-columns: 210px minmax(0, 1fr);
+      gap: 22px;
+      align-items: center;
+      margin-top: 24px;
+    }}
+    .soc-ring {{
+      --soc: 0;
+      --soc-color: var(--battery);
+      width: min(210px, 52vw);
+      aspect-ratio: 1;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at center, var(--deep) 0 58%, transparent 59%),
+        conic-gradient(var(--soc-color) calc(var(--soc) * 1%), rgba(255, 255, 255, 0.16) 0);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 0 0 10px rgba(255, 255, 255, 0.04), 0 26px 70px rgba(0, 0, 0, 0.24);
+    }}
+    .soc-core {{ text-align: center; }}
+    .soc-core strong {{ display: block; font-size: clamp(40px, 6vw, 64px); line-height: 0.95; letter-spacing: 0; }}
+    .soc-core span {{ color: rgba(247, 251, 248, 0.62); font-size: 12px; text-transform: uppercase; font-weight: 800; }}
+    .mode-stack {{ display: grid; gap: 12px; min-width: 0; }}
+    .mode-line {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }}
+    .mode-value {{ font-size: 24px; line-height: 1.15; font-weight: 850; overflow-wrap: anywhere; }}
+    .quick-stats {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 22px; }}
+    .quick-stat {{
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.07);
+      min-width: 0;
+    }}
+    .quick-stat b {{ display: block; font-size: 19px; line-height: 1.1; overflow-wrap: anywhere; }}
+    .quick-stat span {{ display: block; margin-top: 5px; color: rgba(247, 251, 248, 0.66); font-size: 12px; }}
+    .flow-stage {{ padding: 18px; min-height: 420px; box-shadow: var(--shadow); }}
+    .section-head, .flow-head {{ display: flex; justify-content: space-between; align-items: flex-end; gap: 14px; margin-bottom: 14px; }}
+    .section-head h2, .flow-head h2 {{ margin: 0; }}
+    .flow-map {{
+      display: grid;
+      grid-template-columns: minmax(120px, 1fr) 34px minmax(120px, 1fr) 34px minmax(120px, 1fr);
+      grid-template-rows: auto 38px auto 38px auto;
+      gap: 10px 8px;
+      align-items: center;
+      min-height: 332px;
+    }}
+    .flow-tile {{
+      min-height: 112px;
+      border: 1px solid rgba(23, 32, 38, 0.09);
+      border-radius: 8px;
+      padding: 14px;
+      background: #ffffff;
+      display: grid;
+      align-content: space-between;
+      position: relative;
+      overflow: hidden;
+    }}
+    .flow-tile::before {{ content: ""; position: absolute; inset: 0 0 auto; height: 4px; background: var(--accent); }}
+    .flow-tile.solar {{ --accent: var(--pv); grid-column: 1; grid-row: 1; }}
+    .flow-tile.grid-source {{ --accent: var(--grid); grid-column: 1; grid-row: 5; }}
+    .flow-tile.inverter {{ --accent: var(--solar); grid-column: 3; grid-row: 3; min-height: 130px; }}
+    .flow-tile.battery {{ --accent: var(--battery); grid-column: 5; grid-row: 1; }}
+    .flow-tile.load {{ --accent: var(--load); grid-column: 5; grid-row: 5; }}
+    .flow-label {{ color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0; }}
+    .flow-value {{ font-size: 28px; font-weight: 850; line-height: 1; margin-top: 8px; overflow-wrap: anywhere; }}
+    .flow-detail {{ color: var(--muted); font-size: 13px; margin-top: 8px; }}
+    .connector {{ position: relative; min-height: 4px; background: rgba(23, 32, 38, 0.12); border-radius: 999px; overflow: hidden; }}
+    .connector::after {{
+      content: "";
+      position: absolute;
+      width: 45%;
+      height: 100%;
+      border-radius: inherit;
+      background: currentColor;
+      animation: pulse-flow 2.2s linear infinite;
+    }}
+    .connector.pv {{ color: var(--pv); grid-column: 2; grid-row: 2; transform: rotate(32deg); }}
+    .connector.grid {{ color: var(--grid); grid-column: 2; grid-row: 4; transform: rotate(-32deg); }}
+    .connector.battery {{ color: var(--battery); grid-column: 4; grid-row: 2; transform: rotate(-32deg); }}
+    .connector.load {{ color: var(--load); grid-column: 4; grid-row: 4; transform: rotate(32deg); }}
+    @keyframes pulse-flow {{ from {{ transform: translateX(-110%); }} to {{ transform: translateX(230%); }} }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); gap: 12px; margin-top: 12px; }}
+    .daily-grid {{ grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }}
+    .ops-grid {{ grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }}
+    .card {{ padding: 15px; }}
+    .metric-card {{ min-height: 150px; display: grid; align-content: space-between; gap: 12px; }}
+    .metric-head {{ display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }}
+    .metric-icon {{
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 900;
+      color: #172026;
+      background: #eef5f4;
+      flex: 0 0 auto;
+    }}
+    .solar-icon {{ background: rgba(22, 184, 197, 0.14); color: #0c6870; }}
+    .grid-icon {{ background: rgba(124, 107, 242, 0.13); color: #4c3cba; }}
+    .load-icon {{ background: rgba(242, 111, 111, 0.15); color: #af3434; }}
+    .battery-icon {{ background: rgba(35, 178, 107, 0.14); color: #176b42; }}
+    .metric-meter {{ height: 8px; border-radius: 999px; background: #e7edf0; overflow: hidden; }}
+    .metric-meter span {{ display: block; height: 100%; max-width: 100%; background: var(--pv); border-radius: inherit; }}
+    .grid-meter span {{ background: var(--grid); }}
+    .load-meter span {{ background: var(--load); }}
+    .battery-meter span {{ background: var(--battery); }}
+    .accent-pv {{ border-top: 4px solid var(--pv); }}
+    .accent-grid {{ border-top: 4px solid var(--grid); }}
+    .accent-load {{ border-top: 4px solid var(--load); }}
+    .accent-battery {{ border-top: 4px solid var(--battery); }}
+    .label {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0; font-weight: 800; }}
+    .value {{ font-size: 24px; font-weight: 850; margin-top: 8px; line-height: 1.05; overflow-wrap: anywhere; }}
+    .badge {{
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 13px;
+      font-weight: 850;
+      line-height: 1;
+    }}
     .badge-ok {{ background: #dff6e8; color: #155f34; }}
     .badge-warn {{ background: #fff2cc; color: #775800; }}
     .badge-fail {{ background: #ffe3df; color: #9a3526; }}
-    .banner-warn {{ background: #fff2cc; color: #775800; border-radius: 8px; padding: 10px 16px; margin: 20px 0 0; font-weight: 600; }}
-    table {{ width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #dce3e8; }}
-    th, td {{ padding: 10px; border-bottom: 1px solid #e8eef2; text-align: left; font-size: 14px; }}
-    th {{ background: #eef3f5; color: #34444f; }}
+    .planner-grid {{ display: grid; grid-template-columns: minmax(260px, 0.9fr) repeat(3, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }}
+    .planner-card {{ padding: 18px; background: #fff; border: 1px solid var(--line); border-radius: 8px; }}
+    .planner-card.primary {{ background: #172026; color: #f7fbf8; border-color: #172026; }}
+    .planner-card.primary .muted, .planner-card.primary .label {{ color: rgba(247, 251, 248, 0.68); }}
+    .banner-warn {{ background: #fff2cc; color: #775800; border-radius: 8px; padding: 10px 16px; margin: 16px 0; font-weight: 700; }}
+    .chart-grid {{ display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, .9fr); gap: 12px; }}
+    .chart-card canvas {{ width: 100%; height: 240px; display: block; }}
+    .chart-card.compact canvas {{ height: 200px; }}
+    .legend {{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; color: var(--muted); font-size: 13px; }}
+    .legend span::before {{ content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; background: var(--c); }}
+    .table-wrap {{ overflow-x: auto; border-radius: 8px; border: 1px solid var(--line); background: #fff; }}
+    table {{ width: 100%; border-collapse: collapse; box-shadow: none; border: 0; min-width: 640px; }}
+    th, td {{ padding: 11px 12px; border-bottom: 1px solid #e8eef2; text-align: left; font-size: 14px; vertical-align: top; }}
+    th {{ background: #eef4f3; color: #34444f; font-size: 12px; text-transform: uppercase; letter-spacing: 0; }}
     tr:last-child td {{ border-bottom: 0; }}
-    .status-ok {{ color: #155f34; font-weight: 600; }}
-    .status-skip {{ color: #9a3526; font-weight: 600; }}
-    .status-replace {{ color: #775800; font-weight: 600; }}
-    @media (max-width: 880px) {{
-      main {{ padding: 16px; }}
-      .flow-grid, .chart-grid {{ grid-template-columns: 1fr; }}
-      .flow-node::after {{ display: none; }}
+    .status-ok {{ color: #155f34; font-weight: 800; }}
+    .status-skip {{ color: #9a3526; font-weight: 800; }}
+    .status-replace {{ color: #775800; font-weight: 800; }}
+    .source-drawer {{ margin-top: 12px; padding: 12px 14px; }}
+    .source-drawer summary {{ cursor: pointer; font-weight: 850; color: #34444f; }}
+    @media (max-width: 1040px) {{
+      .hero-grid, .chart-grid, .planner-grid {{ grid-template-columns: 1fr; }}
+      .hero-panel, .flow-stage {{ min-height: auto; }}
+    }}
+    @media (max-width: 720px) {{
+      main {{ padding: 14px; }}
+      .topbar, .section-head, .flow-head {{ align-items: flex-start; flex-direction: column; }}
+      .top-actions {{ justify-content: flex-start; }}
+      .hero-panel {{ padding: 18px; }}
+      .soc-command {{ grid-template-columns: 145px minmax(0, 1fr); gap: 14px; margin-top: 18px; }}
+      .soc-ring {{ width: 145px; }}
+      .mode-stack {{ gap: 9px; }}
+      .mode-value {{ font-size: 20px; }}
+      .quick-stats {{ grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 16px; }}
+      .quick-stat {{ padding: 9px; }}
+      .quick-stat b {{ font-size: 17px; }}
+      .quick-stat span {{ font-size: 11px; }}
+      .flow-map {{ grid-template-columns: 1fr; grid-template-rows: none; min-height: auto; }}
+      .flow-tile.solar, .flow-tile.grid-source, .flow-tile.inverter, .flow-tile.battery, .flow-tile.load {{
+        grid-column: auto;
+        grid-row: auto;
+      }}
+      .connector {{ display: none; }}
+      table {{ min-width: 560px; }}
     }}
   </style>
 </head>
 <body>
   <main>
-    <h1>Growatt Dashboard</h1>
-    <div class="muted">Generated {esc(generated_at.strftime('%Y-%m-%d %H:%M:%S %Z'))}</div>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div>
+          <div class="brand-title">Growatt Dashboard</div>
+          <div class="muted">Generated {esc(generated_at.strftime('%Y-%m-%d %H:%M:%S %Z'))}</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span class="pill">Mode: {esc(mode)}</span>
+        <span class="pill">SOC: {esc(soc)}</span>
+        <span class="pill">Refresh: 5min</span>
+      </div>
+    </header>
     {skip_all_banner}
-    <section class="flow-grid" aria-label="Live energy flow">
-      <div class="flow-node accent-pv">
-        <div class="flow-kicker">Solar Now</div>
-        <div class="flow-value">{esc(pv_power_display)}</div>
-        <div class="flow-detail">live PV output</div>
-      </div>
-      <div class="flow-node">
-        <div class="flow-kicker">Inverter</div>
-        <div class="flow-value">{esc(mode)}</div>
-        <div class="flow-detail">{esc(bat_status)}</div>
-      </div>
-      <div class="flow-node accent-load">
-        <div class="flow-kicker">Load Now</div>
-        <div class="flow-value">{esc(load_power_display)}</div>
-        <div class="flow-detail">{esc(load_pct)} load</div>
-      </div>
-      <div class="flow-node accent-battery">
-        <div class="flow-kicker">Battery</div>
-        <div class="flow-value">{esc(soc)}</div>
-        <div class="flow-detail">{esc(battery_flow_display)} {esc(battery_flow_dir)}</div>
-      </div>
-      <div class="flow-node accent-grid">
-        <div class="flow-kicker">Grid Import Now</div>
-        <div class="flow-value">{esc(grid_power_display)}</div>
-        <div class="flow-detail">{esc(grid_detail)}</div>
-      </div>
+
+    <section class="hero-grid">
+      <section class="hero-panel" aria-label="Battery command status">
+        <div class="hero-copy">
+          <div class="hero-kicker">Solar command center</div>
+          <h1>Growatt Dashboard</h1>
+          <div class="hero-subtitle">Battery, grid, solar, schedule, topup planning, and automation health in one control surface.</div>
+        </div>
+        <div class="soc-command">
+          <div class="soc-ring" style="--soc:{soc_gauge_value:.0f}; --soc-color:{soc_color};">
+            <div class="soc-core">
+              <strong>{esc(soc)}</strong>
+              <span>Battery SOC</span>
+            </div>
+          </div>
+          <div class="mode-stack">
+            <div class="mode-line">
+              <span class="badge {esc(soc_health_class)}">{esc(soc_health)}</span>
+              <span class="badge {esc(mode_badge_class)}">{esc(mode)}</span>
+            </div>
+            <div class="mode-value">{esc(bat_status)}</div>
+            <div class="muted">Battery flow is {esc(battery_flow_display)} {esc(battery_flow_dir)}. Load is {esc(load_power_display)} at {esc(load_pct)} inverter load.</div>
+          </div>
+        </div>
+        <div class="quick-stats">
+          <div class="quick-stat"><b>{esc(pv_cover_display)}</b><span>solar covering live load</span></div>
+          <div class="quick-stat"><b>{esc(grid_reliance_display)}</b><span>grid reliance today</span></div>
+          <div class="quick-stat"><b>{esc(tonight_projection_display)}</b><span>projected sunrise SOC</span></div>
+        </div>
+      </section>
+
+      <section class="flow-stage" aria-label="Live energy flow">
+        <div class="flow-head">
+          <div>
+            <h2>Live energy flow</h2>
+            <div class="muted">Solar, grid, inverter, battery, and load right now.</div>
+          </div>
+          <span class="badge {esc(tonight_badge_class)}">Tonight: {esc(tonight_title)}</span>
+        </div>
+        <div class="flow-map">
+          <div class="flow-tile solar">
+            <div>
+              <div class="flow-label">Solar Now</div>
+              <div class="flow-value">{esc(pv_power_display)}</div>
+            </div>
+            <div class="flow-detail">{esc(pv_today_display)} generated today</div>
+          </div>
+          <div class="connector pv" aria-hidden="true"></div>
+          <div class="flow-tile inverter">
+            <div>
+              <div class="flow-label">Inverter</div>
+              <div class="flow-value">{esc(mode)}</div>
+            </div>
+            <div class="flow-detail">{esc(bat_status)}</div>
+          </div>
+          <div class="connector battery" aria-hidden="true"></div>
+          <div class="flow-tile battery">
+            <div>
+              <div class="flow-label">Battery</div>
+              <div class="flow-value">{esc(soc)}</div>
+            </div>
+            <div class="flow-detail">{esc(battery_flow_display)} {esc(battery_flow_dir)}</div>
+          </div>
+          <div class="flow-tile grid-source">
+            <div>
+              <div class="flow-label">Grid Import Now</div>
+              <div class="flow-value">{esc(grid_power_display)}</div>
+            </div>
+            <div class="flow-detail">{esc(grid_now_detail)}</div>
+          </div>
+          <div class="connector grid" aria-hidden="true"></div>
+          <div class="connector load" aria-hidden="true"></div>
+          <div class="flow-tile load">
+            <div>
+              <div class="flow-label">Load Now</div>
+              <div class="flow-value">{esc(load_power_display)}</div>
+            </div>
+            <div class="flow-detail">{esc(load_today_display)} consumed today</div>
+          </div>
+        </div>
+      </section>
     </section>
-    <h2>Daily Energy</h2>
-    <section class="grid">
+    <div class="section-head">
+      <div>
+        <h2>Daily Energy</h2>
+        <div class="muted">Production, consumption, grid import, and battery movement for today.</div>
+      </div>
+    </div>
+    <section class="grid daily-grid">
       {energy_cards}
     </section>
-    <h2>System & Automation</h2>
-    <section class="grid">
+
+    <h2>Tonight Planner</h2>
+    <section class="planner-grid">
+      <div class="planner-card primary">
+        <div class="label">Tonight Risk</div>
+        <div class="value"><span class="badge {esc(tonight_badge_class)}">{esc(tonight_title)}</span></div>
+        <div class="muted small">{esc(tonight_detail)}</div>
+      </div>
+      <div class="planner-card">
+        <div class="label">Sunrise In</div>
+        <div class="value">{esc(sunrise_display)}</div>
+        <div class="muted small">includes configured location</div>
+      </div>
+      <div class="planner-card">
+        <div class="label">Topup to Sunrise</div>
+        <div class="value">{esc(topup_sunrise_display)}</div>
+        <div class="muted small">recommended grid charge window</div>
+      </div>
+      <div class="planner-card">
+        <div class="label">Preserve Threshold</div>
+        <div class="value">{esc(f'{threshold_decision.threshold:g}%')}</div>
+        <div class="muted small">{esc(threshold_decision.reason)}</div>
+      </div>
+    </section>
+
+    <div class="section-head">
+      <div>
+        <h2>System & Automation</h2>
+        <div class="muted">Operational state, dashboard freshness, alerts, and integration health.</div>
+      </div>
+    </div>
+    <section class="grid ops-grid">
       <div class="card">
         <div class="label">Dashboard Health</div>
         <div class="value">
@@ -1140,50 +1558,44 @@ def build_dashboard_html(
         <div class="muted small" data-refresh-age>Generated just now; stale after {esc(stale_minutes_text)} minutes.</div>
       </div>
       <div class="card">
-        <div class="label">Tonight Risk</div>
-        <div class="value"><span class="badge {esc(tonight_badge_class)}">{esc(tonight_title)}</span></div>
-        <div class="muted small">{esc(tonight_detail)}</div>
+        <div class="label">Projected Sunrise SOC</div>
+        <div class="value">{esc(tonight_projection_display)}</div>
+        <div class="muted small">Topup estimate: {esc(tonight_topup_display)}</div>
       </div>
       <div class="card"><div class="label">Battery Voltage</div><div class="value">{esc(vbat)}</div></div>
       <div class="card"><div class="label">Est. Runtime</div><div class="value">{esc(est_runtime)}</div></div>
-      <div class="card"><div class="label">Sunrise In</div><div class="value">{esc(sunrise_display)}</div></div>
-      <div class="card"><div class="label">Topup to Sunrise</div><div class="value">{esc(topup_sunrise_display)}</div></div>
-      <div class="card"><div class="label">Preserve Threshold</div><div class="value">{esc(f'{threshold_decision.threshold:g}%')}</div></div>
       <div class="card"><div class="label">Pause State</div><div class="value">{esc(pause)}</div></div>
       <div class="card"><div class="label">Emergency Alert</div><div class="value">{esc(alert)}</div></div>
       <div class="card"><div class="label">Cloud Streak</div><div class="value">{esc(cloud_streak)}</div></div>
       <div class="card"><div class="label">Today Override</div><div class="value">{esc(override_note)}</div></div>
       {pvoutput_card}
     </section>
-    <h2>Today&#8217;s Schedule — {esc(now.strftime('%A, %Y-%m-%d'))}</h2>
-    <table><thead><tr><th>Time</th><th>Job ID</th><th>Command</th><th>Status</th></tr></thead><tbody>{today_job_rows_html}</tbody></table>
-    {upcoming_override_section}
-    <h2>7-Day History</h2>
-    <div class="card" style="padding:16px 20px;">
-      <canvas id="history-chart" style="width:100%;height:160px;display:block;"></canvas>
-    </div>
-    <script id="chart-data" type="application/json">{chart_data_json}</script>
+    <details class="source-drawer">
+      <summary>Metric source paths</summary>
+      <div class="table-wrap" style="margin-top:12px;"><table><thead><tr><th>Metric</th><th>Source</th></tr></thead><tbody>{source_rows_html}</tbody></table></div>
+    </details>
+
     <h2>Energy Trends</h2>
     <section class="chart-grid">
       <div class="card chart-card">
         <div class="label">Power Today</div>
         <canvas id="power-trend-chart"></canvas>
         <div class="legend">
-          <span style="--c:#25b8c7">PV</span>
-          <span style="--c:#f97373">Load</span>
-          <span style="--c:#6366f1">Grid</span>
+          <span style="--c:#16b8c5">PV</span>
+          <span style="--c:#f26f6f">Load</span>
+          <span style="--c:#7c6bf2">Grid</span>
         </div>
       </div>
       <div class="card chart-card compact">
         <div class="label">Battery SOC</div>
         <canvas id="soc-trend-chart"></canvas>
-        <div class="legend"><span style="--c:#4ade80">SOC</span></div>
+        <div class="legend"><span style="--c:#23b26b">SOC</span></div>
       </div>
       <div class="card chart-card compact">
         <div class="label">7-Day Battery Energy</div>
         <canvas id="battery-energy-chart"></canvas>
         <div class="legend">
-          <span style="--c:#4ade80">Charge</span>
+          <span style="--c:#23b26b">Charge</span>
           <span style="--c:#a58b27">Discharge</span>
         </div>
       </div>
@@ -1191,17 +1603,30 @@ def build_dashboard_html(
         <div class="label">7-Day Supply Mix</div>
         <canvas id="supply-energy-chart"></canvas>
         <div class="legend">
-          <span style="--c:#25b8c7">PV</span>
-          <span style="--c:#f0b429">Grid</span>
-          <span style="--c:#f97373">Load</span>
+          <span style="--c:#16b8c5">PV</span>
+          <span style="--c:#7c6bf2">Grid</span>
+          <span style="--c:#f26f6f">Load</span>
+        </div>
+      </div>
+      <div class="card chart-card compact">
+        <div class="label">7-Day History</div>
+        <canvas id="history-chart"></canvas>
+        <div class="legend">
+          <span style="--c:#3b82f6">Preserve</span>
+          <span style="--c:#f59e0b">Utility</span>
+          <span style="--c:#ef4444">Watchdog</span>
         </div>
       </div>
     </section>
+    <script id="chart-data" type="application/json">{chart_data_json}</script>
     <script id="metric-history-data" type="application/json">{metric_history_json}</script>
+    <h2>Today&#8217;s Schedule - {esc(now.strftime('%A, %Y-%m-%d'))}</h2>
+    <div class="table-wrap"><table><thead><tr><th>Time</th><th>Job ID</th><th>Command</th><th>Status</th></tr></thead><tbody>{today_job_rows_html}</tbody></table></div>
+    {upcoming_override_section}
     <h2>Next Scheduled Jobs</h2>
-    <table><thead><tr><th>Time</th><th>ID</th><th>Name</th><th>Command</th></tr></thead><tbody>{next_rows}</tbody></table>
+    <div class="table-wrap"><table><thead><tr><th>Time</th><th>ID</th><th>Name</th><th>Command</th></tr></thead><tbody>{next_rows}</tbody></table></div>
     <h2>Recent Mode Decisions</h2>
-    <table><thead><tr><th>Time</th><th>Command</th><th>Action</th><th>SOC</th><th>Previous Mode</th></tr></thead><tbody>{action_rows}</tbody></table>
+    <div class="table-wrap"><table><thead><tr><th>Time</th><th>Command</th><th>Action</th><th>SOC</th><th>Previous Mode</th></tr></thead><tbody>{action_rows}</tbody></table></div>
     <h2>Automation Notes</h2>
     <div class="card">
       <div>Threshold: {esc(threshold_decision.reason)}</div>
