@@ -1494,6 +1494,38 @@ def build_dashboard_html(
         "</tr>"
         for row in last_actions
     )
+    emergency_badge_class = "badge-fail" if alert == "active" else "badge-ok"
+    cloud_badge_class = "badge-warn" if cloud_streak else "badge-ok"
+    system_status_rows = "\n".join(
+        (
+            '<div class="status-row">'
+            f'<span>{esc(label)}</span>'
+            f'<span class="badge {esc(badge_class)}">{esc(value)}</span>'
+            "</div>"
+        )
+        for label, value, badge_class in [
+            ("Inverter Mode", mode, mode_badge_class),
+            ("Dashboard", "OK", "badge-ok"),
+            ("Data Quality", quality_display, quality_badge_class),
+            ("Energy Balance", balance_title, balance_badge_class),
+            ("Emergency Alert", alert, emergency_badge_class),
+            ("Cloud Streak", str(cloud_streak), cloud_badge_class),
+        ]
+    )
+    activity_items = "\n".join(
+        (
+            '<li class="activity-item">'
+            '<div>'
+            f'<strong>{esc(row.get("action", "") or row.get("command", "") or "mode decision")}</strong>'
+            f'<span>{esc(row.get("timestamp", ""))}</span>'
+            '</div>'
+            f'<span class="summary-meta">SOC {esc(row.get("soc", "") or "--")}</span>'
+            '</li>'
+        )
+        for row in last_actions[:5]
+    )
+    if not activity_items:
+        activity_items = '<li class="activity-item muted">No recent mode decisions recorded.</li>'
     today_job_rows_html = "\n".join(
         "<tr>"
         f"<td>{esc(t)}</td>"
@@ -1742,6 +1774,7 @@ def build_dashboard_html(
     .daily-grid {{ grid-template-columns: repeat(auto-fit, minmax(224px, 1fr)); }}
     .ops-grid {{ grid-template-columns: repeat(auto-fit, minmax(216px, 1fr)); }}
     .insight-grid {{ grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)); }}
+    .status-activity-grid {{ display: grid; grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr); gap: 12px; margin-top: 12px; }}
     .card {{ padding: 16px; }}
     .kpi-card {{ min-height: 132px; display: grid; align-content: space-between; gap: 10px; }}
     .metric-card {{ min-height: 148px; display: grid; align-content: space-between; gap: 12px; }}
@@ -1804,6 +1837,14 @@ def build_dashboard_html(
     .detail-panel .table-wrap {{ border: 0; border-radius: 0; margin-top: 0; }}
     .detail-panel .card {{ border: 0; border-radius: 0; }}
     .summary-meta {{ color: var(--muted); font-size: 12px; font-weight: 560; white-space: nowrap; }}
+    .status-list {{ display: grid; gap: 10px; margin-top: 14px; }}
+    .status-row {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }}
+    .status-row:last-child {{ border-bottom: 0; padding-bottom: 0; }}
+    .activity-list {{ list-style: none; padding: 0; margin: 14px 0 0; display: grid; gap: 10px; }}
+    .activity-item {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }}
+    .activity-item:last-child {{ border-bottom: 0; padding-bottom: 0; }}
+    .activity-item strong {{ display: block; font-size: 14px; font-weight: 680; }}
+    .activity-item span {{ display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }}
     @media (max-width: 1040px) {{
       .app-shell {{ grid-template-columns: 1fr; }}
       .sidebar {{
@@ -1816,7 +1857,7 @@ def build_dashboard_html(
       .sidebar-nav {{ grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }}
       .sidebar-status {{ margin-top: 18px; }}
       .overview-grid {{ grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }}
-      .hero-grid, .chart-grid, .planner-grid, .flow-map {{ grid-template-columns: 1fr; }}
+      .hero-grid, .chart-grid, .planner-grid, .flow-map, .status-activity-grid {{ grid-template-columns: 1fr; }}
       .hero-panel, .flow-stage {{ min-height: auto; }}
     }}
     @media (max-width: 720px) {{
@@ -2054,6 +2095,22 @@ def build_dashboard_html(
       <div class="card"><div class="label">Cloud Streak</div><div class="value">{esc(cloud_streak)}</div></div>
       <div class="card"><div class="label">Today Override</div><div class="value">{esc(override_note)}</div></div>
       {pvoutput_card}
+    </section>
+    <section class="status-activity-grid" aria-label="System status and recent activity">
+      <article class="card">
+        <div class="label">System Status</div>
+        <div class="muted small">Current operating signals and automation health.</div>
+        <div class="status-list">
+          {system_status_rows}
+        </div>
+      </article>
+      <article class="card">
+        <div class="label">Recent Activity</div>
+        <div class="muted small">Latest mode decisions from the local audit trail.</div>
+        <ul class="activity-list">
+          {activity_items}
+        </ul>
+      </article>
     </section>
     <details class="detail-panel source-drawer">
       <summary><span>Metric source paths</span><span class="summary-meta">debug</span></summary>
