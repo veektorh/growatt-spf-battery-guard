@@ -730,6 +730,49 @@ def build_dashboard_energy_balance(live_metrics: dict[str, Any]) -> dict[str, An
     }
 
 
+def build_dashboard_next_action(
+    schedule: dict[str, Any],
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    now = now or dt.datetime.now()
+    if now.tzinfo is not None:
+        now_naive = now.astimezone().replace(tzinfo=None)
+    else:
+        now_naive = now
+
+    runs = next_scheduled_runs(schedule, now=now_naive, limit=1)
+    if not runs:
+        return {
+            "status": "none",
+            "title": "No upcoming jobs",
+            "detail": "No scheduled jobs found.",
+            "run_at": None,
+            "minutes_until": None,
+            "job_id": "",
+            "name": "",
+            "command": "",
+            "relative": "none",
+        }
+
+    run_at, job = runs[0]
+    minutes_until = max(0, int(round((run_at - now_naive).total_seconds() / 60)))
+    relative = "now" if minutes_until <= 0 else f"in {format_duration_minutes(minutes_until)}"
+    command = " ".join(schedule_job_tokens(job))
+    job_id = str(job.get("id", ""))
+    name = str(job.get("name", "")).strip() or job_id or command
+    return {
+        "status": "scheduled",
+        "title": name,
+        "detail": f"{command} at {run_at.strftime('%Y-%m-%d %H:%M')} ({relative}).",
+        "run_at": run_at.isoformat(timespec="minutes"),
+        "minutes_until": minutes_until,
+        "job_id": job_id,
+        "name": name,
+        "command": command,
+        "relative": relative,
+    }
+
+
 def _status_badge_class(level: str) -> str:
     if level in {"comfortable", "good", "ok"}:
         return "badge-ok"
@@ -766,6 +809,7 @@ def build_dashboard_data_payload(
     sources = extract_dashboard_metric_sources(status)
     data_quality = build_dashboard_data_quality(live_metrics, sources)
     energy_balance = build_dashboard_energy_balance(live_metrics)
+    next_action = build_dashboard_next_action(schedule, now=now)
     risk = build_tonight_risk(
         live_metrics,
         battery_capacity_wh,
@@ -799,6 +843,7 @@ def build_dashboard_data_payload(
         },
         "schedule": {
             "timezone": schedule.get("timezone", ""),
+            "next_action": next_action,
             "today": [
                 {"time": t, "job_id": jid, "command": cmd, "status": st}
                 for t, jid, cmd, st in today_jobs
@@ -1065,6 +1110,7 @@ def build_dashboard_html(
     skipped = ", ".join(today_override.get("skip", [])) if isinstance(today_override.get("skip", []), list) else ""
     last_actions = read_mode_audit_rows(limit=8, newest_first=True)
     next_runs = next_scheduled_runs(schedule, now=now, limit=8)
+    next_action = build_dashboard_next_action(schedule, now=now)
     stale_minutes_text = f"{stale_after_minutes:g}"
 
     today_jobs = _today_job_rows(schedule, today_override, now.date())
@@ -1168,6 +1214,9 @@ def build_dashboard_html(
     balance_badge_class = _status_badge_class(str(energy_balance.get("level", "unknown")))
     balance_title = str(energy_balance.get("title", "Unknown"))
     balance_detail = str(energy_balance.get("detail", "Energy balance could not be calculated."))
+    next_action_relative = str(next_action.get("relative") or "none")
+    next_action_title = str(next_action.get("title") or "No upcoming jobs")
+    next_action_detail = str(next_action.get("detail") or "No scheduled jobs found.")
 
     energy_cards = "\n".join(
         [
@@ -1702,6 +1751,11 @@ def build_dashboard_html(
           <span class="badge badge-ok" data-refresh-badge data-generated-at="{esc(generated_at_iso)}" data-stale-minutes="{esc(stale_minutes_text)}">OK</span>
         </div>
         <div class="muted small" data-refresh-age>Generated just now; stale after {esc(stale_minutes_text)} minutes.</div>
+      </div>
+      <div class="card">
+        <div class="label">Next Automation</div>
+        <div class="value">{esc(next_action_relative)}</div>
+        <div class="muted small">{esc(next_action_title)} - {esc(next_action_detail)}</div>
       </div>
       <div class="card">
         <div class="label">Data Quality</div>

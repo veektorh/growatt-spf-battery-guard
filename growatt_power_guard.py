@@ -32,6 +32,7 @@ from growatt_guard.dashboard import (
     MIN_DASHBOARD_REFRESH_MINUTES,
     build_dashboard_data_payload,
     build_dashboard_energy_balance,
+    build_dashboard_next_action,
     build_tonight_risk,
     command_dashboard,
     command_dashboard_refresh,

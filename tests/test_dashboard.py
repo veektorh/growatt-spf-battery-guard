@@ -25,6 +25,7 @@ from growatt_guard.dashboard import (
     build_dashboard_energy_balance,
     build_dashboard_history_payload,
     build_dashboard_html,
+    build_dashboard_next_action,
     dashboard_asset_for_path,
     extract_dashboard_metrics,
     read_dashboard_metrics_history,
@@ -93,6 +94,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Projected Sunrise SOC", html)
         self.assertIn("Data Quality", html)
         self.assertIn("Energy Balance", html)
+        self.assertIn("Next Automation", html)
         self.assertIn("System & Automation", html)
         self.assertIn("13.7 kWh", html)
         self.assertIn("2.86 MWh", html)
@@ -112,6 +114,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(dashboard_json["sources"]["load_today_kwh"], "storage_energy_overview.useEnergyToday")
         self.assertEqual(dashboard_json["quality"]["data"]["level"], "poor")
         self.assertEqual(dashboard_json["quality"]["energy_balance"]["level"], "unknown")
+        self.assertEqual(dashboard_json["schedule"]["next_action"]["job_id"], "morning-preserve")
         self.assertIn("tonight_risk", dashboard_json["planner"])
 
         self.assertIsNotNone(html_asset)
@@ -122,6 +125,27 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(json_asset[0], 200)
         self.assertEqual(json_asset[1], "application/json; charset=utf-8")
         self.assertEqual(json.loads(json_asset[2])["schema_version"], 1)
+
+    def test_dashboard_next_action_finds_upcoming_job(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {
+                    "id": "morning-preserve",
+                    "name": "Morning Preserve",
+                    "cron": "30 6 * * *",
+                    "command": "preserve-battery",
+                }
+            ],
+        }
+
+        action = build_dashboard_next_action(schedule, now=dt.datetime(2026, 6, 25, 6, 0))
+
+        self.assertEqual(action["status"], "scheduled")
+        self.assertEqual(action["job_id"], "morning-preserve")
+        self.assertEqual(action["minutes_until"], 30)
+        self.assertEqual(action["relative"], "in 30min")
+        self.assertIn("preserve-battery", action["detail"])
 
     def test_dashboard_topup_estimate_matches_auto_topup_floor(self):
         status = {
