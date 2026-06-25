@@ -1,209 +1,223 @@
 # Roadmap And Enhancement Ideas
 
-This is a parking lot for improvements that would make the Growatt guard safer, easier to operate, and more useful over time. Items are grouped by likely value and effort, not strict commitment.
+This is the working backlog for Growatt Guard. The order below favors safety,
+low Growatt API pressure, clear operations, and useful visibility before bigger
+product ideas.
 
-## Completed
+## Current Baseline
 
-- **Module split** — `modes.py`, `health.py`, `pause.py`; `growatt_power_guard.py` is a thin shim.
-- **`run-scheduled --dry-plan`** — shows what would run, override status, pause state, DRY_RUN flag.
-- **`schedule-preview`** — upcoming jobs, override status, skipped/replaced jobs.
-- **`schedule-override` CLI** — `list`, `add-skip`, `add-skip-all`, `add-replace`, `remove` subcommands; validates before writing.
-- **Named outage profiles** — `outage-profile apply skip-all/maintenance/health-only DATE...`; `health-only` replaces mode-changing jobs with health-check automatically.
-- **`clear-stale-lock`** — removes a lock file older than the 45-minute threshold.
-- **Dashboard operations sections** — Today's Schedule (with override status), Upcoming Overrides, skip-all banner.
-- **Dashboard 7-day history chart** — inline canvas chart: preserve checks, utility switches, watchdog repairs per day.
-- **Weather cache** — `state/weather_cache.json` with 15-minute TTL; avoids repeated Open-Meteo calls.
-- **Season profiles** — `SEASON_PROFILES_ENABLED=true`; rainy season (Apr–Oct) uses config thresholds; dry season (Nov–Mar) lowers thresholds to 45/40/35%.
-- **PVOutput export** — `pvoutput-upload` command POSTs live Growatt status to PVOutput.org; standard fields (v1-v6) plus extended battery fields (v7-v9); graceful retry without extended data if account plan doesn't support it.
-- **Shared observability refresh** - `observability-refresh` reads Growatt once, then refreshes the dashboard and uploads PVOutput from the same status payload.
-- **Private Discord control bot** - allowlisted slash commands for status, health, refresh, pause/resume, force Utility, SBU return, preserve, and timed top-up.
-- **Tests split by module** — `test_schedule.py`, `test_dashboard.py`, `test_growatt_api.py`, `test_weather.py`, `test_pause.py`, `test_notifications.py`.
-- **Update health gate** — `update_server.sh` runs compile/tests/validate-schedule before reinstalling cron; post-deploy smoke checks.
-- **Monthly summary** — `monthly-summary` command (30-day audit window).
-- **Weekly recommendations** — weekly summary includes threshold, watchdog, and failure tips from audit data.
+The project already has the main automation shape in place:
 
----
+- Cloud-safe schedule for morning/afternoon preserve windows, watchdog SBU
+  repairs, health checks, summaries, and night auto-topup.
+- Session reuse and Growatt login cooldown handling to reduce account lock risk.
+- Confirmed mode writes: after a Utility/SBU write, the tool re-reads status and
+  warns if the inverter does not verify the expected mode.
+- Auto-topup with sunrise estimates, load history, minimum topup floor, sunny
+  forecast handling, and orphaned topup repair after deploys or restarts.
+- Discord rich embeds for mode changes, failures, cloud recovery, health,
+  summaries, emergency battery, runtime, and topup events.
+- Private Discord control bot with allowlisted slash commands.
+- Dashboard with live flow, daily energy totals, local metric history, charts,
+  freshness badge, stale alerts, PVOutput status, schedule visibility, and
+  system/automation cards.
+- Shared observability refresh: one Growatt read updates the dashboard and
+  PVOutput, avoiding duplicate pollers.
+- PVOutput upload with fallback when extended fields are rejected.
+- Schedule overrides, named outage profiles, dry-plan preview, and safer update
+  script gates.
+- Unit tests split by module and a public-repo hygiene guide.
 
-## Highest Value Next
+## Next Best Things
 
-1. Make health-check more actionable
-   - Include exact remediation hints for failed checks.
-   - Include cron job count and next scheduled run summary.
-   - Include whether `DRY_RUN` is enabled and whether any mode-changing job is currently paused.
-   - Include dashboard service status when running on Linux with systemd.
+### 1. Dashboard Data Contract And JSON Export
 
-2. Add stronger mode-write confirmation
-   - After `set_mode`, wait briefly and re-read `outputConfig`.
-   - Mark command as confirmed only when the status changes to the expected mode.
-   - Send Discord warning if Growatt accepts the command but the mode does not verify.
+Why: dashboard values now matter operationally, so the metric extraction layer
+should be explicit and reusable.
 
-3. Add dashboard JSON output
-   - Generate `dashboard.json` with the same data used by `dashboard.html`.
-   - Makes it easier to integrate with uptime monitors or other dashboards.
+- Generate `dashboard.json` beside `dashboard.html`.
+- Include live metrics, daily totals, source paths, generated time, freshness,
+  PVOutput state, pause state, and next jobs.
+- Show metric source hints in the dashboard when useful, for example which
+  Growatt key produced `Load Today`.
+- Add tests from redacted SPF fixture payloads so future Growatt key changes are
+  caught before deploy.
 
-4. Add manual action copy-paste panel to dashboard
-   - Static section showing ready-to-paste commands: pause, resume, health-check, dashboard refresh.
-   - Avoid live write buttons until auth/CSRF is designed.
+### 2. Service Status And Diagnostic Bundle
 
-## Safety And Reliability
+Why: when something looks wrong on the VPS, the next step should be one command.
 
-1. Add retry policy for transient Growatt reads
-   - Retry login/status calls on network timeouts and 5xx responses.
-   - Use short backoff to avoid hammering the cloud API.
-   - Keep mode writes conservative: do not blindly retry writes many times.
+- Add `service-status` command for cron, dashboard refresh service, dashboard
+  server, stale-alert timer, and Discord bot service.
+- Add `diagnostic-bundle` command that prints/redacts:
+  - `health-check`
+  - service status summaries
+  - recent mode decisions
+  - recent errors
+  - dashboard freshness
+  - active pause/topup state
+- Keep it read-only and safe to paste into support chats.
 
-2. Add command idempotency checks
-   - Before switching to Utility, skip if already Utility.
-   - Before switching to SBU, skip if already SBU, except when `--force` is explicitly provided.
-   - Still write an audit row for skipped idempotent actions.
+### 3. Public-Safe Fixture Library
 
-3. Add emergency mode guard
-   - If SOC is below an emergency threshold, prevent automatic SBU return unless explicitly allowed.
-   - Needs careful user preference because outage windows may still require SBU.
+Why: Growatt returns duplicate and inconsistent fields. Fixtures make parser
+fixes faster and safer.
 
-4. Add rate-limit guardrails
-   - Track recent Growatt API calls in local state.
-   - Warn if new scheduled jobs would create unusually frequent cloud reads.
+- Add redacted `tests/fixtures/` payloads for:
+  - SBU discharging
+  - Utility charging
+  - PV charging plus load
+  - duplicate zero/non-zero daily totals
+  - missing grid import live power
+- Cover dashboard extraction, PVOutput extraction, status summary, and Discord
+  dashboard embed parsing with those fixtures.
+- Add a fixture redaction helper for future probe files.
 
-## Scheduling Improvements
+### 4. Health Check Remediation Mode
 
-1. Add calendar export
-   - Generate `.ics` calendar events for outage windows and automation jobs.
-   - Useful for visually checking schedules before deployment.
+Why: `health-check` should not only say WARN/FAIL; it should tell you exactly
+what to do next.
 
-2. Add schedule lint warnings
-   - Warn if `return-sbu` is too close to an outage start.
-   - Warn if preserve and return jobs overlap.
-   - Warn if a mode-changing command runs too frequently.
+- Include next scheduled runs and cron job count.
+- Include `DRY_RUN`, pause/topup state, dashboard freshness, PVOutput freshness,
+  and service states.
+- For each failed check, include one suggested command.
+- Add `--discord`/`--notify` output that stays compact enough for mobile.
 
-3. Add dry-run cron installer mode
-   - Show the exact crontab that would be installed.
-   - Validate all job IDs before touching the user's crontab.
+### 5. Forecast And Load Planner V2
 
-## Dashboard Enhancements
+Why: auto-topup is now useful, but the most valuable next step is explaining and
+improving decisions, not adding more writes.
 
-1. Add dashboard access hardening notes
-   - Document recommended reverse proxy options.
-   - Include security reminders for public exposure.
+- Use solar-relevant weather fields where available: direct radiation, sunshine
+  duration, cloud cover, and precipitation.
+- Compare forecast with recent PVOutput/Growatt production to learn whether a
+  "sunny" forecast actually produced useful energy.
+- Add a dashboard card: "Tonight's risk" with expected sunrise SOC and reason.
+- Add weekly recommendation text for `AUTO_TOPUP_TARGET_SOC`,
+  `BATTERY_CHARGE_RATE_W`, and the topup margin.
 
-2. Add mobile-friendly compact mode
-   - Smaller summary blocks for phone viewing.
-   - Prioritize SOC, output mode, next job, pause state, and freshness.
+### 6. Notification Quiet Hours And Digesting
 
-## Notifications And Reporting
+Why: Discord is useful, but too many routine messages make the important ones
+easier to miss.
 
-1. Add Discord embeds
-   - Use structured fields for SOC, threshold, mode, reason, and job ID.
-   - Keep plain text fallback.
+- Add quiet hours for success/skip messages.
+- Always allow critical failure, emergency battery, cloud lock, and watchdog
+  failure alerts.
+- Optionally batch routine overnight auto-topup events into a morning digest.
+- Add per-event toggles for noisy events.
 
-2. Add notification quiet hours
-   - Suppress non-critical success/skip messages during configured hours.
-   - Always allow critical failures and emergency battery alerts.
+### 7. Safer Discord Control Audit Trail
 
-3. Add notification channels abstraction
-   - Keep Discord as first-class.
-   - Make it possible to add Telegram, email, or Slack later without touching command logic.
+Why: Discord can write to the inverter, so every write should be easy to trace.
 
-## Weather And Forecasting
+- Add a dedicated audit row for every Discord-triggered command with user ID
+  hash, command, duration, reason, and result.
+- Add optional reason text to `/growatt_utility`, `/growatt_sbu`, and
+  `/growatt_topup`.
+- Add a read-only `/growatt_plan` command that shows what automation would do
+  next without writing.
+- Add a second confirmation path only for longer or riskier manual Utility
+  holds.
 
-1. Use solar-relevant forecast fields
-   - Add direct radiation or sunshine duration if available.
-   - Use cloud cover plus precipitation as the fallback.
+### 8. Dashboard Mobile Polish
 
-2. Add weather unavailable alert tuning
-   - Alert only after repeated forecast failures, not on a single missed call.
+Why: the dashboard is likely checked from a phone first.
 
-## Testing And CI
+- Make the first viewport prioritize SOC, mode, live PV/load/grid, runtime, and
+  dashboard freshness.
+- Add compact cards for today's schedule and active topup/pause state.
+- Add a manual action copy panel with safe copy-paste commands.
+- Keep live write buttons out of the public dashboard until auth/CSRF and audit
+  are designed properly.
 
-1. Add tests for CLI dispatch boundaries
-   - Verify each command maps to the intended command function.
-   - Verify locked commands use `run_with_command_lock`.
+### 9. Packaging And Developer Experience
 
-2. Add tests for config loading
-   - Mock environment variables.
-   - Verify defaults and invalid values.
-   - Ensure missing credentials produce the friendly error.
+Why: the repo is now large enough to benefit from standard Python project shape.
 
-3. Add shell script checks
-   - Use `shellcheck` for `.sh` files in CI if available.
-   - Keep optional so contributors without shellcheck are not blocked locally.
+- Add `pyproject.toml` and dependency metadata.
+- Add console script entry point, for example `growatt-guard`.
+- Keep `growatt_power_guard.py` as a backwards-compatible shim.
+- Add optional pre-commit checks for whitespace, Python compile, secret-looking
+  values, and schedule JSON validation.
 
-4. Add pre-commit config
-   - Check trailing whitespace, YAML validity, Python compile, and secret-looking values.
+### 10. Backup, Restore, And Calendar Export
 
-5. Add coverage reporting
-   - Use coverage for tests without making coverage percentage a hard gate initially.
+Why: local state now matters and outage schedules change.
 
-## Packaging And Developer Experience
+- Add backup/restore for pause state, alert state, topup state, schedule
+  overrides, dashboard metrics, and audit logs.
+- Keep generated backups out of Git.
+- Generate `.ics` calendar events for outage windows and mode-changing jobs.
+- Add schedule lint warnings for jobs that are too close together.
 
-1. Add `pyproject.toml`
-   - Declare dependencies and package metadata.
-   - Enable editable installs with `pip install -e .`.
+## Area Backlog
 
-2. Add console script entry point
-   - Example command: `growatt-guard`.
-   - Keep `growatt_power_guard.py` for backwards compatibility.
+### Safety And Reliability
 
-3. Add structured logging option
-   - JSON logs can be easier to ship to external logging systems.
-   - Keep current plain logs as default.
+- Add local API call accounting and warnings when a schedule would increase
+  Growatt polling too much.
+- Add stricter idempotency audit rows for skipped mode writes.
+- Add emergency SBU-return guard below a configurable SOC, with an explicit
+  override for outage realities.
+- Add state migration/versioning for local JSON state files.
 
-4. Add sample fixture data
-   - Public-safe redacted Growatt status examples.
-   - Helps tests and future API parsing work.
+### Dashboard And Observability
 
-## Operations And Deployment
+- Add `dashboard.json`.
+- Add metric source/source-path display for ambiguous values.
+- Add daily import/export/load/PV reconciliation warnings when numbers do not
+  add up.
+- Add "last successful Growatt read" and "last successful PVOutput upload"
+  timestamps to the top of the dashboard.
+- Add export/download for local dashboard metric history.
 
-1. Add systemd status command
-   - Example: `python growatt_power_guard.py service-status`.
-   - Shows dashboard service, refresh timer, stale-alert timer, and cron presence.
+### Forecasting And Optimization
 
-2. Add one-shot VPS diagnostic bundle
-   - Collect health-check, cron lines, service status, recent logs, and dashboard freshness.
-   - Redact secrets.
-   - Useful for support without exposing `.env`.
+- Learn typical overnight load by weekday/weekend.
+- Learn effective charge rate from completed topups and suggest config updates.
+- Compare forecasted solar against actual PV generation.
+- Suggest threshold adjustments only after several days of evidence.
 
-3. Add backup/restore for local state
-   - Backup pause state, alert state, schedule overrides, and audit logs.
-   - Keep generated logs out of Git.
+### Scheduling
 
-## Security And Public Repo Hygiene
+- Add `.ics` calendar export.
+- Add dry-run cron installer output showing exact crontab changes.
+- Add schedule lint warnings for overlapping jobs and too-frequent writes.
+- Add outage notice parser that proposes schedule overrides but requires manual
+  confirmation.
 
-1. Add secret scanning helper
-   - Local command/script that searches for `.env` style secrets, device IDs, webhooks, and exact coordinates.
-   - Use it before public pushes.
+### Notifications
 
-2. Add webhook rotation notes
-   - How to rotate a Discord webhook if it leaks.
-   - How to test the new webhook.
+- Add quiet hours.
+- Add morning digest mode.
+- Add notification channel abstraction after Discord behavior is stable.
+- Add webhook rotation helper/checklist.
 
-## Larger Product Ideas
+### Security And Public Repo Hygiene
 
-1. Multi-inverter support
-   - Allow multiple device serials with per-device thresholds and schedules.
-   - Requires careful audit and dashboard changes.
+- Add local secret scanning command before release/push.
+- Keep docs free of domains, IPs, coordinates, usernames, serials, and webhooks.
+- Add public-safe sample `.env` validation.
+- Document dashboard exposure tradeoffs clearly.
 
-2. Local-first inverter integration
-   - Explore whether a local dongle/API path can avoid Growatt cloud dependency.
-   - Keep Growatt cloud as the current stable path unless local control is proven.
+## Later / Bigger Ideas
 
-3. Web app with authenticated controls
-   - A small authenticated control panel for pause/resume, schedule preview, and health checks.
-   - Avoid live mode writes from the web until security is designed properly.
-
-4. Forecast-based energy planner
-   - Estimate expected solar charge before each outage.
-   - Pick thresholds based on forecast, load history, and time to next utility window.
-
-5. Estate schedule import
-   - Parse a human-readable outage notice into schedule updates or proposed overrides.
-   - Keep a manual confirmation step before changing cron.
+- Authenticated web app for controls, after dashboard JSON, audit trails, and
+  auth design are in place.
+- Multi-inverter support with per-device schedules and thresholds.
+- Local-first inverter integration if the WiFi dongle or another local path can
+  be proven reliable.
+- PVOutput comparison dashboard for forecast vs actual production.
+- Import estate outage notices from text/images into proposed overrides.
 
 ## Good First Issues
 
-1. Add tests for `growatt_guard/config.py`.
-2. Add dashboard JSON output alongside `dashboard.html`.
-3. Add `shellcheck` CI linting for `.sh` files.
-4. Add `pyproject.toml` with dependency declarations.
-5. Add public-safe fixture examples for Growatt status parsing.
-6. Add notification quiet hours to suppress non-critical Discord messages overnight.
+1. Add `dashboard.json` generation from the existing dashboard payload.
+2. Add public-safe fixture files and one parser test per fixture.
+3. Add `service-status` read-only command.
+4. Add config-loading tests for `.env` defaults and invalid values.
+5. Add quiet-hours config and tests for non-critical Discord messages.
+6. Add schedule lint warnings for overlapping jobs.
+7. Add `pyproject.toml` while preserving the existing script entry point.
