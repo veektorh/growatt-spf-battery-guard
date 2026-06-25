@@ -573,9 +573,6 @@ def build_dashboard_html(
     output_source = extract_spf_output_source(status)
     mode = f"{output_source[1]} [{output_source[0]}]" if output_source else "Not found"
     bat_status = extract_battery_status(status) or "—"
-    _out_w = extract_first_metric(status, ("outPutPower", "outPutPower1", "activePower"))
-    _n = parse_number(_out_w[0]) if _out_w else None
-    out_w = f"{_n:g} W" if _n is not None else "—"
     _load = extract_first_metric(status, ("loadPercent", "loadPercent1"))
     _n = parse_number(_load[0]) if _load else None
     load_pct = f"{_n:.0f}%" if _n is not None else "—"
@@ -583,12 +580,9 @@ def build_dashboard_html(
     _pc = extract_first_metric(status, ("pCharge", "pCharge1"))
     _pdv = parse_number(_pd[0]) if _pd else None
     _pcv = parse_number(_pc[0]) if _pc else None
-    bat_w = "—"
     est_runtime = "—"
     if _pdv is not None or _pcv is not None:
         _bw = (_pdv or 0.0) - (_pcv or 0.0)
-        _dir = "discharge" if _bw > 0 else ("charge" if _bw < 0 else "standby")
-        bat_w = f"{abs(_bw):g} W {_dir}"
         if battery_capacity_wh > 0 and soc_result:
             if _bw > 0:
                 _rt = estimate_runtime(soc_result[0], _bw, battery_capacity_wh, battery_bms_cutoff_soc)
@@ -658,8 +652,6 @@ def build_dashboard_html(
     grid_power_display = _fmt_w(live_metrics.get("grid_w"))
     grid_source = str(live_metrics.get("grid_source") or "")
     load_power_display = _fmt_w(live_metrics.get("load_w"))
-    charge_power_display = _fmt_w(live_metrics.get("charge_w"))
-    discharge_power_display = _fmt_w(live_metrics.get("discharge_w"))
     battery_flow_display = _fmt_w(abs(live_metrics["battery_net_w"])) if live_metrics.get("battery_net_w") is not None else "--"
     battery_flow_dir = (
         "discharging"
@@ -671,24 +663,20 @@ def build_dashboard_html(
     discharge_today_display = _fmt_kwh(live_metrics.get("discharge_today_kwh"))
     load_today_display = _fmt_kwh(live_metrics.get("load_today_kwh"))
     grid_today_display = _fmt_kwh(live_metrics.get("grid_today_kwh"))
-    grid_detail_parts = [f"today {grid_today_display}"]
-    if grid_source:
-        grid_detail_parts.append(f"source: {grid_source}")
-    grid_detail = " / ".join(grid_detail_parts)
+    grid_detail = f"source: {grid_source}" if grid_source else "not reported by API"
     pv_total_text = str(live_metrics.get("pv_total") or "").strip()
 
-    parity_cards = "\n".join(
+    energy_cards = "\n".join(
         [
-            f'<div class="card accent-pv"><div class="label">PV Power</div><div class="value">{esc(pv_power_display)}</div><div class="muted small">today {esc(pv_today_display)}</div></div>',
-            f'<div class="card accent-grid"><div class="label">Grid Import Now</div><div class="value">{esc(grid_power_display)}</div><div class="muted small">{esc(grid_detail)}</div></div>',
-            f'<div class="card accent-load"><div class="label">Load Power</div><div class="value">{esc(load_power_display)}</div><div class="muted small">today {esc(load_today_display)}</div></div>',
-            f'<div class="card accent-battery"><div class="label">Battery Charge</div><div class="value">{esc(charge_power_display)}</div><div class="muted small">today {esc(charge_today_display)}</div></div>',
-            f'<div class="card accent-battery"><div class="label">Battery Discharge</div><div class="value">{esc(discharge_power_display)}</div><div class="muted small">today {esc(discharge_today_display)}</div></div>',
+            f'<div class="card accent-pv"><div class="label">PV Today</div><div class="value">{esc(pv_today_display)}</div><div class="muted small">solar generation</div></div>',
             f'<div class="card"><div class="label">Grid Import Today</div><div class="value">{esc(grid_today_display)}</div><div class="muted small">cumulative energy</div></div>',
+            f'<div class="card accent-load"><div class="label">Load Today</div><div class="value">{esc(load_today_display)}</div><div class="muted small">consumption</div></div>',
+            f'<div class="card accent-battery"><div class="label">Battery Charge Today</div><div class="value">{esc(charge_today_display)}</div><div class="muted small">stored energy</div></div>',
+            f'<div class="card accent-battery"><div class="label">Battery Discharge Today</div><div class="value">{esc(discharge_today_display)}</div><div class="muted small">battery output</div></div>',
         ]
     )
     if pv_total_text:
-        parity_cards += (
+        energy_cards += (
             f'\n<div class="card"><div class="label">PV Lifetime</div>'
             f'<div class="value">{esc(pv_total_text)}</div><div class="muted small">from Growatt</div></div>'
         )
@@ -804,9 +792,9 @@ def build_dashboard_html(
     {skip_all_banner}
     <section class="flow-grid" aria-label="Live energy flow">
       <div class="flow-node accent-pv">
-        <div class="flow-kicker">Solar</div>
+        <div class="flow-kicker">Solar Now</div>
         <div class="flow-value">{esc(pv_power_display)}</div>
-        <div class="flow-detail">PV today {esc(pv_today_display)}</div>
+        <div class="flow-detail">live PV output</div>
       </div>
       <div class="flow-node">
         <div class="flow-kicker">Inverter</div>
@@ -814,7 +802,7 @@ def build_dashboard_html(
         <div class="flow-detail">{esc(bat_status)}</div>
       </div>
       <div class="flow-node accent-load">
-        <div class="flow-kicker">Load</div>
+        <div class="flow-kicker">Load Now</div>
         <div class="flow-value">{esc(load_power_display)}</div>
         <div class="flow-detail">{esc(load_pct)} load</div>
       </div>
@@ -824,14 +812,16 @@ def build_dashboard_html(
         <div class="flow-detail">{esc(battery_flow_display)} {esc(battery_flow_dir)}</div>
       </div>
       <div class="flow-node accent-grid">
-        <div class="flow-kicker">Grid</div>
+        <div class="flow-kicker">Grid Import Now</div>
         <div class="flow-value">{esc(grid_power_display)}</div>
-        <div class="flow-detail">{esc(grid_source or 'not reported')}</div>
+        <div class="flow-detail">{esc(grid_detail)}</div>
       </div>
     </section>
+    <h2>Daily Energy</h2>
     <section class="grid">
-      {parity_cards}
+      {energy_cards}
     </section>
+    <h2>System & Automation</h2>
     <section class="grid">
       <div class="card">
         <div class="label">Dashboard Health</div>
@@ -840,16 +830,10 @@ def build_dashboard_html(
         </div>
         <div class="muted small" data-refresh-age>Generated just now; stale after {esc(stale_minutes_text)} minutes.</div>
       </div>
-      <div class="card"><div class="label">Battery SOC</div><div class="value">{esc(soc)}</div></div>
-      <div class="card"><div class="label">Output Source</div><div class="value">{esc(mode)}</div></div>
-      <div class="card"><div class="label">Battery Status</div><div class="value">{esc(bat_status)}</div></div>
-      <div class="card"><div class="label">Battery Power</div><div class="value">{esc(bat_w)}</div></div>
       <div class="card"><div class="label">Battery Voltage</div><div class="value">{esc(vbat)}</div></div>
       <div class="card"><div class="label">Est. Runtime</div><div class="value">{esc(est_runtime)}</div></div>
       <div class="card"><div class="label">Sunrise In</div><div class="value">{esc(sunrise_display)}</div></div>
       <div class="card"><div class="label">Topup to Sunrise</div><div class="value">{esc(topup_sunrise_display)}</div></div>
-      <div class="card"><div class="label">Output Power</div><div class="value">{esc(out_w)}</div></div>
-      <div class="card"><div class="label">Load</div><div class="value">{esc(load_pct)}</div></div>
       <div class="card"><div class="label">Preserve Threshold</div><div class="value">{esc(f'{threshold_decision.threshold:g}%')}</div></div>
       <div class="card"><div class="label">Pause State</div><div class="value">{esc(pause)}</div></div>
       <div class="card"><div class="label">Emergency Alert</div><div class="value">{esc(alert)}</div></div>
