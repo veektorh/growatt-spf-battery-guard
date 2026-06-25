@@ -28,16 +28,29 @@ from growatt_guard.config import (
 )
 from growatt_guard.dashboard import (
     DASHBOARD_FILE,
+    DASHBOARD_JSON_FILE,
     MIN_DASHBOARD_REFRESH_MINUTES,
+    build_dashboard_data_payload,
+    build_tonight_risk,
     command_dashboard,
     command_dashboard_refresh,
     command_dashboard_stale_alert,
     command_observability_refresh,
     command_serve_dashboard,
     dashboard_freshness,
+    extract_dashboard_metric_sources,
     read_dashboard_stale_alert_state,
     refresh_observability_once,
+    resolve_dashboard_json_output,
     write_dashboard_from_status,
+)
+from growatt_guard.diagnostics import (
+    DiagnosticItem,
+    build_diagnostic_bundle,
+    build_service_status,
+    command_diagnostic_bundle,
+    command_service_status,
+    format_diagnostic_items,
 )
 from growatt_guard.discord_control import (
     command_result_text,

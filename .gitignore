@@ -3,6 +3,7 @@
 .env.*.local
 schedule_overrides.json
 dashboard.html
+dashboard.json
 .venv/
 logs/
 state/

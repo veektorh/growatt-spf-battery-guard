@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -72,9 +73,11 @@ class DashboardTests(unittest.TestCase):
             output = Path(tmpdir) / "dashboard.html"
             self.assertEqual(command_dashboard(config, str(output)), 0)
             html = output.read_text(encoding="utf-8")
+            dashboard_json = json.loads(output.with_suffix(".json").read_text(encoding="utf-8"))
 
         self.assertIn("Growatt Dashboard", html)
         self.assertIn("Dashboard Health", html)
+        self.assertIn("Tonight Risk", html)
         self.assertIn("Live energy flow", html)
         self.assertIn("Grid Import Now", html)
         self.assertIn("Grid Import Today", html)
@@ -93,6 +96,10 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Cloud Streak", html)
         self.assertIn("50%", html)
         self.assertIn("SBU priority", html)
+        self.assertEqual(dashboard_json["schema_version"], 1)
+        self.assertEqual(dashboard_json["live"]["grid_today_kwh"], 13.7)
+        self.assertEqual(dashboard_json["sources"]["load_today_kwh"], "storage_energy_overview.useEnergyToday")
+        self.assertIn("tonight_risk", dashboard_json["planner"])
 
     def test_dashboard_topup_estimate_matches_auto_topup_floor(self):
         status = {

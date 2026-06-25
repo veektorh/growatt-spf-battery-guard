@@ -37,6 +37,7 @@ class HealthCheckItem:
     name: str
     status: str
     detail: str
+    suggestion: str = ""
 
 
 def health_result(checks: list[HealthCheckItem]) -> str:
@@ -48,14 +49,69 @@ def health_result(checks: list[HealthCheckItem]) -> str:
     return "OK"
 
 
+def default_health_suggestion(check: HealthCheckItem) -> str:
+    if check.status == "OK":
+        return ""
+    name = check.name.lower()
+    detail = str(check.detail).lower()
+    if "dry run" in name:
+        return "Set DRY_RUN=false only after status, probe, and schedule checks are healthy."
+    if "emergency alert" in name:
+        return "Configure DISCORD_WEBHOOK_URL and keep recovery SOC above the alert SOC."
+    if "cloud streak" in name or "growatt cloud" in name:
+        return "Check logs and avoid repeated manual logins while cooldown/session reuse is protecting the account."
+    if "login cooldown" in name:
+        return "Wait for cooldown unless you are certain the Growatt lock has cleared."
+    if "dashboard freshness" in name:
+        return "Run dashboard-refresh --once and check growatt-dashboard-refresh.service."
+    if "mode driver" in name:
+        return "Use GROWATT_MODE_DRIVER=spf5000 for SPF models unless custom params are intentional."
+    if "utility command" in name or "sbu command" in name:
+        return "Set the missing custom params or switch back to the SPF driver."
+    if "schedule override" in name:
+        return "Inspect schedule_overrides.json or remove the bad date override."
+    if "schedule" in name or "cron" in name:
+        return "Run validate-schedule, then reinstall cron with install_cloud_cron.sh if needed."
+    if "battery soc" in name:
+        return "Run probe and add the SOC path to extraction tests."
+    if "output source" in name:
+        return "Run probe and inspect outputConfig paths."
+    if "pvoutput" in name:
+        return "Run observability-refresh once and check PVOUTPUT_API_KEY/PVOUTPUT_SYSTEM_ID."
+    if "topup" in name and ("expired" in detail or "parse" in detail):
+        return "Run topup-complete-check to repair state and return to SBU if needed."
+    if "pause state" in name:
+        return "Run resume when scheduled mode changes should be active again."
+    if "command lock" in name:
+        return "Run clear-stale-lock only if the command is no longer active."
+    if "discord report" in name:
+        return "Set or rotate DISCORD_WEBHOOK_URL, then run test-discord."
+    return ""
+
+
 def format_health_report(checks: list[HealthCheckItem]) -> str:
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     result = health_result(checks)
     lines = [f"Growatt health check - {now}", f"Result: {result}", ""]
     for check in checks:
         detail = " ".join(str(check.detail).split())
-        lines.append(f"[{check.status}] {check.name}: {detail}")
+        line = f"[{check.status}] {check.name}: {detail}"
+        suggestion = check.suggestion or default_health_suggestion(check)
+        if suggestion:
+            line += f" Next: {' '.join(str(suggestion).split())}"
+        lines.append(line)
     return "\n".join(lines)
+
+
+def health_embed_fields(checks: list[HealthCheckItem]) -> list[dict[str, Any]]:
+    fields: list[dict[str, Any]] = []
+    for check in checks:
+        value = " ".join(str(check.detail).split()) or "-"
+        suggestion = check.suggestion or default_health_suggestion(check)
+        if suggestion:
+            value = f"{value}\nNext: {' '.join(str(suggestion).split())}"
+        fields.append({"name": f"[{check.status}] {check.name}", "value": value[:1024], "inline": False})
+    return fields
 
 
 def command_health_check(config: Config, notify: bool = False) -> int:
@@ -291,6 +347,7 @@ def command_health_check(config: Config, notify: bool = False) -> int:
                 {"name": f"[{c.status}] {c.name}", "value": " ".join(str(c.detail).split())[:1024] or "—", "inline": False}
                 for c in checks
             ]
+            embed_fields = health_embed_fields(checks)
             _MAX_FIELDS = 24
             if len(embed_fields) > _MAX_FIELDS:
                 overflow = len(embed_fields) - _MAX_FIELDS

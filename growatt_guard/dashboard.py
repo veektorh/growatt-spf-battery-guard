@@ -53,6 +53,7 @@ from growatt_guard.weather import choose_preserve_threshold, hours_until_next_su
 BASE_DIR = Path(__file__).resolve().parents[1]
 LOG_DIR = BASE_DIR / "logs"
 DASHBOARD_FILE = BASE_DIR / "dashboard.html"
+DASHBOARD_JSON_FILE = BASE_DIR / "dashboard.json"
 DASHBOARD_METRICS_FILE = LOG_DIR / "dashboard_metrics.jsonl"
 DASHBOARD_METRICS_RETENTION_DAYS = 8
 MIN_DASHBOARD_REFRESH_MINUTES = 5
@@ -157,6 +158,22 @@ def _metric_max(status: dict[str, Any], keys: tuple[str, ...]) -> float | None:
     return max(values) if values else None
 
 
+def _metric_max_source(status: dict[str, Any], keys: tuple[str, ...]) -> str:
+    best_value: float | None = None
+    best_path = ""
+    wanted = set(keys)
+    for path, value in deep_values(status):
+        if path.split(".")[-1] not in wanted:
+            continue
+        parsed = parse_number(value)
+        if parsed is None:
+            continue
+        if best_value is None or parsed > best_value:
+            best_value = parsed
+            best_path = path
+    return best_path
+
+
 def _metric_energy_kwh_max(status: dict[str, Any], keys: tuple[str, ...]) -> float | None:
     values: list[float] = []
     wanted = set(keys)
@@ -170,6 +187,24 @@ def _metric_energy_kwh_max(status: dict[str, Any], keys: tuple[str, ...]) -> flo
             parsed *= 1000
         values.append(parsed)
     return max(values) if values else None
+
+
+def _metric_energy_kwh_max_source(status: dict[str, Any], keys: tuple[str, ...]) -> str:
+    best_value: float | None = None
+    best_path = ""
+    wanted = set(keys)
+    for path, value in deep_values(status):
+        if path.split(".")[-1] not in wanted:
+            continue
+        parsed = parse_number(value)
+        if parsed is None:
+            continue
+        if isinstance(value, str) and "mwh" in value.lower():
+            parsed *= 1000
+        if best_value is None or parsed > best_value:
+            best_value = parsed
+            best_path = path
+    return best_path
 
 
 def _metric_number_or_channel_sum(
@@ -195,6 +230,45 @@ def _metric_lifetime_text(status: dict[str, Any]) -> str:
     if value_kwh is None:
         return ""
     return _format_lifetime_kwh(value_kwh)
+
+
+def extract_dashboard_metric_sources(status: dict[str, Any]) -> dict[str, str]:
+    soc_result = extract_soc(status)
+    output_source = extract_spf_output_source(status)
+
+    def first_path(keys: tuple[str, ...]) -> str:
+        result = extract_first_metric(status, keys)
+        return result[1] if result else ""
+
+    pv_total = _metric_number(status, PV_POWER_KEYS)
+    pv_channel_total = _metric_sum(status, PV_POWER_CHANNEL_KEYS)
+    pv_source = first_path(PV_POWER_KEYS)
+    if pv_channel_total is not None and (pv_total is None or pv_channel_total > pv_total):
+        pv_source = "channel-sum:" + ",".join(PV_POWER_CHANNEL_KEYS)
+
+    pv_today_total = _metric_number(status, PV_TODAY_KEYS)
+    pv_today_channel_total = _metric_sum(status, PV_TODAY_CHANNEL_KEYS)
+    pv_today_source = first_path(PV_TODAY_KEYS)
+    if pv_today_channel_total is not None and (pv_today_total is None or pv_today_channel_total > pv_today_total):
+        pv_today_source = "channel-sum:" + ",".join(PV_TODAY_CHANNEL_KEYS)
+
+    return {
+        "soc": soc_result[1] if soc_result else "",
+        "mode": output_source[2] if output_source else "",
+        "pv_w": pv_source,
+        "pv_today_kwh": pv_today_source,
+        "pv_total": _metric_energy_kwh_max_source(status, PV_TOTAL_KEYS),
+        "load_w": first_path(LOAD_POWER_KEYS),
+        "load_pct": first_path(LOAD_PERCENT_KEYS),
+        "load_today_kwh": _metric_max_source(status, LOAD_TODAY_KEYS),
+        "grid_w": first_path(GRID_POWER_KEYS),
+        "grid_today_kwh": _metric_max_source(status, GRID_TODAY_KEYS),
+        "charge_w": first_path(CHARGE_POWER_KEYS),
+        "charge_today_kwh": _metric_max_source(status, CHARGE_TODAY_KEYS),
+        "discharge_w": first_path(DISCHARGE_POWER_KEYS),
+        "discharge_today_kwh": _metric_max_source(status, DISCHARGE_TODAY_KEYS),
+        "vbat": first_path(BATTERY_VOLTAGE_KEYS),
+    }
 
 
 def _rounded(value: float | None, digits: int = 1) -> float | None:
@@ -411,6 +485,209 @@ def build_dashboard_history_payload(
             "load_kwh": [_series_value(latest_by_date.get(day.isoformat(), {}), "load_today_kwh") for day in dates],
             "grid_kwh": [_series_value(latest_by_date.get(day.isoformat(), {}), "grid_today_kwh") for day in dates],
         },
+    }
+
+
+def _average_recent_discharge_w() -> float | None:
+    history = read_discharge_rate_history()
+    rates = [float(r["rate_w"]) for r in history if isinstance(r.get("rate_w"), (int, float))]
+    if len(rates) < 2:
+        return None
+    return sum(rates) / len(rates)
+
+
+def build_tonight_risk(
+    live_metrics: dict[str, Any],
+    battery_capacity_wh: float,
+    battery_bms_cutoff_soc: float,
+    hours_to_sunrise: float | None,
+    battery_charge_rate_w: float,
+    auto_topup_target_soc: float = 0.0,
+    auto_topup_solar_skip_min_margin_minutes: float = 0.0,
+) -> dict[str, Any]:
+    soc = live_metrics.get("soc")
+    if not isinstance(soc, (int, float)):
+        return {
+            "level": "unknown",
+            "title": "Unknown",
+            "detail": "SOC is unavailable.",
+            "projected_sunrise_soc": None,
+            "load_w": None,
+            "topup_minutes": None,
+        }
+    if not hours_to_sunrise or hours_to_sunrise <= 0:
+        return {
+            "level": "unknown",
+            "title": "Unknown",
+            "detail": "Sunrise estimate is unavailable.",
+            "projected_sunrise_soc": None,
+            "load_w": None,
+            "topup_minutes": None,
+        }
+    if battery_capacity_wh <= 0:
+        return {
+            "level": "unknown",
+            "title": "Unknown",
+            "detail": "BATTERY_CAPACITY_WH is not configured.",
+            "projected_sunrise_soc": None,
+            "load_w": None,
+            "topup_minutes": None,
+        }
+
+    load_w = _average_recent_discharge_w()
+    source = "recent average"
+    if load_w is None:
+        battery_net_w = live_metrics.get("battery_net_w")
+        if isinstance(battery_net_w, (int, float)) and battery_net_w > 0:
+            load_w = float(battery_net_w)
+            source = "live discharge"
+        elif isinstance(live_metrics.get("load_w"), (int, float)):
+            load_w = float(live_metrics["load_w"])
+            source = "live load"
+
+    if not load_w or load_w <= 0:
+        return {
+            "level": "unknown",
+            "title": "Unknown",
+            "detail": "Battery is not currently discharging and no recent load average is available.",
+            "projected_sunrise_soc": None,
+            "load_w": None,
+            "topup_minutes": None,
+        }
+
+    soc_drop = (load_w * hours_to_sunrise / battery_capacity_wh) * 100.0
+    projected_soc = max(0.0, soc - soc_drop)
+    target_soc = max(battery_bms_cutoff_soc, auto_topup_target_soc)
+    margin = projected_soc - target_soc
+    margin_hours = hours_to_sunrise + max(0.0, auto_topup_solar_skip_min_margin_minutes) / 60.0
+    topup_minutes = None
+    if battery_charge_rate_w > 0:
+        topup_minutes = estimate_topup_for_sunrise(
+            soc,
+            load_w,
+            battery_capacity_wh,
+            target_soc,
+            battery_charge_rate_w,
+            margin_hours,
+        )
+        if topup_minutes is not None:
+            topup_minutes = max(0.0, round(topup_minutes, 1))
+
+    if margin < 0:
+        level = "high"
+        title = "High risk"
+    elif margin < 8:
+        level = "watch"
+        title = "Watch"
+    else:
+        level = "comfortable"
+        title = "Comfortable"
+
+    detail_parts = [
+        f"Projected sunrise SOC {projected_soc:.0f}%",
+        f"target {target_soc:g}%",
+        f"load {_fmt_w(load_w)} ({source})",
+    ]
+    if topup_minutes and topup_minutes > 0:
+        detail_parts.append(f"topup {format_duration_minutes(topup_minutes)}")
+    elif topup_minutes == 0:
+        detail_parts.append("topup not needed")
+
+    return {
+        "level": level,
+        "title": title,
+        "detail": "; ".join(detail_parts),
+        "projected_sunrise_soc": round(projected_soc, 1),
+        "target_soc": round(target_soc, 1),
+        "margin_soc": round(margin, 1),
+        "hours_to_sunrise": round(hours_to_sunrise, 2),
+        "load_w": round(load_w, 1),
+        "load_source": source,
+        "topup_minutes": topup_minutes,
+    }
+
+
+def _status_badge_class(level: str) -> str:
+    if level == "comfortable":
+        return "badge-ok"
+    if level in {"watch", "unknown"}:
+        return "badge-warn"
+    return "badge-fail"
+
+
+def build_dashboard_data_payload(
+    status: dict[str, Any],
+    schedule: dict[str, Any],
+    overrides: dict[str, Any],
+    threshold_decision: Any,
+    stale_after_minutes: float = 30,
+    battery_capacity_wh: float = 0.0,
+    battery_bms_cutoff_soc: float = 25.0,
+    hours_to_sunrise: float | None = None,
+    battery_charge_rate_w: float = 0.0,
+    auto_topup_target_soc: float = 0.0,
+    auto_topup_solar_skip_min_margin_minutes: float = 0.0,
+    metrics_history: list[dict[str, Any]] | None = None,
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    now = now or dt.datetime.now().astimezone()
+    live_metrics = extract_dashboard_metrics(status, now=now)
+    metric_history = _history_with_live(metrics_history or [], live_metrics)
+    today_override = today_schedule_override(overrides, now.date())
+    today_jobs = _today_job_rows(schedule, today_override, now.date())
+    next_runs = next_scheduled_runs(schedule, now=now.replace(tzinfo=None), limit=8)
+    pause_state = read_pause_state()
+    alert_state = read_battery_alert_state()
+    cloud_state = read_growatt_cloud_failure_state()
+    pvoutput_state = read_pvoutput_state()
+    risk = build_tonight_risk(
+        live_metrics,
+        battery_capacity_wh,
+        battery_bms_cutoff_soc,
+        hours_to_sunrise,
+        battery_charge_rate_w,
+        auto_topup_target_soc,
+        auto_topup_solar_skip_min_margin_minutes,
+    )
+
+    return {
+        "schema_version": 1,
+        "generated_at": now.isoformat(timespec="seconds"),
+        "freshness": {"stale_after_minutes": stale_after_minutes},
+        "live": live_metrics,
+        "sources": extract_dashboard_metric_sources(status),
+        "planner": {"tonight_risk": risk},
+        "threshold": {
+            "value": getattr(threshold_decision, "threshold", None),
+            "reason": getattr(threshold_decision, "reason", ""),
+            "weather_category": getattr(threshold_decision, "weather_category", ""),
+        },
+        "automation": {
+            "pause": pause_message(pause_state) if pause_state else "active",
+            "pause_state": pause_state,
+            "emergency_alert": "active" if alert_state and alert_state.get("active") else "clear",
+            "cloud_failure_streak": int(cloud_state.get("count", 0)) if cloud_state else 0,
+            "today_override_note": str(today_override.get("note", "")).strip() or "none",
+            "today_skipped_jobs": today_override.get("skip", []) if isinstance(today_override.get("skip", []), list) else [],
+        },
+        "schedule": {
+            "timezone": schedule.get("timezone", ""),
+            "today": [
+                {"time": t, "job_id": jid, "command": cmd, "status": st}
+                for t, jid, cmd, st in today_jobs
+            ],
+            "next_runs": [
+                {
+                    "time": run_at.isoformat(timespec="minutes"),
+                    "job_id": str(job.get("id", "")),
+                    "name": str(job.get("name", "")),
+                    "command": " ".join(schedule_job_tokens(job)),
+                }
+                for run_at, job in next_runs
+            ],
+        },
+        "pvoutput": pvoutput_state or {"status": "not_configured_or_no_uploads"},
+        "history": build_dashboard_history_payload(metric_history, now=now),
     }
 
 
@@ -684,6 +961,18 @@ def build_dashboard_html(
     grid_today_display = _fmt_kwh(live_metrics.get("grid_today_kwh"))
     grid_detail = f"source: {grid_source}" if grid_source else "not reported by API"
     pv_total_text = str(live_metrics.get("pv_total") or "").strip()
+    tonight_risk = build_tonight_risk(
+        live_metrics,
+        battery_capacity_wh,
+        battery_bms_cutoff_soc,
+        hours_to_sunrise,
+        battery_charge_rate_w,
+        auto_topup_target_soc,
+        auto_topup_solar_skip_min_margin_minutes,
+    )
+    tonight_badge_class = _status_badge_class(str(tonight_risk.get("level", "unknown")))
+    tonight_title = str(tonight_risk.get("title", "Unknown"))
+    tonight_detail = str(tonight_risk.get("detail", ""))
 
     energy_cards = "\n".join(
         [
@@ -789,6 +1078,7 @@ def build_dashboard_html(
     .badge {{ display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 9px; font-size: 14px; font-weight: 800; }}
     .badge-ok {{ background: #dff6e8; color: #155f34; }}
     .badge-warn {{ background: #fff2cc; color: #775800; }}
+    .badge-fail {{ background: #ffe3df; color: #9a3526; }}
     .banner-warn {{ background: #fff2cc; color: #775800; border-radius: 8px; padding: 10px 16px; margin: 20px 0 0; font-weight: 600; }}
     table {{ width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #dce3e8; }}
     th, td {{ padding: 10px; border-bottom: 1px solid #e8eef2; text-align: left; font-size: 14px; }}
@@ -848,6 +1138,11 @@ def build_dashboard_html(
           <span class="badge badge-ok" data-refresh-badge data-generated-at="{esc(generated_at_iso)}" data-stale-minutes="{esc(stale_minutes_text)}">OK</span>
         </div>
         <div class="muted small" data-refresh-age>Generated just now; stale after {esc(stale_minutes_text)} minutes.</div>
+      </div>
+      <div class="card">
+        <div class="label">Tonight Risk</div>
+        <div class="value"><span class="badge {esc(tonight_badge_class)}">{esc(tonight_title)}</span></div>
+        <div class="muted small">{esc(tonight_detail)}</div>
       </div>
       <div class="card"><div class="label">Battery Voltage</div><div class="value">{esc(vbat)}</div></div>
       <div class="card"><div class="label">Est. Runtime</div><div class="value">{esc(est_runtime)}</div></div>
@@ -1163,6 +1458,26 @@ def resolve_dashboard_output(output: str) -> Path:
     return output_path
 
 
+def resolve_dashboard_json_output(output_path: Path) -> Path:
+    return output_path.with_suffix(".json")
+
+
+def _write_json_atomic(output_path: Path, payload: dict[str, Any]) -> None:
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=output_path.parent,
+        prefix=".dash_tmp_", suffix=".json", delete=False,
+    )
+    try:
+        json.dump(payload, tmp, indent=2, sort_keys=True)
+        tmp.write("\n")
+        tmp.flush()
+        tmp.close()
+        Path(tmp.name).replace(output_path)
+    except Exception:
+        Path(tmp.name).unlink(missing_ok=True)
+        raise
+
+
 def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str) -> Path:
     schedule = validate_schedule()
     overrides = validate_schedule_overrides(schedule)
@@ -1175,6 +1490,14 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
     output_path = resolve_dashboard_output(output)
     append_dashboard_metric_snapshot(status, now=dt.datetime.now().astimezone())
     metrics_history = read_dashboard_metrics_history()
+    json_payload = build_dashboard_data_payload(
+        status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes,
+        config.battery_capacity_wh, config.battery_bms_cutoff_soc,
+        hrs_to_sunrise, config.battery_charge_rate_w,
+        config.auto_topup_target_soc,
+        config.auto_topup_solar_skip_min_margin_minutes,
+        metrics_history,
+    )
     html_content = build_dashboard_html(
         status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes,
         config.battery_capacity_wh, config.battery_bms_cutoff_soc,
@@ -1199,6 +1522,7 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
     except Exception:
         Path(tmp.name).unlink(missing_ok=True)
         raise
+    _write_json_atomic(resolve_dashboard_json_output(output_path), json_payload)
     return output_path
 
 

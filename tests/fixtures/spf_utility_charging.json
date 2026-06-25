@@ -1,0 +1,32 @@
+{
+  "device": {
+    "capacity": "53%",
+    "deviceType": "storage"
+  },
+  "storage_energy_overview": {
+    "eChargeToday": "9.8",
+    "eToUserToday": "14.2",
+    "epvTotal": "2870.4",
+    "useEnergyToday": "13.1"
+  },
+  "storage_params": {
+    "storageBean": {
+      "eChargeToday": 0,
+      "eToUserToday": 0,
+      "loadPercent": 32,
+      "outPutPower": 1557,
+      "outputConfig": "2",
+      "pAcInPut": 3880,
+      "pCharge": 2400,
+      "pGrid": 3880,
+      "ppv": 0
+    },
+    "storageDetailBean": {
+      "bmsSoc": 53,
+      "pCharge": 2400,
+      "pDischarge": 0,
+      "statusText": "AC charge and Bypass",
+      "vBat": 53.46
+    }
+  }
+}

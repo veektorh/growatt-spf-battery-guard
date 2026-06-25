@@ -582,6 +582,9 @@ The dashboard includes a health badge that turns stale when `dashboard.html` is 
 Each refresh also appends a compact local snapshot to `logs/dashboard_metrics.jsonl`.
 The dashboard uses that local history for PV/load/grid/SOC charts, so chart views do
 not add extra Growatt API calls.
+Each refresh also writes `dashboard.json` beside `dashboard.html`. The JSON file
+contains the same live metrics, metric source paths, freshness metadata, schedule
+summary, PVOutput state, and tonight risk planner data used by the dashboard.
 
 To use a 30-minute refresh interval instead:
 
@@ -605,10 +608,21 @@ http://localhost:8080/dashboard.html
 Check service status:
 
 ```bash
+.venv/bin/python growatt_power_guard.py service-status
 sudo systemctl status growatt-dashboard-refresh.service
 sudo systemctl status growatt-dashboard-server.service
 sudo systemctl status growatt-dashboard-stale-alert.timer
 ```
+
+For support/debugging without exposing secrets:
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py diagnostic-bundle
+```
+
+`diagnostic-bundle` is local/read-only and does not call Growatt. Use
+`health-check` when you specifically want a live cloud connectivity check.
 
 Stale dashboard alerts use Discord when `DISCORD_WEBHOOK_URL` is configured and `DISCORD_NOTIFY_FAILURE=true`:
 

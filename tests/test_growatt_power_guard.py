@@ -104,6 +104,13 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertEqual(args.command, "health-check")
         self.assertTrue(args.notify)
 
+    def test_diagnostic_commands_are_available(self):
+        service_args = build_parser().parse_args(["service-status"])
+        bundle_args = build_parser().parse_args(["diagnostic-bundle"])
+
+        self.assertEqual(service_args.command, "service-status")
+        self.assertEqual(bundle_args.command, "diagnostic-bundle")
+
     def test_run_scheduled_command_is_available(self):
         args = build_parser().parse_args(["run-scheduled", "morning-preserve"])
 
@@ -223,6 +230,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertIn("Result: FAIL", report)
         self.assertIn("[FAIL] Cron jobs: missing", report)
+        self.assertIn("Next:", report)
 
     def test_check_cron_schedule_accepts_installed_jobs(self):
         schedule = {

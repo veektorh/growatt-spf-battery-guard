@@ -19,14 +19,17 @@ The project already has the main automation shape in place:
   summaries, emergency battery, runtime, and topup events.
 - Private Discord control bot with allowlisted slash commands.
 - Dashboard with live flow, daily energy totals, local metric history, charts,
-  freshness badge, stale alerts, PVOutput status, schedule visibility, and
-  system/automation cards.
+  freshness badge, stale alerts, PVOutput status, schedule visibility, tonight
+  risk planning, JSON export, metric source paths, and system/automation cards.
 - Shared observability refresh: one Growatt read updates the dashboard and
   PVOutput, avoiding duplicate pollers.
 - PVOutput upload with fallback when extended fields are rejected.
 - Schedule overrides, named outage profiles, dry-plan preview, and safer update
   script gates.
 - Unit tests split by module and a public-repo hygiene guide.
+- Read-only `service-status` and `diagnostic-bundle` commands for VPS support.
+- Public-safe SPF fixtures for parser regression tests.
+- Health checks include next-step remediation hints.
 
 ## Next Best Things
 
@@ -35,42 +38,30 @@ The project already has the main automation shape in place:
 Why: dashboard values now matter operationally, so the metric extraction layer
 should be explicit and reusable.
 
-- Generate `dashboard.json` beside `dashboard.html`.
-- Include live metrics, daily totals, source paths, generated time, freshness,
-  PVOutput state, pause state, and next jobs.
-- Show metric source hints in the dashboard when useful, for example which
-  Growatt key produced `Load Today`.
-- Add tests from redacted SPF fixture payloads so future Growatt key changes are
-  caught before deploy.
+- Expand `dashboard.json` into a stable external contract with semantic version
+  notes and documented fields.
+- Add dashboard source-path tooltips for ambiguous values.
+- Add reconciliation checks when PV/grid/load/battery totals do not add up.
 
 ### 2. Service Status And Diagnostic Bundle
 
 Why: when something looks wrong on the VPS, the next step should be one command.
 
-- Add `service-status` command for cron, dashboard refresh service, dashboard
-  server, stale-alert timer, and Discord bot service.
-- Add `diagnostic-bundle` command that prints/redacts:
-  - `health-check`
-  - service status summaries
-  - recent mode decisions
-  - recent errors
-  - dashboard freshness
-  - active pause/topup state
-- Keep it read-only and safe to paste into support chats.
+- Add optional `--include-cloud` to run live `health-check` inside the bundle.
+- Add `--json` output for automation/monitoring.
+- Add more systemd detail: enabled/disabled and recent restart count.
 
 ### 3. Public-Safe Fixture Library
 
 Why: Growatt returns duplicate and inconsistent fields. Fixtures make parser
 fixes faster and safer.
 
-- Add redacted `tests/fixtures/` payloads for:
-  - SBU discharging
-  - Utility charging
+- Add more fixture variants:
   - PV charging plus load
-  - duplicate zero/non-zero daily totals
   - missing grid import live power
-- Cover dashboard extraction, PVOutput extraction, status summary, and Discord
-  dashboard embed parsing with those fixtures.
+  - unavailable SOC/output source paths
+- Cover PVOutput extraction, status summary, and Discord dashboard embed parsing
+  with the fixtures.
 - Add a fixture redaction helper for future probe files.
 
 ### 4. Health Check Remediation Mode

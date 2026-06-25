@@ -1,0 +1,35 @@
+{
+  "device": {
+    "capacity": "47%",
+    "deviceType": "storage"
+  },
+  "storage_energy_overview": {
+    "eChargeToday": "10.5",
+    "eToUserToday": "13.7",
+    "epvTotal": "2864.1",
+    "useEnergyToday": "12.5"
+  },
+  "storage_params": {
+    "storageBean": {
+      "eChargeToday": 0,
+      "eToUserToday": 0,
+      "epvTotal": 0,
+      "epvToday": 0.4,
+      "loadPercent": 38,
+      "outPutPower": 1145,
+      "outputConfig": "0",
+      "pGrid": 0,
+      "pPv1": 337,
+      "pPv2": 692,
+      "ppv": 337,
+      "useEnergyToday": 0
+    },
+    "storageDetailBean": {
+      "bmsSoc": 47,
+      "pCharge": 0,
+      "pDischarge": 374,
+      "statusText": "Discharging",
+      "vBat": 52.1
+    }
+  }
+}
