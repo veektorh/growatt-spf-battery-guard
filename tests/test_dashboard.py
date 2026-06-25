@@ -32,7 +32,14 @@ from growatt_guard.dashboard import (
 class DashboardTests(unittest.TestCase):
     def test_dashboard_writes_html(self):
         config = make_config()
-        status = {"device": {"capacity": "50%"}, "storage_params": {"outputConfig": "0"}}
+        status = {
+            "device": {"capacity": "50%"},
+            "storage_params": {
+                "outputConfig": "0",
+                "storageBean": {"pGrid": 0, "eToUserToday": 0},
+            },
+            "storage_energy_overview": {"eToUserToday": "13.7"},
+        }
         schedule = {
             "timezone": "Africa/Lagos",
             "jobs": [{"id": "morning-preserve", "name": "Preserve", "cron": "30 6 * * *", "command": "preserve-battery"}],
@@ -58,6 +65,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Growatt Dashboard", html)
         self.assertIn("Dashboard Health", html)
         self.assertIn("Live energy flow", html)
+        self.assertIn("Grid Import Now", html)
+        self.assertIn("Grid Import Today", html)
+        self.assertIn("13.7 kWh", html)
         self.assertIn("Energy Trends", html)
         self.assertIn("data-refresh-badge", html)
         self.assertIn("Cloud Streak", html)
@@ -117,6 +127,8 @@ class DashboardTests(unittest.TestCase):
                     "outputConfig": "0",
                     "ppv": 906,
                     "epvToday": 1.2,
+                    "pGrid": 0,
+                    "eToUserToday": 0,
                     "outPutPower": 1145,
                     "eLoadToday": 11.8,
                 },
@@ -128,6 +140,7 @@ class DashboardTests(unittest.TestCase):
                     "statusText": "Discharging",
                 },
             },
+            "storage_energy_overview": {"eToUserToday": "13.7"},
         }
 
         metrics = extract_dashboard_metrics(status, now=now)
@@ -135,6 +148,8 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(metrics["soc"], 47)
         self.assertEqual(metrics["pv_w"], 906)
         self.assertEqual(metrics["pv_today_kwh"], 1.2)
+        self.assertEqual(metrics["grid_w"], 0)
+        self.assertEqual(metrics["grid_today_kwh"], 13.7)
         self.assertEqual(metrics["load_w"], 1145)
         self.assertEqual(metrics["discharge_w"], 374)
         self.assertEqual(metrics["battery_net_w"], 374)

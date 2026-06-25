@@ -71,6 +71,8 @@ GRID_POWER_KEYS = (
 GRID_TODAY_KEYS = (
     "eGridToday", "eGridTodayText", "eToUserToday", "eToUserTodayText",
     "eImportToday", "eImportTodayText", "eAcChargeToday", "eacChargeToday",
+    "eGridChargeToday", "eGridChargeTodayText", "eGridImportToday",
+    "eGridImportTodayText", "eBuyToday", "eBuyTodayText",
 )
 CHARGE_POWER_KEYS = ("pCharge", "pChargeText", "chargePower")
 DISCHARGE_POWER_KEYS = ("pDischarge", "pDischargeText", "dischargePower")
@@ -137,6 +139,18 @@ def _metric_sum(status: dict[str, Any], keys: tuple[str, ...]) -> float | None:
         total += parsed
         found = True
     return total if found else None
+
+
+def _metric_max(status: dict[str, Any], keys: tuple[str, ...]) -> float | None:
+    values: list[float] = []
+    wanted = set(keys)
+    for path, value in deep_values(status):
+        if path.split(".")[-1] not in wanted:
+            continue
+        parsed = parse_number(value)
+        if parsed is not None:
+            values.append(parsed)
+    return max(values) if values else None
 
 
 def _metric_number_or_channel_sum(
@@ -222,7 +236,7 @@ def extract_dashboard_metrics(status: dict[str, Any], now: dt.datetime | None = 
         "load_today_kwh": _rounded(_metric_number(status, LOAD_TODAY_KEYS), 2),
         "grid_w": _rounded(grid_w, 0),
         "grid_source": grid_source,
-        "grid_today_kwh": _rounded(_metric_number(status, GRID_TODAY_KEYS), 2),
+        "grid_today_kwh": _rounded(_metric_max(status, GRID_TODAY_KEYS), 2),
         "charge_w": _rounded(charge_w, 0),
         "charge_today_kwh": _rounded(_metric_number(status, CHARGE_TODAY_KEYS), 2),
         "discharge_w": _rounded(discharge_w, 0),
@@ -657,17 +671,20 @@ def build_dashboard_html(
     discharge_today_display = _fmt_kwh(live_metrics.get("discharge_today_kwh"))
     load_today_display = _fmt_kwh(live_metrics.get("load_today_kwh"))
     grid_today_display = _fmt_kwh(live_metrics.get("grid_today_kwh"))
-    grid_detail = f"source: {grid_source}" if grid_source else ""
+    grid_detail_parts = [f"today {grid_today_display}"]
+    if grid_source:
+        grid_detail_parts.append(f"source: {grid_source}")
+    grid_detail = " / ".join(grid_detail_parts)
     pv_total_text = str(live_metrics.get("pv_total") or "").strip()
 
     parity_cards = "\n".join(
         [
             f'<div class="card accent-pv"><div class="label">PV Power</div><div class="value">{esc(pv_power_display)}</div><div class="muted small">today {esc(pv_today_display)}</div></div>',
-            f'<div class="card accent-grid"><div class="label">Grid Import</div><div class="value">{esc(grid_power_display)}</div><div class="muted small">{esc(grid_detail or "live estimate when API omits it")}</div></div>',
+            f'<div class="card accent-grid"><div class="label">Grid Import Now</div><div class="value">{esc(grid_power_display)}</div><div class="muted small">{esc(grid_detail)}</div></div>',
             f'<div class="card accent-load"><div class="label">Load Power</div><div class="value">{esc(load_power_display)}</div><div class="muted small">today {esc(load_today_display)}</div></div>',
             f'<div class="card accent-battery"><div class="label">Battery Charge</div><div class="value">{esc(charge_power_display)}</div><div class="muted small">today {esc(charge_today_display)}</div></div>',
             f'<div class="card accent-battery"><div class="label">Battery Discharge</div><div class="value">{esc(discharge_power_display)}</div><div class="muted small">today {esc(discharge_today_display)}</div></div>',
-            f'<div class="card"><div class="label">Grid Energy</div><div class="value">{esc(grid_today_display)}</div><div class="muted small">imported today</div></div>',
+            f'<div class="card"><div class="label">Grid Import Today</div><div class="value">{esc(grid_today_display)}</div><div class="muted small">cumulative energy</div></div>',
         ]
     )
     if pv_total_text:
