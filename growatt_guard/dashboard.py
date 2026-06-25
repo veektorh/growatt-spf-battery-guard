@@ -660,6 +660,76 @@ def build_dashboard_data_quality(
     }
 
 
+def build_dashboard_energy_balance(live_metrics: dict[str, Any]) -> dict[str, Any]:
+    """Compare daily energy supply and demand when Growatt exposes enough fields."""
+    supply_parts = [
+        ("PV today", "pv_today_kwh"),
+        ("grid import today", "grid_today_kwh"),
+        ("battery discharge today", "discharge_today_kwh"),
+    ]
+    demand_parts = [
+        ("load today", "load_today_kwh"),
+        ("battery charge today", "charge_today_kwh"),
+    ]
+    required_parts = supply_parts + demand_parts
+    missing = [
+        label
+        for label, key in required_parts
+        if not isinstance(live_metrics.get(key), (int, float))
+    ]
+    if missing:
+        return {
+            "level": "unknown",
+            "title": "Incomplete",
+            "detail": "Missing: " + ", ".join(missing) + ".",
+            "missing": missing,
+            "supply_kwh": None,
+            "demand_kwh": None,
+            "difference_kwh": None,
+            "difference_pct": None,
+        }
+
+    supply_kwh = sum(float(live_metrics[key]) for _, key in supply_parts)
+    demand_kwh = sum(float(live_metrics[key]) for _, key in demand_parts)
+    if supply_kwh <= 0 or demand_kwh <= 0:
+        return {
+            "level": "unknown",
+            "title": "Incomplete",
+            "detail": "Supply or demand is zero, so balance cannot be calculated.",
+            "missing": [],
+            "supply_kwh": round(supply_kwh, 2),
+            "demand_kwh": round(demand_kwh, 2),
+            "difference_kwh": round(supply_kwh - demand_kwh, 2),
+            "difference_pct": None,
+        }
+
+    difference_kwh = supply_kwh - demand_kwh
+    difference_pct = abs(difference_kwh) / max(supply_kwh, demand_kwh) * 100.0
+    if difference_pct <= 15:
+        level = "good"
+        title = "Balanced"
+    elif difference_pct <= 30:
+        level = "watch"
+        title = "Watch"
+    else:
+        level = "high"
+        title = "Mismatch"
+
+    return {
+        "level": level,
+        "title": title,
+        "detail": (
+            f"Supply {_fmt_kwh(supply_kwh)} vs demand {_fmt_kwh(demand_kwh)} "
+            f"(gap {_fmt_kwh(abs(difference_kwh))}, {difference_pct:.0f}%)."
+        ),
+        "missing": [],
+        "supply_kwh": round(supply_kwh, 2),
+        "demand_kwh": round(demand_kwh, 2),
+        "difference_kwh": round(difference_kwh, 2),
+        "difference_pct": round(difference_pct, 1),
+    }
+
+
 def _status_badge_class(level: str) -> str:
     if level in {"comfortable", "good", "ok"}:
         return "badge-ok"
@@ -695,6 +765,7 @@ def build_dashboard_data_payload(
     pvoutput_state = read_pvoutput_state()
     sources = extract_dashboard_metric_sources(status)
     data_quality = build_dashboard_data_quality(live_metrics, sources)
+    energy_balance = build_dashboard_energy_balance(live_metrics)
     risk = build_tonight_risk(
         live_metrics,
         battery_capacity_wh,
@@ -711,7 +782,7 @@ def build_dashboard_data_payload(
         "freshness": {"stale_after_minutes": stale_after_minutes},
         "live": live_metrics,
         "sources": sources,
-        "quality": {"data": data_quality},
+        "quality": {"data": data_quality, "energy_balance": energy_balance},
         "planner": {"tonight_risk": risk},
         "threshold": {
             "value": getattr(threshold_decision, "threshold", None),
@@ -1079,6 +1150,7 @@ def build_dashboard_html(
     grid_now_detail = "estimated from load + charge - PV" if grid_source == "estimated" else (grid_detail or "reported by Growatt")
     metric_sources = extract_dashboard_metric_sources(status)
     data_quality = build_dashboard_data_quality(live_metrics, metric_sources)
+    energy_balance = build_dashboard_energy_balance(live_metrics)
     quality_badge_class = _status_badge_class(str(data_quality.get("level", "unknown")))
     quality_title = str(data_quality.get("title", "Unknown"))
     quality_score = data_quality.get("score")
@@ -1093,6 +1165,9 @@ def build_dashboard_html(
         if isinstance(quality_score, (int, float))
         else quality_title
     )
+    balance_badge_class = _status_badge_class(str(energy_balance.get("level", "unknown")))
+    balance_title = str(energy_balance.get("title", "Unknown"))
+    balance_detail = str(energy_balance.get("detail", "Energy balance could not be calculated."))
 
     energy_cards = "\n".join(
         [
@@ -1632,6 +1707,11 @@ def build_dashboard_html(
         <div class="label">Data Quality</div>
         <div class="value"><span class="badge {esc(quality_badge_class)}">{esc(quality_display)}</span></div>
         <div class="muted small">{esc(quality_detail)}</div>
+      </div>
+      <div class="card">
+        <div class="label">Energy Balance</div>
+        <div class="value"><span class="badge {esc(balance_badge_class)}">{esc(balance_title)}</span></div>
+        <div class="muted small">{esc(balance_detail)}</div>
       </div>
       <div class="card">
         <div class="label">Projected Sunrise SOC</div>

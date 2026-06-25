@@ -22,6 +22,7 @@ from growatt_guard.audit import build_chart_data
 from growatt_guard.dashboard import (
     append_dashboard_metric_snapshot,
     build_dashboard_data_quality,
+    build_dashboard_energy_balance,
     build_dashboard_history_payload,
     build_dashboard_html,
     dashboard_asset_for_path,
@@ -91,6 +92,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Metric source paths", html)
         self.assertIn("Projected Sunrise SOC", html)
         self.assertIn("Data Quality", html)
+        self.assertIn("Energy Balance", html)
         self.assertIn("System & Automation", html)
         self.assertIn("13.7 kWh", html)
         self.assertIn("2.86 MWh", html)
@@ -109,6 +111,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(dashboard_json["live"]["grid_today_kwh"], 13.7)
         self.assertEqual(dashboard_json["sources"]["load_today_kwh"], "storage_energy_overview.useEnergyToday")
         self.assertEqual(dashboard_json["quality"]["data"]["level"], "poor")
+        self.assertEqual(dashboard_json["quality"]["energy_balance"]["level"], "unknown")
         self.assertIn("tonight_risk", dashboard_json["planner"])
 
         self.assertIsNotNone(html_asset)
@@ -198,6 +201,35 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(quality["score"], 78)
         self.assertIn("load now", quality["missing"])
         self.assertTrue(any("estimated" in item for item in quality["items"]))
+
+    def test_dashboard_energy_balance_reports_balanced_day(self):
+        balance = build_dashboard_energy_balance(
+            {
+                "pv_today_kwh": 1.2,
+                "grid_today_kwh": 13.7,
+                "discharge_today_kwh": 8.1,
+                "load_today_kwh": 12.5,
+                "charge_today_kwh": 10.5,
+            }
+        )
+
+        self.assertEqual(balance["level"], "good")
+        self.assertEqual(balance["title"], "Balanced")
+        self.assertEqual(balance["supply_kwh"], 23.0)
+        self.assertEqual(balance["demand_kwh"], 23.0)
+
+    def test_dashboard_energy_balance_reports_missing_fields(self):
+        balance = build_dashboard_energy_balance(
+            {
+                "pv_today_kwh": 1.2,
+                "grid_today_kwh": 13.7,
+                "load_today_kwh": 12.5,
+                "charge_today_kwh": 10.5,
+            }
+        )
+
+        self.assertEqual(balance["level"], "unknown")
+        self.assertIn("battery discharge today", balance["missing"])
 
     def test_dashboard_metrics_extracts_live_energy_values(self):
         now = dt.datetime(2026, 6, 25, 8, 30)

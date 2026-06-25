@@ -298,9 +298,10 @@ The server serves a static file. Growatt is only called by the refresh service e
 That refresh service uses one Growatt read for both `dashboard.html` and PVOutput uploads when PVOutput is enabled.
 The dashboard page shows a freshness badge, and `growatt-dashboard-stale-alert.timer` sends Discord alerts when `dashboard.html` is older than `DASHBOARD_STALE_MINUTES`.
 Each refresh also writes `dashboard.json` with live metrics, metric source paths,
-schedule summary, PVOutput state, data-quality status, and tonight risk planner
-data for monitors or future apps. The built-in dashboard server serves it at
-`/dashboard.json` without making another Growatt API call.
+schedule summary, PVOutput state, data-quality status, energy-balance status,
+and tonight risk planner data for monitors or future apps. The built-in
+dashboard server serves it at `/dashboard.json` without making another Growatt
+API call.
 
 ```text
 DASHBOARD_STALE_MINUTES=30
