@@ -23,6 +23,7 @@ from growatt_guard.dashboard import (
     append_dashboard_metric_snapshot,
     build_dashboard_daily_insights,
     build_dashboard_daily_mix,
+    build_dashboard_data_payload,
     build_dashboard_data_quality,
     build_dashboard_energy_balance,
     build_dashboard_history_payload,
@@ -464,6 +465,40 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(payload["power"]["pv_w"], [500.0, 500.0])
         self.assertEqual(payload["soc"]["soc"], [50.0, 50.0])
         self.assertEqual(payload["daily"]["pv_kwh"][-1], 2.5)
+
+    def test_payload_is_json_serializable_when_paused(self):
+        # read_pause_state injects a raw datetime under paused_until_dt; it must
+        # not leak into the JSON payload (it crashed observability-refresh during
+        # overnight topup pauses). Assert json.dumps succeeds WITHOUT a default=
+        # fallback, proving no raw datetime survives into the payload.
+        status = {
+            "device": {"capacity": "50%"},
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {"bmsSoc": 50},
+            },
+        }
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+        paused = {
+            "paused_until": "2026-06-26T06:00:00+00:00",
+            "reason": "auto-topup",
+            "paused_until_dt": dt.datetime(2026, 6, 26, 6, 0, tzinfo=dt.timezone.utc),
+        }
+
+        with patch("growatt_guard.dashboard.read_pause_state", return_value=paused), patch(
+            "growatt_guard.dashboard.read_battery_alert_state", return_value=None
+        ), patch(
+            "growatt_guard.dashboard.read_growatt_cloud_failure_state", return_value=None
+        ), patch("growatt_guard.dashboard.read_pvoutput_state", return_value=None):
+            payload = build_dashboard_data_payload(
+                status, schedule, {"dates": {}}, None,
+                now=dt.datetime(2026, 6, 26, 2, 0).astimezone(),
+            )
+
+        # Strict serialization: no default= encoder. Raises if a datetime leaks.
+        json.dumps(payload)
+        self.assertNotIn("paused_until_dt", payload["automation"]["pause_state"])
+        self.assertEqual(payload["automation"]["pause_state"]["paused_until"], "2026-06-26T06:00:00+00:00")
 
     def test_dashboard_refresh_once_writes_and_exits(self):
         config = make_config()

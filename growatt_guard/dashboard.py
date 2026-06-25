@@ -1071,7 +1071,9 @@ def build_dashboard_data_payload(
         },
         "automation": {
             "pause": pause_message(pause_state) if pause_state else "active",
-            "pause_state": pause_state,
+            # Strip the internal paused_until_dt datetime helper; paused_until
+            # (ISO string) is already present and JSON-serializable.
+            "pause_state": {k: v for k, v in pause_state.items() if k != "paused_until_dt"} if pause_state else None,
             "emergency_alert": "active" if alert_state and alert_state.get("active") else "clear",
             "cloud_failure_streak": int(cloud_state.get("count", 0)) if cloud_state else 0,
             "today_override_note": str(today_override.get("note", "")).strip() or "none",
