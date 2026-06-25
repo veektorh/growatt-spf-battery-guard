@@ -98,6 +98,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Next Automation", html)
         self.assertIn("Energy Insights", html)
         self.assertIn("System & Automation", html)
+        self.assertIn("Operations Details", html)
+        self.assertIn("detail-panel", html)
         self.assertIn("13.7 kWh", html)
         self.assertIn("2.86 MWh", html)
         self.assertIn("10.5 kWh", html)

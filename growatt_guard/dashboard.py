@@ -1506,8 +1506,9 @@ def build_dashboard_html(
         else ""
     )
     upcoming_override_section = (
-        f"<h2>Upcoming Overrides</h2>"
-        f'<div class="table-wrap"><table><thead><tr><th>Date</th><th>Note</th><th>Actions</th></tr></thead><tbody>{upcoming_override_rows_html}</tbody></table></div>'
+        f'<details class="detail-panel"><summary><span>Upcoming Overrides</span>'
+        f'<span class="summary-meta">{len(upcoming_overrides)} active</span></summary>'
+        f'<div class="table-wrap"><table><thead><tr><th>Date</th><th>Note</th><th>Actions</th></tr></thead><tbody>{upcoming_override_rows_html}</tbody></table></div></details>'
         if upcoming_overrides
         else ""
     )
@@ -1594,7 +1595,7 @@ def build_dashboard_html(
       gap: 16px;
       align-items: stretch;
     }}
-    .hero-panel, .flow-stage, .card, table, .source-drawer {{
+    .hero-panel, .flow-stage, .card, table, .detail-panel {{
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: var(--radius);
@@ -1712,8 +1713,26 @@ def build_dashboard_html(
     .status-ok {{ color: #111827; font-weight: 680; }}
     .status-skip {{ color: #111827; font-weight: 680; }}
     .status-replace {{ color: #111827; font-weight: 680; }}
-    .source-drawer {{ margin-top: 16px; padding: 12px 14px; }}
-    .source-drawer summary {{ cursor: pointer; font-weight: 680; color: #374151; }}
+    .details-stack {{ display: grid; gap: 10px; margin-top: 16px; }}
+    .detail-panel {{ padding: 0; overflow: hidden; }}
+    .detail-panel summary {{
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 16px;
+      font-weight: 680;
+      color: #374151;
+      list-style: none;
+    }}
+    .detail-panel summary::-webkit-details-marker {{ display: none; }}
+    .detail-panel summary::after {{ content: "+"; color: var(--soft); font-weight: 720; }}
+    .detail-panel[open] summary {{ border-bottom: 1px solid var(--line); }}
+    .detail-panel[open] summary::after {{ content: "-"; }}
+    .detail-panel .table-wrap {{ border: 0; border-radius: 0; margin-top: 0; }}
+    .detail-panel .card {{ border: 0; border-radius: 0; }}
+    .summary-meta {{ color: var(--muted); font-size: 12px; font-weight: 560; white-space: nowrap; }}
     @media (max-width: 1040px) {{
       .hero-grid, .chart-grid, .planner-grid, .flow-map {{ grid-template-columns: 1fr; }}
       .hero-panel, .flow-stage {{ min-height: auto; }}
@@ -1922,9 +1941,9 @@ def build_dashboard_html(
       <div class="card"><div class="label">Today Override</div><div class="value">{esc(override_note)}</div></div>
       {pvoutput_card}
     </section>
-    <details class="source-drawer">
-      <summary>Metric source paths</summary>
-      <div class="table-wrap" style="margin-top:12px;"><table><thead><tr><th>Metric</th><th>Source</th></tr></thead><tbody>{source_rows_html}</tbody></table></div>
+    <details class="detail-panel source-drawer">
+      <summary><span>Metric source paths</span><span class="summary-meta">debug</span></summary>
+      <div class="table-wrap"><table><thead><tr><th>Metric</th><th>Source</th></tr></thead><tbody>{source_rows_html}</tbody></table></div>
     </details>
 
     <h2>Energy Trends</h2>
@@ -1972,18 +1991,34 @@ def build_dashboard_html(
     </section>
     <script id="chart-data" type="application/json">{chart_data_json}</script>
     <script id="metric-history-data" type="application/json">{metric_history_json}</script>
-    <h2>Today&#8217;s Schedule - {esc(now.strftime('%A, %Y-%m-%d'))}</h2>
-    <div class="table-wrap"><table><thead><tr><th>Time</th><th>Job ID</th><th>Command</th><th>Status</th></tr></thead><tbody>{today_job_rows_html}</tbody></table></div>
-    {upcoming_override_section}
-    <h2>Next Scheduled Jobs</h2>
-    <div class="table-wrap"><table><thead><tr><th>Time</th><th>ID</th><th>Name</th><th>Command</th></tr></thead><tbody>{next_rows}</tbody></table></div>
-    <h2>Recent Mode Decisions</h2>
-    <div class="table-wrap"><table><thead><tr><th>Time</th><th>Command</th><th>Action</th><th>SOC</th><th>Previous Mode</th></tr></thead><tbody>{action_rows}</tbody></table></div>
-    <h2>Automation Notes</h2>
-    <div class="card">
-      <div>Threshold: {esc(threshold_decision.reason)}</div>
-      <div>Skipped today: {esc(skipped or 'none')}</div>
+    <div class="section-head">
+      <div>
+        <h2>Operations Details</h2>
+        <div class="muted">Schedules, upcoming runs, audit rows, and low-level notes when you need to inspect them.</div>
+      </div>
     </div>
+    <section class="details-stack">
+      <details class="detail-panel" open>
+        <summary><span>Today&#8217;s Schedule - {esc(now.strftime('%A, %Y-%m-%d'))}</span><span class="summary-meta">{len(today_jobs)} jobs</span></summary>
+        <div class="table-wrap"><table><thead><tr><th>Time</th><th>Job ID</th><th>Command</th><th>Status</th></tr></thead><tbody>{today_job_rows_html}</tbody></table></div>
+      </details>
+      {upcoming_override_section}
+      <details class="detail-panel">
+        <summary><span>Next Scheduled Jobs</span><span class="summary-meta">{len(next_runs)} queued</span></summary>
+        <div class="table-wrap"><table><thead><tr><th>Time</th><th>ID</th><th>Name</th><th>Command</th></tr></thead><tbody>{next_rows}</tbody></table></div>
+      </details>
+      <details class="detail-panel">
+        <summary><span>Recent Mode Decisions</span><span class="summary-meta">{len(last_actions)} rows</span></summary>
+        <div class="table-wrap"><table><thead><tr><th>Time</th><th>Command</th><th>Action</th><th>SOC</th><th>Previous Mode</th></tr></thead><tbody>{action_rows}</tbody></table></div>
+      </details>
+      <details class="detail-panel">
+        <summary><span>Automation Notes</span><span class="summary-meta">context</span></summary>
+        <div class="card">
+          <div>Threshold: {esc(threshold_decision.reason)}</div>
+          <div>Skipped today: {esc(skipped or 'none')}</div>
+        </div>
+      </details>
+    </section>
   </main>
   <script>
     (function () {{
