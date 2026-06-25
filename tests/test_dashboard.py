@@ -18,7 +18,15 @@ from growatt_power_guard import (
     read_dashboard_stale_alert_state,
 )
 from growatt_guard.audit import build_chart_data
-from growatt_guard.dashboard import build_dashboard_html, _today_job_rows, _upcoming_override_rows
+from growatt_guard.dashboard import (
+    append_dashboard_metric_snapshot,
+    build_dashboard_history_payload,
+    build_dashboard_html,
+    extract_dashboard_metrics,
+    read_dashboard_metrics_history,
+    _today_job_rows,
+    _upcoming_override_rows,
+)
 
 
 class DashboardTests(unittest.TestCase):
@@ -40,6 +48,8 @@ class DashboardTests(unittest.TestCase):
             return_value=ThresholdDecision(50, "weather disabled; using fixed threshold 50%"),
         ), patch(
             "growatt_guard.state.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+        ), patch(
+            "growatt_guard.dashboard.DASHBOARD_METRICS_FILE", Path(tmpdir) / "dashboard_metrics.jsonl"
         ), patch("growatt_guard.dashboard.read_mode_audit_rows", return_value=[]), redirect_stdout(StringIO()):
             output = Path(tmpdir) / "dashboard.html"
             self.assertEqual(command_dashboard(config, str(output)), 0)
@@ -47,6 +57,8 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("Growatt Dashboard", html)
         self.assertIn("Dashboard Health", html)
+        self.assertIn("Live energy flow", html)
+        self.assertIn("Energy Trends", html)
         self.assertIn("data-refresh-badge", html)
         self.assertIn("Cloud Streak", html)
         self.assertIn("50%", html)
@@ -95,6 +107,59 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("Topup to Sunrise", html)
         self.assertIn("20min", html)
+
+    def test_dashboard_metrics_extracts_live_energy_values(self):
+        now = dt.datetime(2026, 6, 25, 8, 30)
+        status = {
+            "device": {"capacity": "47%"},
+            "storage_params": {
+                "storageBean": {
+                    "outputConfig": "0",
+                    "ppv": 906,
+                    "epvToday": 1.2,
+                    "outPutPower": 1145,
+                    "eLoadToday": 11.8,
+                },
+                "storageDetailBean": {
+                    "bmsSoc": 47,
+                    "pDischarge": 374,
+                    "pCharge": 0,
+                    "vBat": 52.1,
+                    "statusText": "Discharging",
+                },
+            },
+        }
+
+        metrics = extract_dashboard_metrics(status, now=now)
+
+        self.assertEqual(metrics["soc"], 47)
+        self.assertEqual(metrics["pv_w"], 906)
+        self.assertEqual(metrics["pv_today_kwh"], 1.2)
+        self.assertEqual(metrics["load_w"], 1145)
+        self.assertEqual(metrics["discharge_w"], 374)
+        self.assertEqual(metrics["battery_net_w"], 374)
+
+    def test_dashboard_metrics_history_roundtrip_and_payload(self):
+        status = {
+            "device": {"capacity": "50%"},
+            "storage_params": {
+                "storageBean": {"outputConfig": "0", "ppv": 500, "outPutPower": 800, "epvToday": 2.5},
+                "storageDetailBean": {"bmsSoc": 50, "pDischarge": 300, "pCharge": 0},
+            },
+        }
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.dashboard.DASHBOARD_METRICS_FILE", Path(tmpdir) / "dashboard_metrics.jsonl"
+        ):
+            append_dashboard_metric_snapshot(status, now=dt.datetime(2026, 6, 25, 8, 0))
+            append_dashboard_metric_snapshot(status, now=dt.datetime(2026, 6, 25, 8, 10))
+            history = read_dashboard_metrics_history(now=dt.datetime(2026, 6, 25, 8, 15))
+            payload = build_dashboard_history_payload(history, now=dt.datetime(2026, 6, 25, 8, 15))
+
+        self.assertEqual(len(history), 2)
+        self.assertEqual(payload["power"]["pv_w"], [500.0, 500.0])
+        self.assertEqual(payload["soc"]["soc"], [50.0, 50.0])
+        self.assertEqual(payload["daily"]["pv_kwh"][-1], 2.5)
 
     def test_dashboard_refresh_once_writes_and_exits(self):
         config = make_config()
@@ -163,6 +228,8 @@ class DashboardTests(unittest.TestCase):
             "growatt_guard.dashboard.choose_preserve_threshold",
             return_value=ThresholdDecision(50, "fixed threshold"),
         ), patch(
+            "growatt_guard.dashboard.DASHBOARD_METRICS_FILE", Path(tmpdir) / "dashboard_metrics.jsonl"
+        ), patch(
             "growatt_guard.dashboard.publish_pvoutput_status_from_status",
             return_value=(True, "PVOutput OK: v2=1200"),
         ) as pvoutput_mock, patch(
@@ -203,6 +270,8 @@ class DashboardTests(unittest.TestCase):
             return_value=ThresholdDecision(50, "fixed threshold"),
         ), patch(
             "growatt_guard.state.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
+        ), patch(
+            "growatt_guard.dashboard.DASHBOARD_METRICS_FILE", Path(tmpdir) / "dashboard_metrics.jsonl"
         ), patch("growatt_guard.dashboard.read_mode_audit_rows", return_value=[]), redirect_stdout(StringIO()):
             output = Path(tmpdir) / "dashboard.html"
             command_dashboard(config, str(output))

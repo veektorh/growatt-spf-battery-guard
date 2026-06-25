@@ -579,6 +579,9 @@ growatt-dashboard-stale-alert.timer checks dashboard freshness every 10 minutes
 Browser refreshes do not call Growatt. Only the refresh service calls Growatt, and only on the configured interval.
 The refresh service uses one Growatt status read for both the dashboard and PVOutput uploads, if PVOutput is enabled.
 The dashboard includes a health badge that turns stale when `dashboard.html` is older than `DASHBOARD_STALE_MINUTES`.
+Each refresh also appends a compact local snapshot to `logs/dashboard_metrics.jsonl`.
+The dashboard uses that local history for PV/load/grid/SOC charts, so chart views do
+not add extra Growatt API calls.
 
 To use a 30-minute refresh interval instead:
 

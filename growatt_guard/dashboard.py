@@ -50,8 +50,31 @@ from growatt_guard.weather import choose_preserve_threshold, hours_until_next_su
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+LOG_DIR = BASE_DIR / "logs"
 DASHBOARD_FILE = BASE_DIR / "dashboard.html"
+DASHBOARD_METRICS_FILE = LOG_DIR / "dashboard_metrics.jsonl"
+DASHBOARD_METRICS_RETENTION_DAYS = 8
 MIN_DASHBOARD_REFRESH_MINUTES = 5
+
+PV_POWER_KEYS = ("ppv", "ppvText", "pPv", "pPv1", "pPv2", "pvPower")
+PV_TODAY_KEYS = ("epvToday", "ePvToday", "epvTodayTotal", "epv1Today", "epv2Today")
+PV_TOTAL_KEYS = ("epvTotal", "ePvTotal", "epvTotalText", "eTotal", "eTotalText")
+LOAD_POWER_KEYS = ("outPutPower", "outPutPower1", "activePower", "outPower")
+LOAD_TODAY_KEYS = ("eLoadToday", "eLoadTodayText", "eloadToday", "eConsumptionToday", "consumptionToday")
+GRID_POWER_KEYS = (
+    "pGrid", "pGridText", "gridPower", "pImport", "pImportText",
+    "pAcInput", "pAcInPut", "pacToUser", "pToUser",
+)
+GRID_TODAY_KEYS = (
+    "eGridToday", "eGridTodayText", "eToUserToday", "eToUserTodayText",
+    "eImportToday", "eImportTodayText", "eAcChargeToday", "eacChargeToday",
+)
+CHARGE_POWER_KEYS = ("pCharge", "pChargeText", "chargePower")
+DISCHARGE_POWER_KEYS = ("pDischarge", "pDischargeText", "dischargePower")
+CHARGE_TODAY_KEYS = ("eChargeToday", "eChargeTodayText", "eacChargeToday", "eAcChargeToday")
+DISCHARGE_TODAY_KEYS = ("eDischargeToday", "eDischargeTodayText")
+LOAD_PERCENT_KEYS = ("loadPercent", "loadPercent1")
+BATTERY_VOLTAGE_KEYS = ("vBat", "vBat1", "vbat")
 
 
 def app_module() -> Any:
@@ -89,6 +112,235 @@ def format_duration(seconds: float | None) -> str:
     if remaining_minutes == 0:
         return f"{hours} {unit}"
     return f"{hours} {unit} {remaining_minutes} minutes"
+
+
+def _metric_number(status: dict[str, Any], keys: tuple[str, ...]) -> float | None:
+    result = extract_first_metric(status, keys)
+    if result is None:
+        return None
+    return parse_number(result[0])
+
+
+def _metric_text(status: dict[str, Any], keys: tuple[str, ...]) -> str:
+    result = extract_first_metric(status, keys)
+    return str(result[0]) if result is not None else ""
+
+
+def _rounded(value: float | None, digits: int = 1) -> float | None:
+    if value is None:
+        return None
+    return round(value, digits)
+
+
+def _parse_metric_timestamp(row: dict[str, Any]) -> dt.datetime | None:
+    value = row.get("timestamp")
+    if not value:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed
+    return parsed.astimezone().replace(tzinfo=None)
+
+
+def _metric_date(row: dict[str, Any]) -> dt.date | None:
+    ts = _parse_metric_timestamp(row)
+    return ts.date() if ts else None
+
+
+def extract_dashboard_metrics(status: dict[str, Any], now: dt.datetime | None = None) -> dict[str, Any]:
+    now = now or dt.datetime.now().astimezone()
+    soc_result = extract_soc(status)
+    output_source = extract_spf_output_source(status)
+    pv_w = _metric_number(status, PV_POWER_KEYS)
+    load_w = _metric_number(status, LOAD_POWER_KEYS)
+    charge_w = _metric_number(status, CHARGE_POWER_KEYS)
+    discharge_w = _metric_number(status, DISCHARGE_POWER_KEYS)
+    grid_w = _metric_number(status, GRID_POWER_KEYS)
+    grid_source = "api" if grid_w is not None else ""
+    if grid_w is None and any(value is not None for value in (load_w, charge_w, pv_w)):
+        grid_w = max(0.0, (load_w or 0.0) + (charge_w or 0.0) - (pv_w or 0.0))
+        grid_source = "estimated"
+
+    battery_net_w: float | None = None
+    if charge_w is not None or discharge_w is not None:
+        battery_net_w = (discharge_w or 0.0) - (charge_w or 0.0)
+
+    return {
+        "timestamp": now.isoformat(timespec="seconds"),
+        "soc": _rounded(soc_result[0] if soc_result else None),
+        "soc_source": soc_result[1] if soc_result else "",
+        "mode_raw": output_source[0] if output_source else "",
+        "mode": output_source[1] if output_source else "",
+        "mode_source": output_source[2] if output_source else "",
+        "battery_status": extract_battery_status(status) or "",
+        "pv_w": _rounded(pv_w, 0),
+        "pv_today_kwh": _rounded(_metric_number(status, PV_TODAY_KEYS), 2),
+        "pv_total": _metric_text(status, PV_TOTAL_KEYS),
+        "load_w": _rounded(load_w, 0),
+        "load_pct": _rounded(_metric_number(status, LOAD_PERCENT_KEYS), 0),
+        "load_today_kwh": _rounded(_metric_number(status, LOAD_TODAY_KEYS), 2),
+        "grid_w": _rounded(grid_w, 0),
+        "grid_source": grid_source,
+        "grid_today_kwh": _rounded(_metric_number(status, GRID_TODAY_KEYS), 2),
+        "charge_w": _rounded(charge_w, 0),
+        "charge_today_kwh": _rounded(_metric_number(status, CHARGE_TODAY_KEYS), 2),
+        "discharge_w": _rounded(discharge_w, 0),
+        "discharge_today_kwh": _rounded(_metric_number(status, DISCHARGE_TODAY_KEYS), 2),
+        "battery_net_w": _rounded(battery_net_w, 0),
+        "vbat": _rounded(_metric_number(status, BATTERY_VOLTAGE_KEYS), 2),
+    }
+
+
+def read_dashboard_metrics_history(
+    now: dt.datetime | None = None,
+    days: int = DASHBOARD_METRICS_RETENTION_DAYS,
+) -> list[dict[str, Any]]:
+    if not DASHBOARD_METRICS_FILE.exists():
+        return []
+    now = now or dt.datetime.now()
+    if now.tzinfo is not None:
+        now = now.astimezone().replace(tzinfo=None)
+    cutoff = now - dt.timedelta(days=days)
+    rows: list[dict[str, Any]] = []
+    try:
+        lines = DASHBOARD_METRICS_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        ts = _parse_metric_timestamp(row)
+        if ts is None or ts < cutoff:
+            continue
+        rows.append(row)
+    rows.sort(key=lambda row: str(row.get("timestamp", "")))
+    return rows
+
+
+def _write_dashboard_metrics_history(rows: list[dict[str, Any]]) -> None:
+    DASHBOARD_METRICS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=DASHBOARD_METRICS_FILE.parent,
+        prefix=".dashboard_metrics_", suffix=".jsonl", delete=False,
+    )
+    try:
+        for row in rows:
+            tmp.write(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n")
+        tmp.flush()
+        tmp.close()
+        Path(tmp.name).replace(DASHBOARD_METRICS_FILE)
+    except Exception:
+        Path(tmp.name).unlink(missing_ok=True)
+        raise
+
+
+def append_dashboard_metric_snapshot(
+    status: dict[str, Any],
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    now = now or dt.datetime.now().astimezone()
+    metric = extract_dashboard_metrics(status, now=now)
+    rows = read_dashboard_metrics_history(now=now.replace(tzinfo=None))
+    rows.append(metric)
+    cutoff = now.replace(tzinfo=None) - dt.timedelta(days=DASHBOARD_METRICS_RETENTION_DAYS)
+    rows = [row for row in rows if (ts := _parse_metric_timestamp(row)) is not None and ts >= cutoff]
+    _write_dashboard_metrics_history(rows)
+    return metric
+
+
+def _fmt_w(value: float | None) -> str:
+    if value is None:
+        return "--"
+    if abs(value) >= 1000:
+        return f"{value / 1000:.1f} kW"
+    return f"{value:.0f} W"
+
+
+def _fmt_kwh(value: float | None) -> str:
+    if value is None:
+        return "--"
+    if abs(value) >= 1000:
+        return f"{value / 1000:.1f} MWh"
+    return f"{value:.1f} kWh"
+
+
+def _fmt_pct(value: float | None) -> str:
+    return "--" if value is None else f"{value:.0f}%"
+
+
+def _fmt_volts(value: float | None) -> str:
+    return "--" if value is None else f"{value:g} V"
+
+
+def _history_with_live(history: list[dict[str, Any]], live: dict[str, Any]) -> list[dict[str, Any]]:
+    if not history:
+        return [live]
+    if history[-1].get("timestamp") == live.get("timestamp"):
+        return history
+    return history + [live]
+
+
+def _series_value(row: dict[str, Any], key: str) -> float | None:
+    value = row.get(key)
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def build_dashboard_history_payload(
+    history: list[dict[str, Any]],
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    now = now or dt.datetime.now()
+    if now.tzinfo is not None:
+        now = now.astimezone().replace(tzinfo=None)
+    cutoff = now - dt.timedelta(hours=24)
+    recent = [
+        row for row in history
+        if (ts := _parse_metric_timestamp(row)) is not None and ts >= cutoff
+    ]
+    if len(recent) > 144:
+        step = max(1, len(recent) // 144)
+        recent = recent[::step]
+
+    def label(row: dict[str, Any]) -> str:
+        ts = _parse_metric_timestamp(row)
+        return ts.strftime("%H:%M") if ts else ""
+
+    dates = [(now.date() - dt.timedelta(days=i)) for i in range(6, -1, -1)]
+    latest_by_date: dict[str, dict[str, Any]] = {}
+    for row in history:
+        row_date = _metric_date(row)
+        if row_date is not None:
+            latest_by_date[row_date.isoformat()] = row
+
+    return {
+        "power": {
+            "labels": [label(row) for row in recent],
+            "pv_w": [_series_value(row, "pv_w") for row in recent],
+            "load_w": [_series_value(row, "load_w") for row in recent],
+            "grid_w": [_series_value(row, "grid_w") for row in recent],
+        },
+        "soc": {
+            "labels": [label(row) for row in recent],
+            "soc": [_series_value(row, "soc") for row in recent],
+        },
+        "daily": {
+            "labels": [day.strftime("%m-%d") for day in dates],
+            "pv_kwh": [_series_value(latest_by_date.get(day.isoformat(), {}), "pv_today_kwh") for day in dates],
+            "charge_kwh": [_series_value(latest_by_date.get(day.isoformat(), {}), "charge_today_kwh") for day in dates],
+            "discharge_kwh": [_series_value(latest_by_date.get(day.isoformat(), {}), "discharge_today_kwh") for day in dates],
+            "load_kwh": [_series_value(latest_by_date.get(day.isoformat(), {}), "load_today_kwh") for day in dates],
+            "grid_kwh": [_series_value(latest_by_date.get(day.isoformat(), {}), "grid_today_kwh") for day in dates],
+        },
+    }
 
 
 def dashboard_freshness(
@@ -256,10 +508,14 @@ def build_dashboard_html(
     auto_topup_solar_skip_min_margin_minutes: float = 60.0,
     auto_topup_min_minutes: float = 0.0,
     discord_topup_max_minutes: float = 0.0,
+    metrics_history: list[dict[str, Any]] | None = None,
 ) -> str:
     now = dt.datetime.now()
     generated_at = now.astimezone()
     generated_at_iso = generated_at.isoformat(timespec="seconds")
+    live_metrics = extract_dashboard_metrics(status, now=generated_at)
+    metric_history = _history_with_live(metrics_history or [], live_metrics)
+    metric_history_json = json.dumps(build_dashboard_history_payload(metric_history, now=now))
     soc_result = extract_soc(status)
     soc = f"{soc_result[0]:g}%" if soc_result else "Not found"
     output_source = extract_spf_output_source(status)
@@ -346,6 +602,41 @@ def build_dashboard_html(
     upcoming_overrides = _upcoming_override_rows(overrides, now.date())
     chart_data_json = json.dumps(build_chart_data(now=now))
     pvoutput_card = _pvoutput_card_html(read_pvoutput_state(), now)
+    pv_power_display = _fmt_w(live_metrics.get("pv_w"))
+    grid_power_display = _fmt_w(live_metrics.get("grid_w"))
+    grid_source = str(live_metrics.get("grid_source") or "")
+    load_power_display = _fmt_w(live_metrics.get("load_w"))
+    charge_power_display = _fmt_w(live_metrics.get("charge_w"))
+    discharge_power_display = _fmt_w(live_metrics.get("discharge_w"))
+    battery_flow_display = _fmt_w(abs(live_metrics["battery_net_w"])) if live_metrics.get("battery_net_w") is not None else "--"
+    battery_flow_dir = (
+        "discharging"
+        if (live_metrics.get("battery_net_w") or 0) > 0
+        else ("charging" if (live_metrics.get("battery_net_w") or 0) < 0 else "standby")
+    )
+    pv_today_display = _fmt_kwh(live_metrics.get("pv_today_kwh"))
+    charge_today_display = _fmt_kwh(live_metrics.get("charge_today_kwh"))
+    discharge_today_display = _fmt_kwh(live_metrics.get("discharge_today_kwh"))
+    load_today_display = _fmt_kwh(live_metrics.get("load_today_kwh"))
+    grid_today_display = _fmt_kwh(live_metrics.get("grid_today_kwh"))
+    grid_detail = f"source: {grid_source}" if grid_source else ""
+    pv_total_text = str(live_metrics.get("pv_total") or "").strip()
+
+    parity_cards = "\n".join(
+        [
+            f'<div class="card accent-pv"><div class="label">PV Power</div><div class="value">{esc(pv_power_display)}</div><div class="muted small">today {esc(pv_today_display)}</div></div>',
+            f'<div class="card accent-grid"><div class="label">Grid Import</div><div class="value">{esc(grid_power_display)}</div><div class="muted small">{esc(grid_detail or "live estimate when API omits it")}</div></div>',
+            f'<div class="card accent-load"><div class="label">Load Power</div><div class="value">{esc(load_power_display)}</div><div class="muted small">today {esc(load_today_display)}</div></div>',
+            f'<div class="card accent-battery"><div class="label">Battery Charge</div><div class="value">{esc(charge_power_display)}</div><div class="muted small">today {esc(charge_today_display)}</div></div>',
+            f'<div class="card accent-battery"><div class="label">Battery Discharge</div><div class="value">{esc(discharge_power_display)}</div><div class="muted small">today {esc(discharge_today_display)}</div></div>',
+            f'<div class="card"><div class="label">Grid Energy</div><div class="value">{esc(grid_today_display)}</div><div class="muted small">imported today</div></div>',
+        ]
+    )
+    if pv_total_text:
+        parity_cards += (
+            f'\n<div class="card"><div class="label">PV Lifetime</div>'
+            f'<div class="value">{esc(pv_total_text)}</div><div class="muted small">from Growatt</div></div>'
+        )
 
     next_rows = "\n".join(
         "<tr>"
@@ -413,9 +704,25 @@ def build_dashboard_html(
     h2 {{ font-size: 18px; margin: 28px 0 12px; }}
     .muted {{ color: #64727d; font-size: 14px; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 20px; }}
+    .flow-grid {{ display: grid; grid-template-columns: repeat(5, minmax(130px, 1fr)); gap: 12px; margin-top: 20px; align-items: stretch; }}
+    .flow-node {{ background: #fff; border: 1px solid #dce3e8; border-radius: 8px; padding: 14px; min-height: 116px; position: relative; }}
+    .flow-node::after {{ content: ""; position: absolute; top: 50%; right: -10px; width: 8px; height: 8px; border-top: 2px solid #8ea0ad; border-right: 2px solid #8ea0ad; transform: translateY(-50%) rotate(45deg); background: #f5f7f8; }}
+    .flow-node:last-child::after {{ display: none; }}
+    .flow-kicker {{ color: #64727d; font-size: 12px; text-transform: uppercase; letter-spacing: 0; }}
+    .flow-value {{ font-size: 24px; font-weight: 800; margin-top: 10px; line-height: 1.12; overflow-wrap: anywhere; }}
+    .flow-detail {{ color: #64727d; font-size: 13px; margin-top: 8px; }}
+    .chart-grid {{ display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, .9fr); gap: 12px; }}
+    .chart-card canvas {{ width: 100%; height: 220px; display: block; }}
+    .chart-card.compact canvas {{ height: 190px; }}
+    .legend {{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; color: #64727d; font-size: 13px; }}
+    .legend span::before {{ content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; background: var(--c); }}
     .card {{ background: #fff; border: 1px solid #dce3e8; border-radius: 8px; padding: 14px; }}
+    .accent-pv {{ border-left: 4px solid #25b8c7; }}
+    .accent-grid {{ border-left: 4px solid #f0b429; }}
+    .accent-load {{ border-left: 4px solid #f97373; }}
+    .accent-battery {{ border-left: 4px solid #4ade80; }}
     .label {{ color: #64727d; font-size: 12px; text-transform: uppercase; letter-spacing: 0; }}
-    .value {{ font-size: 22px; font-weight: 700; margin-top: 8px; }}
+    .value {{ font-size: 22px; font-weight: 700; margin-top: 8px; line-height: 1.15; overflow-wrap: anywhere; }}
     .small {{ font-size: 13px; margin-top: 8px; }}
     .badge {{ display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 9px; font-size: 14px; font-weight: 800; }}
     .badge-ok {{ background: #dff6e8; color: #155f34; }}
@@ -428,6 +735,11 @@ def build_dashboard_html(
     .status-ok {{ color: #155f34; font-weight: 600; }}
     .status-skip {{ color: #9a3526; font-weight: 600; }}
     .status-replace {{ color: #775800; font-weight: 600; }}
+    @media (max-width: 880px) {{
+      main {{ padding: 16px; }}
+      .flow-grid, .chart-grid {{ grid-template-columns: 1fr; }}
+      .flow-node::after {{ display: none; }}
+    }}
   </style>
 </head>
 <body>
@@ -435,6 +747,36 @@ def build_dashboard_html(
     <h1>Growatt Dashboard</h1>
     <div class="muted">Generated {esc(generated_at.strftime('%Y-%m-%d %H:%M:%S %Z'))}</div>
     {skip_all_banner}
+    <section class="flow-grid" aria-label="Live energy flow">
+      <div class="flow-node accent-pv">
+        <div class="flow-kicker">Solar</div>
+        <div class="flow-value">{esc(pv_power_display)}</div>
+        <div class="flow-detail">PV today {esc(pv_today_display)}</div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-kicker">Inverter</div>
+        <div class="flow-value">{esc(mode)}</div>
+        <div class="flow-detail">{esc(bat_status)}</div>
+      </div>
+      <div class="flow-node accent-load">
+        <div class="flow-kicker">Load</div>
+        <div class="flow-value">{esc(load_power_display)}</div>
+        <div class="flow-detail">{esc(load_pct)} load</div>
+      </div>
+      <div class="flow-node accent-battery">
+        <div class="flow-kicker">Battery</div>
+        <div class="flow-value">{esc(soc)}</div>
+        <div class="flow-detail">{esc(battery_flow_display)} {esc(battery_flow_dir)}</div>
+      </div>
+      <div class="flow-node accent-grid">
+        <div class="flow-kicker">Grid</div>
+        <div class="flow-value">{esc(grid_power_display)}</div>
+        <div class="flow-detail">{esc(grid_source or 'not reported')}</div>
+      </div>
+    </section>
+    <section class="grid">
+      {parity_cards}
+    </section>
     <section class="grid">
       <div class="card">
         <div class="label">Dashboard Health</div>
@@ -468,6 +810,41 @@ def build_dashboard_html(
       <canvas id="history-chart" style="width:100%;height:160px;display:block;"></canvas>
     </div>
     <script id="chart-data" type="application/json">{chart_data_json}</script>
+    <h2>Energy Trends</h2>
+    <section class="chart-grid">
+      <div class="card chart-card">
+        <div class="label">Power Today</div>
+        <canvas id="power-trend-chart"></canvas>
+        <div class="legend">
+          <span style="--c:#25b8c7">PV</span>
+          <span style="--c:#f97373">Load</span>
+          <span style="--c:#6366f1">Grid</span>
+        </div>
+      </div>
+      <div class="card chart-card compact">
+        <div class="label">Battery SOC</div>
+        <canvas id="soc-trend-chart"></canvas>
+        <div class="legend"><span style="--c:#4ade80">SOC</span></div>
+      </div>
+      <div class="card chart-card compact">
+        <div class="label">7-Day Battery Energy</div>
+        <canvas id="battery-energy-chart"></canvas>
+        <div class="legend">
+          <span style="--c:#4ade80">Charge</span>
+          <span style="--c:#a58b27">Discharge</span>
+        </div>
+      </div>
+      <div class="card chart-card compact">
+        <div class="label">7-Day Supply Mix</div>
+        <canvas id="supply-energy-chart"></canvas>
+        <div class="legend">
+          <span style="--c:#25b8c7">PV</span>
+          <span style="--c:#f0b429">Grid</span>
+          <span style="--c:#f97373">Load</span>
+        </div>
+      </div>
+    </section>
+    <script id="metric-history-data" type="application/json">{metric_history_json}</script>
     <h2>Next Scheduled Jobs</h2>
     <table><thead><tr><th>Time</th><th>ID</th><th>Name</th><th>Command</th></tr></thead><tbody>{next_rows}</tbody></table>
     <h2>Recent Mode Decisions</h2>
@@ -536,6 +913,147 @@ def build_dashboard_html(
       }}
     }})();
     (function () {{
+      const dataEl = document.getElementById("metric-history-data");
+      if (!dataEl) return;
+
+      function clean(values) {{
+        return values.map(function (v) {{ return typeof v === "number" && isFinite(v) ? v : null; }});
+      }}
+
+      function setupCanvas(id) {{
+        const canvas = document.getElementById(id);
+        if (!canvas) return null;
+        const ctx = canvas.getContext("2d");
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        const width = rect.width || 600;
+        const height = rect.height || 220;
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        ctx.scale(dpr, dpr);
+        return {{ canvas, ctx, width, height }};
+      }}
+
+      function noData(ctx, width, height) {{
+        ctx.fillStyle = "#64727d";
+        ctx.font = "13px system-ui, sans-serif";
+        ctx.fillText("No local history yet", 18, height / 2);
+      }}
+
+      function drawGrid(ctx, width, height, pad, maxVal, suffix) {{
+        ctx.font = "11px system-ui, sans-serif";
+        ctx.fillStyle = "#64727d";
+        ctx.strokeStyle = "#e8eef2";
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 4; i++) {{
+          const y = pad.top + ((height - pad.top - pad.bottom) / 4) * i;
+          const val = maxVal - (maxVal / 4) * i;
+          ctx.beginPath();
+          ctx.moveTo(pad.left, y);
+          ctx.lineTo(width - pad.right, y);
+          ctx.stroke();
+          ctx.fillText(Math.round(val) + suffix, 6, y + 4);
+        }}
+      }}
+
+      function drawLineChart(id, labels, series, options) {{
+        const setup = setupCanvas(id);
+        if (!setup) return;
+        const {{ ctx, width, height }} = setup;
+        const pad = {{ top: 14, right: 16, bottom: 28, left: 48 }};
+        const values = series.flatMap(function (s) {{ return clean(s.values).filter(function (v) {{ return v !== null; }}); }});
+        if (labels.length < 2 || values.length === 0) {{
+          noData(ctx, width, height);
+          return;
+        }}
+        const maxVal = Math.max(options.minMax || 1, ...values);
+        drawGrid(ctx, width, height, pad, maxVal, options.suffix || "");
+        const chartW = width - pad.left - pad.right;
+        const chartH = height - pad.top - pad.bottom;
+        series.forEach(function (s) {{
+          const vals = clean(s.values);
+          ctx.strokeStyle = s.color;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          let started = false;
+          vals.forEach(function (value, index) {{
+            if (value === null) return;
+            const x = pad.left + (chartW * index) / Math.max(1, labels.length - 1);
+            const y = pad.top + chartH - (value / maxVal) * chartH;
+            if (!started) {{
+              ctx.moveTo(x, y);
+              started = true;
+            }} else {{
+              ctx.lineTo(x, y);
+            }}
+          }});
+          ctx.stroke();
+        }});
+        ctx.fillStyle = "#64727d";
+        ctx.font = "11px system-ui, sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(labels[0] || "", pad.left, height - 8);
+        ctx.textAlign = "right";
+        ctx.fillText(labels[labels.length - 1] || "", width - pad.right, height - 8);
+        ctx.textAlign = "left";
+      }}
+
+      function drawBarChart(id, labels, series, suffix) {{
+        const setup = setupCanvas(id);
+        if (!setup) return;
+        const {{ ctx, width, height }} = setup;
+        const pad = {{ top: 14, right: 16, bottom: 34, left: 44 }};
+        const values = series.flatMap(function (s) {{ return clean(s.values).filter(function (v) {{ return v !== null; }}); }});
+        if (labels.length === 0 || values.length === 0) {{
+          noData(ctx, width, height);
+          return;
+        }}
+        const maxVal = Math.max(1, ...values);
+        drawGrid(ctx, width, height, pad, maxVal, suffix || "");
+        const chartW = width - pad.left - pad.right;
+        const chartH = height - pad.top - pad.bottom;
+        const groupW = chartW / labels.length;
+        const barW = Math.max(5, groupW / (series.length + 1) - 4);
+        series.forEach(function (s, si) {{
+          ctx.fillStyle = s.color;
+          clean(s.values).forEach(function (value, i) {{
+            if (value === null) return;
+            const x = pad.left + i * groupW + si * (barW + 4) + (groupW - series.length * (barW + 4)) / 2;
+            const barH = (value / maxVal) * chartH;
+            ctx.fillRect(x, pad.top + chartH - barH, barW, Math.max(1, barH));
+          }});
+        }});
+        ctx.fillStyle = "#64727d";
+        ctx.font = "11px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        labels.forEach(function (label, i) {{
+          ctx.fillText(label, pad.left + i * groupW + groupW / 2, height - 10);
+        }});
+        ctx.textAlign = "left";
+      }}
+
+      try {{
+        const data = JSON.parse(dataEl.textContent);
+        drawLineChart("power-trend-chart", data.power.labels || [], [
+          {{ color: "#25b8c7", values: data.power.pv_w || [] }},
+          {{ color: "#f97373", values: data.power.load_w || [] }},
+          {{ color: "#6366f1", values: data.power.grid_w || [] }}
+        ], {{ suffix: "W", minMax: 1000 }});
+        drawLineChart("soc-trend-chart", data.soc.labels || [], [
+          {{ color: "#4ade80", values: data.soc.soc || [] }}
+        ], {{ suffix: "%", minMax: 100 }});
+        drawBarChart("battery-energy-chart", data.daily.labels || [], [
+          {{ color: "#4ade80", values: data.daily.charge_kwh || [] }},
+          {{ color: "#a58b27", values: data.daily.discharge_kwh || [] }}
+        ], "kWh");
+        drawBarChart("supply-energy-chart", data.daily.labels || [], [
+          {{ color: "#25b8c7", values: data.daily.pv_kwh || [] }},
+          {{ color: "#f0b429", values: data.daily.grid_kwh || [] }},
+          {{ color: "#f97373", values: data.daily.load_kwh || [] }}
+        ], "kWh");
+      }} catch (e) {{ /* metric chart render failed */ }}
+    }})();
+    (function () {{
       const badge = document.querySelector("[data-refresh-badge]");
       const ageNode = document.querySelector("[data-refresh-age]");
       if (!badge || !ageNode) return;
@@ -597,6 +1115,8 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
     except Exception:  # noqa: BLE001
         pass
     output_path = resolve_dashboard_output(output)
+    append_dashboard_metric_snapshot(status, now=dt.datetime.now().astimezone())
+    metrics_history = read_dashboard_metrics_history()
     html_content = build_dashboard_html(
         status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes,
         config.battery_capacity_wh, config.battery_bms_cutoff_soc,
@@ -605,6 +1125,7 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
         config.auto_topup_solar_skip_min_margin_minutes,
         config.auto_topup_min_minutes,
         config.discord_topup_max_minutes,
+        metrics_history,
     )
     # Atomic write: temp file in same directory then rename to avoid serving
     # a partially written file when the browser auto-refreshes mid-write.
