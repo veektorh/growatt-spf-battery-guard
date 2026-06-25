@@ -139,6 +139,30 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(metrics["discharge_w"], 374)
         self.assertEqual(metrics["battery_net_w"], 374)
 
+    def test_dashboard_metrics_sums_pv_channels_when_total_is_lower(self):
+        now = dt.datetime(2026, 6, 25, 8, 30)
+        status = {
+            "device": {"capacity": "47%"},
+            "storage_params": {
+                "storageBean": {
+                    "outputConfig": "0",
+                    "ppv": 337,
+                    "pPv1": 337,
+                    "pPv2": 692,
+                    "epv1Today": 0.4,
+                    "epv2Today": 0.8,
+                    "epvTotal": 2.9,
+                },
+                "storageDetailBean": {"bmsSoc": 47},
+            },
+        }
+
+        metrics = extract_dashboard_metrics(status, now=now)
+
+        self.assertEqual(metrics["pv_w"], 1029)
+        self.assertEqual(metrics["pv_today_kwh"], 1.2)
+        self.assertEqual(metrics["pv_total"], "2.9 MWh")
+
     def test_dashboard_metrics_history_roundtrip_and_payload(self):
         status = {
             "device": {"capacity": "50%"},
