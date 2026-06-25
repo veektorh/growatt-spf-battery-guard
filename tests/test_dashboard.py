@@ -21,6 +21,7 @@ from growatt_power_guard import (
 from growatt_guard.audit import build_chart_data
 from growatt_guard.dashboard import (
     append_dashboard_metric_snapshot,
+    build_dashboard_daily_insights,
     build_dashboard_data_quality,
     build_dashboard_energy_balance,
     build_dashboard_history_payload,
@@ -95,6 +96,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Data Quality", html)
         self.assertIn("Energy Balance", html)
         self.assertIn("Next Automation", html)
+        self.assertIn("Energy Insights", html)
         self.assertIn("System & Automation", html)
         self.assertIn("13.7 kWh", html)
         self.assertIn("2.86 MWh", html)
@@ -114,6 +116,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(dashboard_json["sources"]["load_today_kwh"], "storage_energy_overview.useEnergyToday")
         self.assertEqual(dashboard_json["quality"]["data"]["level"], "poor")
         self.assertEqual(dashboard_json["quality"]["energy_balance"]["level"], "unknown")
+        self.assertIn("daily", dashboard_json["insights"])
         self.assertEqual(dashboard_json["schedule"]["next_action"]["job_id"], "morning-preserve")
         self.assertIn("tonight_risk", dashboard_json["planner"])
 
@@ -146,6 +149,34 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(action["minutes_until"], 30)
         self.assertEqual(action["relative"], "in 30min")
         self.assertIn("preserve-battery", action["detail"])
+
+    def test_dashboard_daily_insights_compare_same_time_history(self):
+        now = dt.datetime(2026, 6, 25, 9, 0)
+        live = {
+            "timestamp": now.isoformat(),
+            "pv_today_kwh": 2.0,
+            "load_today_kwh": 3.0,
+            "grid_today_kwh": 0.8,
+            "soc": 56,
+        }
+        history = [
+            {"timestamp": "2026-06-22T08:45:00", "pv_today_kwh": 1.0, "load_today_kwh": 4.0, "grid_today_kwh": 2.0, "soc": 45},
+            {"timestamp": "2026-06-22T09:15:00", "pv_today_kwh": 1.8, "load_today_kwh": 5.0, "grid_today_kwh": 3.0, "soc": 46},
+            {"timestamp": "2026-06-23T08:55:00", "pv_today_kwh": 1.2, "load_today_kwh": 4.2, "grid_today_kwh": 2.2, "soc": 47},
+            {"timestamp": "2026-06-24T08:50:00", "pv_today_kwh": 1.1, "load_today_kwh": 4.1, "grid_today_kwh": 2.1, "soc": 46},
+        ]
+
+        insights = build_dashboard_daily_insights(live, history, now=now)
+        items = {item["key"]: item for item in insights["items"]}
+
+        self.assertEqual(insights["status"], "good")
+        self.assertEqual(insights["sample_days"], 3)
+        self.assertEqual(items["pv_today_kwh"]["level"], "good")
+        self.assertEqual(items["load_today_kwh"]["level"], "good")
+        self.assertEqual(items["grid_today_kwh"]["level"], "good")
+        self.assertEqual(items["soc"]["level"], "good")
+        self.assertEqual(items["pv_today_kwh"]["baseline"], 1.1)
+        self.assertIn("same-time average", items["pv_today_kwh"]["detail"])
 
     def test_dashboard_topup_estimate_matches_auto_topup_floor(self):
         status = {

@@ -20,7 +20,8 @@ The project already has the main automation shape in place:
 - Private Discord control bot with allowlisted slash commands.
 - Dashboard with live flow, daily energy totals, local metric history, charts,
   freshness badge, stale alerts, PVOutput status, schedule visibility, tonight
-  risk planning, JSON export, metric source paths, and system/automation cards.
+  risk planning, same-time energy insights, JSON export, metric source paths,
+  and system/automation cards.
 - Shared observability refresh: one Growatt read updates the dashboard and
   PVOutput, avoiding duplicate pollers.
 - PVOutput upload with fallback when extended fields are rejected.

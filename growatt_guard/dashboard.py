@@ -489,6 +489,182 @@ def build_dashboard_history_payload(
     }
 
 
+def _minutes_since_midnight(value: dt.datetime) -> int:
+    return value.hour * 60 + value.minute
+
+
+def _same_time_baseline_rows(
+    history: list[dict[str, Any]],
+    now: dt.datetime,
+    days: int = 7,
+) -> list[dict[str, Any]]:
+    if now.tzinfo is not None:
+        now = now.astimezone().replace(tzinfo=None)
+
+    target_minute = _minutes_since_midnight(now)
+    cutoff = now.date() - dt.timedelta(days=days)
+    latest_by_day: dict[dt.date, tuple[dt.datetime, dict[str, Any]]] = {}
+    for row in history:
+        ts = _parse_metric_timestamp(row)
+        if ts is None:
+            continue
+        row_date = ts.date()
+        if row_date >= now.date() or row_date < cutoff:
+            continue
+        if _minutes_since_midnight(ts) > target_minute:
+            continue
+        current = latest_by_day.get(row_date)
+        if current is None or ts > current[0]:
+            latest_by_day[row_date] = (ts, row)
+
+    return [row for _, row in sorted(latest_by_day.values(), key=lambda item: item[0])]
+
+
+def _average_numeric(rows: list[dict[str, Any]], key: str) -> tuple[float | None, int]:
+    values = [float(row[key]) for row in rows if isinstance(row.get(key), (int, float))]
+    if not values:
+        return None, 0
+    return sum(values) / len(values), len(values)
+
+
+def _fmt_insight_value(value: float | None, unit: str) -> str:
+    if value is None:
+        return "--"
+    if unit == "%":
+        return _fmt_pct(value)
+    return _fmt_kwh(value)
+
+
+def _build_pace_item(
+    live_metrics: dict[str, Any],
+    baseline_rows: list[dict[str, Any]],
+    key: str,
+    label: str,
+    unit: str,
+    lower_is_better: bool = False,
+) -> dict[str, Any]:
+    current = live_metrics.get(key)
+    if not isinstance(current, (int, float)):
+        return {
+            "key": key,
+            "label": label,
+            "level": "unknown",
+            "title": "Not reported",
+            "detail": f"{label} is not available in the current Growatt payload.",
+            "current": None,
+            "baseline": None,
+            "delta": None,
+            "delta_pct": None,
+            "sample_count": 0,
+        }
+
+    baseline, sample_count = _average_numeric(baseline_rows, key)
+    if baseline is None or sample_count < 2:
+        return {
+            "key": key,
+            "label": label,
+            "level": "unknown",
+            "title": "Learning",
+            "detail": f"Need at least two recent same-time snapshots for {label.lower()}.",
+            "current": round(float(current), 2),
+            "baseline": None,
+            "delta": None,
+            "delta_pct": None,
+            "sample_count": sample_count,
+        }
+
+    delta = float(current) - baseline
+    delta_pct = (delta / baseline * 100.0) if baseline else None
+    if baseline == 0:
+        if current == 0:
+            level = "ok"
+            title = "Normal"
+        elif lower_is_better:
+            level = "watch"
+            title = "Above usual"
+        else:
+            level = "good"
+            title = "Ahead"
+    elif lower_is_better:
+        ratio = float(current) / baseline
+        if ratio <= 0.9:
+            level = "good"
+            title = "Lower than usual"
+        elif ratio >= 1.15:
+            level = "watch"
+            title = "Above usual"
+        else:
+            level = "ok"
+            title = "Normal"
+    else:
+        ratio = float(current) / baseline
+        if ratio >= 1.1:
+            level = "good"
+            title = "Ahead"
+        elif ratio <= 0.8:
+            level = "watch"
+            title = "Behind"
+        else:
+            level = "ok"
+            title = "Normal"
+
+    delta_text = ""
+    if delta_pct is not None:
+        delta_text = f", {delta_pct:+.0f}%"
+    detail = (
+        f"{_fmt_insight_value(float(current), unit)} vs "
+        f"{_fmt_insight_value(baseline, unit)} same-time average "
+        f"({sample_count} days{delta_text})."
+    )
+    return {
+        "key": key,
+        "label": label,
+        "level": level,
+        "title": title,
+        "detail": detail,
+        "current": round(float(current), 2),
+        "baseline": round(baseline, 2),
+        "delta": round(delta, 2),
+        "delta_pct": round(delta_pct, 1) if delta_pct is not None else None,
+        "sample_count": sample_count,
+    }
+
+
+def build_dashboard_daily_insights(
+    live_metrics: dict[str, Any],
+    history: list[dict[str, Any]],
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    now = now or dt.datetime.now()
+    baseline_rows = _same_time_baseline_rows(history, now)
+    items = [
+        _build_pace_item(live_metrics, baseline_rows, "pv_today_kwh", "PV pace", "kWh"),
+        _build_pace_item(live_metrics, baseline_rows, "load_today_kwh", "Load pace", "kWh", lower_is_better=True),
+        _build_pace_item(live_metrics, baseline_rows, "grid_today_kwh", "Grid pace", "kWh", lower_is_better=True),
+        _build_pace_item(live_metrics, baseline_rows, "soc", "SOC position", "%"),
+    ]
+    levels = {str(item.get("level")) for item in items}
+    if "watch" in levels:
+        status = "watch"
+        title = "Watch today"
+    elif levels == {"unknown"}:
+        status = "unknown"
+        title = "Learning"
+    elif "good" in levels and "unknown" not in levels:
+        status = "good"
+        title = "Better than usual"
+    else:
+        status = "ok"
+        title = "Normal day"
+
+    return {
+        "status": status,
+        "title": title,
+        "sample_days": len(baseline_rows),
+        "items": items,
+    }
+
+
 def _average_recent_discharge_w() -> float | None:
     history = read_discharge_rate_history()
     rates = [float(r["rate_w"]) for r in history if isinstance(r.get("rate_w"), (int, float))]
@@ -810,6 +986,7 @@ def build_dashboard_data_payload(
     data_quality = build_dashboard_data_quality(live_metrics, sources)
     energy_balance = build_dashboard_energy_balance(live_metrics)
     next_action = build_dashboard_next_action(schedule, now=now)
+    daily_insights = build_dashboard_daily_insights(live_metrics, metric_history, now=now)
     risk = build_tonight_risk(
         live_metrics,
         battery_capacity_wh,
@@ -827,6 +1004,7 @@ def build_dashboard_data_payload(
         "live": live_metrics,
         "sources": sources,
         "quality": {"data": data_quality, "energy_balance": energy_balance},
+        "insights": {"daily": daily_insights},
         "planner": {"tonight_risk": risk},
         "threshold": {
             "value": getattr(threshold_decision, "threshold", None),
@@ -1197,6 +1375,7 @@ def build_dashboard_html(
     metric_sources = extract_dashboard_metric_sources(status)
     data_quality = build_dashboard_data_quality(live_metrics, metric_sources)
     energy_balance = build_dashboard_energy_balance(live_metrics)
+    daily_insights = build_dashboard_daily_insights(live_metrics, metric_history, now=now)
     quality_badge_class = _status_badge_class(str(data_quality.get("level", "unknown")))
     quality_title = str(data_quality.get("title", "Unknown"))
     quality_score = data_quality.get("score")
@@ -1217,6 +1396,18 @@ def build_dashboard_html(
     next_action_relative = str(next_action.get("relative") or "none")
     next_action_title = str(next_action.get("title") or "No upcoming jobs")
     next_action_detail = str(next_action.get("detail") or "No scheduled jobs found.")
+    insight_cards = "\n".join(
+        (
+            '<article class="card insight-card">'
+            f'<div class="label">{esc(str(item.get("label", "")))}</div>'
+            f'<div class="value"><span class="badge {esc(_status_badge_class(str(item.get("level", "unknown"))))}">'
+            f'{esc(str(item.get("title", "Unknown")))}</span></div>'
+            f'<div class="muted small">{esc(str(item.get("detail", "")))}</div>'
+            "</article>"
+        )
+        for item in daily_insights.get("items", [])
+        if isinstance(item, dict)
+    )
 
     energy_cards = "\n".join(
         [
@@ -1516,8 +1707,10 @@ def build_dashboard_html(
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); gap: 12px; margin-top: 12px; }}
     .daily-grid {{ grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }}
     .ops-grid {{ grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }}
+    .insight-grid {{ grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }}
     .card {{ padding: 15px; }}
     .metric-card {{ min-height: 150px; display: grid; align-content: space-between; gap: 12px; }}
+    .insight-card {{ min-height: 132px; display: grid; align-content: space-between; gap: 10px; }}
     .metric-head {{ display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }}
     .metric-icon {{
       width: 42px;
@@ -1712,6 +1905,17 @@ def build_dashboard_html(
     </div>
     <section class="grid daily-grid">
       {energy_cards}
+    </section>
+
+    <div class="section-head">
+      <div>
+        <h2>Energy Insights</h2>
+        <div class="muted">Same-time comparison against recent local history, without extra Growatt calls.</div>
+      </div>
+      <span class="badge {esc(_status_badge_class(str(daily_insights.get("status", "unknown"))))}">{esc(str(daily_insights.get("title", "Learning")))}</span>
+    </div>
+    <section class="grid insight-grid">
+      {insight_cards}
     </section>
 
     <h2>Tonight Planner</h2>
