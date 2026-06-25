@@ -28,6 +28,7 @@ from growatt_guard.dashboard import (
     build_dashboard_history_payload,
     build_dashboard_html,
     build_dashboard_next_action,
+    build_dashboard_schedule_timeline,
     dashboard_asset_for_path,
     extract_dashboard_metrics,
     read_dashboard_metrics_history,
@@ -107,6 +108,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Next Automation", html)
         self.assertIn("Energy Insights", html)
         self.assertIn("System & Automation", html)
+        self.assertIn("Today Automation", html)
+        self.assertIn("timeline-list", html)
+        self.assertIn("Current and upcoming jobs", html)
         self.assertIn("System Status", html)
         self.assertIn("Recent Activity", html)
         self.assertIn("status-activity-grid", html)
@@ -135,6 +139,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(dashboard_json["insights"]["daily_mix"]["battery_net_title"], "Battery net unknown")
         self.assertEqual(dashboard_json["insights"]["daily_mix"]["supply_total_kwh"], 13.7)
         self.assertEqual(dashboard_json["schedule"]["next_action"]["job_id"], "morning-preserve")
+        self.assertEqual(dashboard_json["schedule"]["timeline"][0]["job_id"], "morning-preserve")
         self.assertIn("tonight_risk", dashboard_json["planner"])
 
         self.assertIsNotNone(html_asset)
@@ -166,6 +171,52 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(action["minutes_until"], 30)
         self.assertEqual(action["relative"], "in 30min")
         self.assertIn("preserve-battery", action["detail"])
+
+    def test_dashboard_schedule_timeline_groups_recurring_jobs(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {
+                    "id": "morning-preserve",
+                    "name": "Morning Preserve",
+                    "cron": "30 6 * * *",
+                    "command": "preserve-battery",
+                },
+                {
+                    "id": "morning-return",
+                    "name": "Morning Return",
+                    "cron": "55 7 * * *",
+                    "command": "return-sbu",
+                },
+                {
+                    "id": "battery-alert",
+                    "name": "Battery Alert",
+                    "cron": "*/30 * * * *",
+                    "command": "battery-alert",
+                },
+                {
+                    "id": "auto-topup-check",
+                    "name": "Auto Topup",
+                    "cron": "*/20 22-23,0-2 * * *",
+                    "command": "auto-topup-check",
+                },
+            ],
+        }
+
+        timeline = build_dashboard_schedule_timeline(
+            schedule,
+            {},
+            now=dt.datetime(2026, 6, 25, 7, 0),
+        )
+        by_id = {item["job_id"]: item for item in timeline}
+
+        self.assertEqual(by_id["morning-preserve"]["status"], "Passed")
+        self.assertEqual(by_id["morning-return"]["status"], "Next")
+        self.assertEqual(by_id["battery-alert"]["status"], "Monitoring")
+        self.assertEqual(by_id["battery-alert"]["time"], "00:00-23:30")
+        self.assertEqual(by_id["battery-alert"]["detail"], "battery-alert - every 30min")
+        self.assertEqual(by_id["auto-topup-check"]["status"], "Upcoming")
+        self.assertEqual(by_id["auto-topup-check"]["time"], "00:00-02:40, 22:00-23:40")
 
     def test_dashboard_daily_insights_compare_same_time_history(self):
         now = dt.datetime(2026, 6, 25, 9, 0)

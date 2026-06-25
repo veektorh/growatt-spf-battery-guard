@@ -1033,6 +1033,7 @@ def build_dashboard_data_payload(
     metric_history = _history_with_live(metrics_history or [], live_metrics)
     today_override = today_schedule_override(overrides, now.date())
     today_jobs = _today_job_rows(schedule, today_override, now.date())
+    schedule_timeline = build_dashboard_schedule_timeline(schedule, today_override, now=now)
     next_runs = next_scheduled_runs(schedule, now=now.replace(tzinfo=None), limit=8)
     pause_state = read_pause_state()
     alert_state = read_battery_alert_state()
@@ -1083,6 +1084,7 @@ def build_dashboard_data_payload(
                 {"time": t, "job_id": jid, "command": cmd, "status": st}
                 for t, jid, cmd, st in today_jobs
             ],
+            "timeline": schedule_timeline,
             "next_runs": [
                 {
                     "time": run_at.isoformat(timespec="minutes"),
@@ -1142,6 +1144,141 @@ def dashboard_freshness(
     }
 
 
+def _job_fires_between(job: dict[str, Any], start: dt.datetime, end: dt.datetime) -> list[dt.datetime]:
+    cron_expr = str(job.get("cron", ""))
+    fires: list[dt.datetime] = []
+    cursor = start
+    while cursor < end:
+        if cron_matches(cron_expr, cursor):
+            fires.append(cursor)
+        cursor += dt.timedelta(minutes=1)
+    return fires
+
+
+def _fire_window_groups(fires: list[dt.datetime]) -> tuple[list[list[dt.datetime]], int]:
+    if not fires:
+        return [], 0
+    intervals = [
+        int((later - earlier).total_seconds() / 60)
+        for earlier, later in zip(fires, fires[1:])
+        if later > earlier
+    ]
+    cadence = min(intervals) if intervals else 0
+    groups: list[list[dt.datetime]] = [[fires[0]]]
+    for fire in fires[1:]:
+        previous = groups[-1][-1]
+        gap_minutes = int((fire - previous).total_seconds() / 60)
+        if cadence and gap_minutes <= cadence + 1:
+            groups[-1].append(fire)
+        else:
+            groups.append([fire])
+    return groups, cadence
+
+
+def _format_fire_windows(fires: list[dt.datetime]) -> tuple[str, str]:
+    if not fires:
+        return "--", ""
+    if len(fires) == 1:
+        return fires[0].strftime("%H:%M"), "once"
+
+    groups, cadence = _fire_window_groups(fires)
+
+    windows = []
+    for group in groups[:2]:
+        start = group[0].strftime("%H:%M")
+        end = group[-1].strftime("%H:%M")
+        windows.append(start if start == end else f"{start}-{end}")
+    if len(groups) > 2:
+        windows.append(f"+{len(groups) - 2} windows")
+
+    cadence_text = f"every {format_duration_minutes(cadence)}" if cadence else "repeating"
+    return ", ".join(windows), cadence_text
+
+
+def build_dashboard_schedule_timeline(
+    schedule: dict[str, Any],
+    today_override: dict[str, Any],
+    now: dt.datetime | None = None,
+) -> list[dict[str, Any]]:
+    now = now or dt.datetime.now()
+    if now.tzinfo is not None:
+        now = now.astimezone().replace(tzinfo=None)
+    now = now.replace(second=0, microsecond=0)
+    start = dt.datetime.combine(now.date(), dt.time(0, 0))
+    end = start + dt.timedelta(days=1)
+    skip_all = bool(today_override.get("skip_all", False))
+    skip_ids = set(today_override.get("skip", []))
+    replace_map = today_override.get("replace") or {}
+
+    entries: list[dict[str, Any]] = []
+    for index, job in enumerate(schedule.get("jobs", []), start=1):
+        fires = _job_fires_between(job, start, end)
+        if not fires:
+            continue
+        job_id = schedule_job_id(job, index)
+        command = " ".join(schedule_job_tokens(job, index))
+        name = str(job.get("name", "")).strip() or job_id
+        time_label, cadence = _format_fire_windows(fires)
+        next_fire = next((fire for fire in fires if fire >= now), None)
+        first_fire = fires[0]
+        last_fire = fires[-1]
+        recurring = len(fires) > 1
+        fire_groups, _ = _fire_window_groups(fires)
+        active_window = any(group[0] <= now <= group[-1] for group in fire_groups)
+        detail_parts = [command]
+        if recurring and cadence:
+            detail_parts.append(cadence)
+
+        if skip_all or job_id in skip_ids:
+            state = "skipped"
+            status = "Skipped"
+            detail_parts.append("skipped by override")
+        elif job_id in replace_map:
+            state = "replaced"
+            status = "Replaced"
+            replacement = " ".join(schedule_job_tokens(replace_map[job_id], 0))
+            detail_parts = [f"replacement: {replacement}"]
+        elif recurring and active_window:
+            state = "monitoring"
+            status = "Monitoring"
+        elif next_fire is not None:
+            state = "upcoming"
+            status = "Upcoming"
+        else:
+            state = "passed"
+            status = "Passed"
+
+        entries.append(
+            {
+                "time": time_label,
+                "first_fire": first_fire.isoformat(timespec="minutes"),
+                "last_fire": last_fire.isoformat(timespec="minutes"),
+                "next_fire": next_fire.isoformat(timespec="minutes") if next_fire else None,
+                "job_id": job_id,
+                "name": name,
+                "command": command,
+                "status": status,
+                "state": state,
+                "detail": " - ".join(detail_parts),
+                "recurring": recurring,
+            }
+        )
+
+    def _entry_sort_key(entry: dict[str, Any]) -> tuple[int, str]:
+        next_fire = str(entry.get("next_fire") or "")
+        if entry.get("state") in {"monitoring", "upcoming"} and next_fire:
+            return (0, next_fire)
+        return (1, str(entry.get("first_fire") or ""))
+
+    entries.sort(key=_entry_sort_key)
+    for entry in entries:
+        if entry.get("state") == "upcoming":
+            entry["status"] = "Next"
+            entry["state"] = "next"
+            break
+    return entries
+
+
 def _today_job_rows(
     schedule: dict[str, Any],
     today_override: dict[str, Any],
@@ -1155,26 +1292,13 @@ def _today_job_rows(
     rows: list[tuple[str, str, str, str]] = []
     for index, job in enumerate(schedule.get("jobs", []), start=1):
         job_id = schedule_job_id(job, index)
-        cron_expr = str(job.get("cron", ""))
-        fires: list[dt.datetime] = []
-        cursor = start
-        while cursor < end:
-            if cron_matches(cron_expr, cursor):
-                fires.append(cursor)
-            cursor += dt.timedelta(minutes=1)
+        fires = _job_fires_between(job, start, end)
         if not fires:
             continue
         cmd = " ".join(schedule_job_tokens(job, index))
-        # Show interval label for sub-hourly repeating jobs
-        parts = cron_expr.strip().split()
-        if len(parts) == 5 and parts[0].startswith("*/") and parts[1] == "*":
-            try:
-                interval = int(parts[0][2:])
-                time_str = f"every {interval} min"
-            except ValueError:
-                time_str = fires[0].strftime("%H:%M")
-        else:
-            time_str = fires[0].strftime("%H:%M")
+        time_str, cadence = _format_fire_windows(fires)
+        if cadence.startswith("every ") and len(fires) > 8:
+            time_str = cadence
 
         if skip_all or job_id in skip_ids:
             status_str = "SKIP"
@@ -1349,6 +1473,7 @@ def build_dashboard_html(
     stale_minutes_text = f"{stale_after_minutes:g}"
 
     today_jobs = _today_job_rows(schedule, today_override, now.date())
+    schedule_timeline = build_dashboard_schedule_timeline(schedule, today_override, now=now)
     upcoming_overrides = _upcoming_override_rows(overrides, now.date())
     chart_data_json = json.dumps(build_chart_data(now=now))
     pvoutput_card = _pvoutput_card_html(read_pvoutput_state(), now)
@@ -1648,6 +1773,30 @@ def build_dashboard_html(
     )
     if not activity_items:
         activity_items = '<li class="activity-item muted">No recent mode decisions recorded.</li>'
+    timeline_badges = {
+        "next": "badge-ok",
+        "monitoring": "badge-ok",
+        "upcoming": "badge-warn",
+        "passed": "badge-warn",
+        "skipped": "badge-warn",
+        "replaced": "badge-warn",
+    }
+    timeline_items = "\n".join(
+        (
+            f'<li class="timeline-item timeline-{esc(str(item.get("state", "unknown")))}">'
+            '<div class="timeline-marker" aria-hidden="true"></div>'
+            '<div class="timeline-main">'
+            f'<strong>{esc(str(item.get("time", "--")))} - {esc(str(item.get("name", "")))}</strong>'
+            f'<span>{esc(str(item.get("detail", "")))}</span>'
+            '</div>'
+            f'<span class="badge {esc(timeline_badges.get(str(item.get("state", "")), "badge-warn"))}">'
+            f'{esc(str(item.get("status", "Unknown")))}</span>'
+            '</li>'
+        )
+        for item in schedule_timeline[:8]
+    )
+    if not timeline_items:
+        timeline_items = '<li class="timeline-item muted">No automation jobs scheduled today.</li>'
     today_job_rows_html = "\n".join(
         "<tr>"
         f"<td>{esc(t)}</td>"
@@ -1987,6 +2136,32 @@ def build_dashboard_html(
     .activity-item:last-child {{ border-bottom: 0; padding-bottom: 0; }}
     .activity-item strong {{ display: block; font-size: 14px; font-weight: 680; }}
     .activity-item span {{ display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }}
+    .timeline-card {{ margin-top: 12px; }}
+    .timeline-list {{ list-style: none; padding: 0; margin: 14px 0 0; display: grid; gap: 0; }}
+    .timeline-item {{
+      position: relative;
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: start;
+      padding: 0 0 16px;
+    }}
+    .timeline-item::before {{
+      content: "";
+      position: absolute;
+      left: 5px;
+      top: 16px;
+      bottom: 0;
+      width: 1px;
+      background: var(--line);
+    }}
+    .timeline-item:last-child {{ padding-bottom: 0; }}
+    .timeline-item:last-child::before {{ display: none; }}
+    .timeline-marker {{ width: 11px; height: 11px; margin-top: 4px; border-radius: 999px; border: 2px solid var(--accent); background: var(--panel); }}
+    .timeline-passed .timeline-marker, .timeline-skipped .timeline-marker, .timeline-replaced .timeline-marker {{ border-color: var(--line-strong); }}
+    .timeline-main {{ min-width: 0; }}
+    .timeline-main strong {{ display: block; font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }}
+    .timeline-main span {{ display: block; margin-top: 3px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }}
     @media (max-width: 1040px) {{
       .app-shell {{ grid-template-columns: 1fr; }}
       .sidebar {{
@@ -2238,6 +2413,18 @@ def build_dashboard_html(
       <div class="card"><div class="label">Cloud Streak</div><div class="value">{esc(cloud_streak)}</div></div>
       <div class="card"><div class="label">Today Override</div><div class="value">{esc(override_note)}</div></div>
       {pvoutput_card}
+    </section>
+    <section class="card timeline-card" aria-label="Today automation timeline">
+      <div class="mix-header">
+        <div>
+          <div class="label">Today Automation</div>
+          <div class="muted small">Current and upcoming jobs from the local schedule.</div>
+        </div>
+        <span class="pill">{len(schedule_timeline)} jobs</span>
+      </div>
+      <ol class="timeline-list">
+        {timeline_items}
+      </ol>
     </section>
     <section class="status-activity-grid" aria-label="System status and recent activity">
       <article class="card">
