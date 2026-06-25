@@ -1392,6 +1392,35 @@ def build_dashboard_html(
     next_action_relative = str(next_action.get("relative") or "none")
     next_action_title = str(next_action.get("title") or "No upcoming jobs")
     next_action_detail = str(next_action.get("detail") or "No scheduled jobs found.")
+    overview_cards = "\n".join(
+        [
+            (
+                f'<article class="card kpi-card"><div><div class="label">Battery SOC</div>'
+                f'<div class="value">{esc(soc)}</div></div>'
+                f'<div class="muted small">{esc(soc_health)} - {esc(mode)}</div></article>'
+            ),
+            (
+                f'<article class="card kpi-card"><div><div class="label">PV Now</div>'
+                f'<div class="value">{esc(pv_power_display)}</div></div>'
+                f'<div class="muted small">{esc(pv_today_display)} generated today</div></article>'
+            ),
+            (
+                f'<article class="card kpi-card"><div><div class="label">Load Now</div>'
+                f'<div class="value">{esc(load_power_display)}</div></div>'
+                f'<div class="muted small">{esc(load_today_display)} consumed today</div></article>'
+            ),
+            (
+                f'<article class="card kpi-card"><div><div class="label">Grid Import Now</div>'
+                f'<div class="value">{esc(grid_power_display)}</div></div>'
+                f'<div class="muted small">{esc(grid_now_detail)}</div></article>'
+            ),
+            (
+                f'<article class="card kpi-card"><div><div class="label">Next Automation</div>'
+                f'<div class="value">{esc(next_action_relative)}</div></div>'
+                f'<div class="muted small">{esc(next_action_title)}</div></article>'
+            ),
+        ]
+    )
     insight_cards = "\n".join(
         (
             '<article class="card insight-card">'
@@ -1536,6 +1565,7 @@ def build_dashboard_html(
       --radius: 10px;
     }}
     * {{ box-sizing: border-box; }}
+    html {{ scroll-behavior: smooth; }}
     body {{
       margin: 0;
       background: var(--surface);
@@ -1543,7 +1573,46 @@ def build_dashboard_html(
       font-size: 14px;
       line-height: 1.45;
     }}
-    main {{ max-width: 1360px; margin: 0 auto; padding: 32px 24px 48px; }}
+    .app-shell {{
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+      min-height: 100vh;
+    }}
+    .sidebar {{
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 24px 18px;
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+    }}
+    .sidebar-brand {{ display: flex; align-items: center; gap: 12px; margin-bottom: 36px; }}
+    .sidebar-title {{ font-weight: 760; font-size: 16px; }}
+    .sidebar-nav {{ display: grid; gap: 4px; }}
+    .sidebar-nav a {{
+      display: flex;
+      align-items: center;
+      min-height: 38px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      color: #374151;
+      text-decoration: none;
+      font-weight: 620;
+      font-size: 14px;
+    }}
+    .sidebar-nav a:hover, .sidebar-nav a.active {{ background: var(--accent-soft); color: #1d4ed8; }}
+    .sidebar-status {{
+      margin-top: auto;
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }}
+    main {{ max-width: 1360px; width: 100%; margin: 0 auto; padding: 32px 32px 48px; }}
     h1 {{ font-size: clamp(28px, 4vw, 40px); line-height: 1.05; margin: 0; letter-spacing: 0; font-weight: 760; }}
     h2 {{ font-size: 18px; line-height: 1.3; margin: 40px 0 0; letter-spacing: 0; font-weight: 720; }}
     code {{ color: #374151; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }}
@@ -1552,7 +1621,7 @@ def build_dashboard_html(
     .topbar {{
       display: flex;
       justify-content: space-between;
-      align-items: center;
+      align-items: flex-start;
       gap: 16px;
       margin-bottom: 32px;
     }}
@@ -1669,10 +1738,12 @@ def build_dashboard_html(
     .flow-detail {{ color: var(--muted); font-size: 13px; margin-top: 8px; }}
     .connector {{ display: none; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 16px; }}
+    .overview-grid {{ display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }}
     .daily-grid {{ grid-template-columns: repeat(auto-fit, minmax(224px, 1fr)); }}
     .ops-grid {{ grid-template-columns: repeat(auto-fit, minmax(216px, 1fr)); }}
     .insight-grid {{ grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)); }}
     .card {{ padding: 16px; }}
+    .kpi-card {{ min-height: 132px; display: grid; align-content: space-between; gap: 10px; }}
     .metric-card {{ min-height: 148px; display: grid; align-content: space-between; gap: 12px; }}
     .insight-card {{ min-height: 132px; display: grid; align-content: space-between; gap: 8px; }}
     .metric-head {{ display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }}
@@ -1734,10 +1805,22 @@ def build_dashboard_html(
     .detail-panel .card {{ border: 0; border-radius: 0; }}
     .summary-meta {{ color: var(--muted); font-size: 12px; font-weight: 560; white-space: nowrap; }}
     @media (max-width: 1040px) {{
+      .app-shell {{ grid-template-columns: 1fr; }}
+      .sidebar {{
+        position: static;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }}
+      .sidebar-brand {{ margin-bottom: 18px; }}
+      .sidebar-nav {{ grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }}
+      .sidebar-status {{ margin-top: 18px; }}
+      .overview-grid {{ grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }}
       .hero-grid, .chart-grid, .planner-grid, .flow-map {{ grid-template-columns: 1fr; }}
       .hero-panel, .flow-stage {{ min-height: auto; }}
     }}
     @media (max-width: 720px) {{
+      .sidebar {{ padding: 18px 14px; }}
       main {{ padding: 20px 14px 36px; }}
       .topbar, .section-head, .flow-head {{ align-items: flex-start; flex-direction: column; }}
       .top-actions {{ justify-content: flex-start; }}
@@ -1756,14 +1839,41 @@ def build_dashboard_html(
   </style>
 </head>
 <body>
+  <div class="app-shell">
+  <aside class="sidebar" aria-label="Dashboard sections">
+    <div class="sidebar-brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <div>
+        <div class="sidebar-title">Solar Inverter</div>
+        <div class="muted">Growatt Dashboard</div>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <a class="active" href="#overview">Overview</a>
+      <a href="#flow">Power Flow</a>
+      <a href="#daily">Daily Energy</a>
+      <a href="#planner">Tonight Planner</a>
+      <a href="#automation">Automation</a>
+      <a href="#trends">Trends</a>
+      <a href="#operations">Operations</a>
+    </nav>
+    <div class="sidebar-status">
+      <div>
+        <div class="label">System Status</div>
+        <div class="value"><span class="badge {esc(soc_health_class)}">{esc(soc_health)}</span></div>
+      </div>
+      <div>
+        <div class="label">Last Updated</div>
+        <div class="muted" data-refresh-age>Generated just now</div>
+      </div>
+    </div>
+  </aside>
   <main>
-    <header class="topbar">
-      <div class="brand">
-        <div class="brand-mark" aria-hidden="true"></div>
-        <div>
-          <div class="brand-title">Growatt Dashboard</div>
-          <div class="muted">Generated {esc(generated_at.strftime('%Y-%m-%d %H:%M:%S %Z'))}</div>
-        </div>
+    <header class="topbar" id="overview">
+      <div>
+        <div class="hero-kicker">Local solar dashboard</div>
+        <h1>Overview</h1>
+        <div class="muted">Generated {esc(generated_at.strftime('%Y-%m-%d %H:%M:%S %Z'))}</div>
       </div>
       <div class="top-actions">
         <span class="pill">Mode: {esc(mode)}</span>
@@ -1773,12 +1883,16 @@ def build_dashboard_html(
     </header>
     {skip_all_banner}
 
-    <section class="hero-grid">
+    <section class="overview-grid" aria-label="Overview metrics">
+      {overview_cards}
+    </section>
+
+    <section class="hero-grid" id="flow">
       <section class="hero-panel" aria-label="Battery command status">
         <div class="hero-copy">
-          <div class="hero-kicker">Solar command center</div>
-          <h1>Growatt Dashboard</h1>
-          <div class="hero-subtitle">Battery, grid, solar, schedule, topup planning, and automation health in one control surface.</div>
+          <div class="hero-kicker">Command status</div>
+          <h2>Battery and mode</h2>
+          <div class="hero-subtitle">SOC, inverter mode, load pressure, and sunrise survival in one glance.</div>
         </div>
         <div class="soc-command">
           <div class="soc-ring">
@@ -1854,7 +1968,7 @@ def build_dashboard_html(
         </div>
       </section>
     </section>
-    <div class="section-head">
+    <div class="section-head" id="daily">
       <div>
         <h2>Daily Energy</h2>
         <div class="muted">Production, consumption, grid import, and battery movement for today.</div>
@@ -1875,7 +1989,7 @@ def build_dashboard_html(
       {insight_cards}
     </section>
 
-    <h2>Tonight Planner</h2>
+    <h2 id="planner">Tonight Planner</h2>
     <section class="planner-grid">
       <div class="planner-card primary">
         <div class="label">Tonight Risk</div>
@@ -1899,7 +2013,7 @@ def build_dashboard_html(
       </div>
     </section>
 
-    <div class="section-head">
+    <div class="section-head" id="automation">
       <div>
         <h2>System & Automation</h2>
         <div class="muted">Operational state, dashboard freshness, alerts, and integration health.</div>
@@ -1946,7 +2060,7 @@ def build_dashboard_html(
       <div class="table-wrap"><table><thead><tr><th>Metric</th><th>Source</th></tr></thead><tbody>{source_rows_html}</tbody></table></div>
     </details>
 
-    <h2>Energy Trends</h2>
+    <h2 id="trends">Energy Trends</h2>
     <section class="chart-grid">
       <div class="card chart-card">
         <div class="label">Power Today</div>
@@ -1991,7 +2105,7 @@ def build_dashboard_html(
     </section>
     <script id="chart-data" type="application/json">{chart_data_json}</script>
     <script id="metric-history-data" type="application/json">{metric_history_json}</script>
-    <div class="section-head">
+    <div class="section-head" id="operations">
       <div>
         <h2>Operations Details</h2>
         <div class="muted">Schedules, upcoming runs, audit rows, and low-level notes when you need to inspect them.</div>
@@ -2020,6 +2134,7 @@ def build_dashboard_html(
       </details>
     </section>
   </main>
+  </div>
   <script>
     (function () {{
       const canvas = document.getElementById("history-chart");
@@ -2220,8 +2335,8 @@ def build_dashboard_html(
     }})();
     (function () {{
       const badge = document.querySelector("[data-refresh-badge]");
-      const ageNode = document.querySelector("[data-refresh-age]");
-      if (!badge || !ageNode) return;
+      const ageNodes = Array.from(document.querySelectorAll("[data-refresh-age]"));
+      if (!badge || ageNodes.length === 0) return;
 
       const generatedAt = new Date(badge.dataset.generatedAt);
       const staleMinutes = Number(badge.dataset.staleMinutes || "30");
@@ -2244,14 +2359,16 @@ def build_dashboard_html(
         if (Number.isNaN(generatedAt.getTime())) {{
           badge.textContent = "UNKNOWN";
           badge.className = "badge badge-warn";
-          ageNode.textContent = "Generated time could not be read.";
+          ageNodes.forEach(function (node) {{ node.textContent = "Generated time could not be read."; }});
           return;
         }}
         const ageMs = Date.now() - generatedAt.getTime();
         const stale = ageMs > staleMinutes * 60 * 1000;
         badge.textContent = stale ? "STALE" : "OK";
         badge.className = "badge " + (stale ? "badge-warn" : "badge-ok");
-        ageNode.textContent = "Generated " + formatAge(ageMs) + " ago; stale after " + staleMinutes + " minutes.";
+        ageNodes.forEach(function (node) {{
+          node.textContent = "Generated " + formatAge(ageMs) + " ago; stale after " + staleMinutes + " minutes.";
+        }});
       }}
 
       updateRefreshHealth();
