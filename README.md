@@ -584,7 +584,9 @@ The dashboard uses that local history for PV/load/grid/SOC charts, so chart view
 not add extra Growatt API calls.
 Each refresh also writes `dashboard.json` beside `dashboard.html`. The JSON file
 contains the same live metrics, metric source paths, freshness metadata, schedule
-summary, PVOutput state, and tonight risk planner data used by the dashboard.
+summary, PVOutput state, data-quality status, and tonight risk planner data used
+by the dashboard. The built-in dashboard server exposes it at `/dashboard.json`
+without making another Growatt API call.
 
 To use a 30-minute refresh interval instead:
 

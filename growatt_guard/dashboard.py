@@ -9,6 +9,7 @@ import socketserver
 import sys
 import tempfile
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -607,8 +608,60 @@ def build_tonight_risk(
     }
 
 
+def build_dashboard_data_quality(
+    live_metrics: dict[str, Any],
+    sources: dict[str, str],
+) -> dict[str, Any]:
+    required_metrics = [
+        ("SOC", "soc"),
+        ("mode", "mode"),
+        ("PV now", "pv_w"),
+        ("load now", "load_w"),
+        ("battery flow", "battery_net_w"),
+        ("PV today", "pv_today_kwh"),
+        ("load today", "load_today_kwh"),
+        ("grid import today", "grid_today_kwh"),
+        ("battery charge today", "charge_today_kwh"),
+    ]
+    missing = [
+        label
+        for label, key in required_metrics
+        if live_metrics.get(key) is None or live_metrics.get(key) == ""
+    ]
+    score = round(((len(required_metrics) - len(missing)) / len(required_metrics)) * 100)
+    if score >= 90:
+        level = "good"
+        title = "Good"
+    elif score >= 65:
+        level = "watch"
+        title = "Watch"
+    else:
+        level = "poor"
+        title = "Poor"
+
+    items: list[str] = []
+    if missing:
+        items.append("Missing: " + ", ".join(missing) + ".")
+    if live_metrics.get("grid_source") == "estimated":
+        items.append("Live grid power is estimated from load + charge - PV.")
+    if str(sources.get("pv_w", "")).startswith("channel-sum:"):
+        items.append("PV power is using summed PV channel values.")
+    if str(sources.get("pv_today_kwh", "")).startswith("channel-sum:"):
+        items.append("PV energy today is using summed PV channel values.")
+    if not items:
+        items.append("All key dashboard metrics are present.")
+
+    return {
+        "level": level,
+        "title": title,
+        "score": score,
+        "missing": missing,
+        "items": items,
+    }
+
+
 def _status_badge_class(level: str) -> str:
-    if level == "comfortable":
+    if level in {"comfortable", "good", "ok"}:
         return "badge-ok"
     if level in {"watch", "unknown"}:
         return "badge-warn"
@@ -640,6 +693,8 @@ def build_dashboard_data_payload(
     alert_state = read_battery_alert_state()
     cloud_state = read_growatt_cloud_failure_state()
     pvoutput_state = read_pvoutput_state()
+    sources = extract_dashboard_metric_sources(status)
+    data_quality = build_dashboard_data_quality(live_metrics, sources)
     risk = build_tonight_risk(
         live_metrics,
         battery_capacity_wh,
@@ -655,7 +710,8 @@ def build_dashboard_data_payload(
         "generated_at": now.isoformat(timespec="seconds"),
         "freshness": {"stale_after_minutes": stale_after_minutes},
         "live": live_metrics,
-        "sources": extract_dashboard_metric_sources(status),
+        "sources": sources,
+        "quality": {"data": data_quality},
         "planner": {"tonight_risk": risk},
         "threshold": {
             "value": getattr(threshold_decision, "threshold", None),
@@ -1021,6 +1077,22 @@ def build_dashboard_html(
     battery_charge_share_width = min(100.0, battery_charge_share) if battery_charge_share is not None else 0.0
     mode_badge_class = "badge-warn" if "utility" in mode.lower() else ("badge-ok" if "sbu" in mode.lower() else "badge-warn")
     grid_now_detail = "estimated from load + charge - PV" if grid_source == "estimated" else (grid_detail or "reported by Growatt")
+    metric_sources = extract_dashboard_metric_sources(status)
+    data_quality = build_dashboard_data_quality(live_metrics, metric_sources)
+    quality_badge_class = _status_badge_class(str(data_quality.get("level", "unknown")))
+    quality_title = str(data_quality.get("title", "Unknown"))
+    quality_score = data_quality.get("score")
+    quality_items = data_quality.get("items", [])
+    quality_detail = (
+        str(quality_items[0])
+        if isinstance(quality_items, list) and quality_items
+        else "Data quality could not be calculated."
+    )
+    quality_display = (
+        f"{quality_title} {quality_score}%"
+        if isinstance(quality_score, (int, float))
+        else quality_title
+    )
 
     energy_cards = "\n".join(
         [
@@ -1104,7 +1176,6 @@ def build_dashboard_html(
         "</tr>"
         for d, n, a in upcoming_overrides
     )
-    metric_sources = extract_dashboard_metric_sources(status)
     source_rows_html = "\n".join(
         "<tr>"
         f"<td>{esc(label)}</td>"
@@ -1556,6 +1627,11 @@ def build_dashboard_html(
           <span class="badge badge-ok" data-refresh-badge data-generated-at="{esc(generated_at_iso)}" data-stale-minutes="{esc(stale_minutes_text)}">OK</span>
         </div>
         <div class="muted small" data-refresh-age>Generated just now; stale after {esc(stale_minutes_text)} minutes.</div>
+      </div>
+      <div class="card">
+        <div class="label">Data Quality</div>
+        <div class="value"><span class="badge {esc(quality_badge_class)}">{esc(quality_display)}</span></div>
+        <div class="muted small">{esc(quality_detail)}</div>
       </div>
       <div class="card">
         <div class="label">Projected Sunrise SOC</div>
@@ -2091,26 +2167,43 @@ def command_dashboard_stale_alert(config: Any, output: str, max_age_minutes: flo
     return 0
 
 
+def dashboard_asset_for_path(output_path: Path, request_path: str) -> tuple[int, str, bytes] | None:
+    parsed_path = urllib.parse.urlsplit(request_path).path
+    if parsed_path in {"/", "/dashboard.html"}:
+        if not output_path.exists():
+            body = (
+                "<!doctype html><html><body><h1>Growatt Dashboard</h1>"
+                "<p>Dashboard has not been generated yet.</p></body></html>"
+            ).encode("utf-8")
+            return 503, "text/html; charset=utf-8", body
+        return 200, "text/html; charset=utf-8", output_path.read_bytes()
+
+    if parsed_path == "/dashboard.json":
+        json_path = resolve_dashboard_json_output(output_path)
+        if not json_path.exists():
+            body = json.dumps(
+                {
+                    "error": "dashboard_json_not_generated",
+                    "message": "dashboard.json has not been generated yet.",
+                },
+                separators=(",", ":"),
+            ).encode("utf-8")
+            return 503, "application/json; charset=utf-8", body
+        return 200, "application/json; charset=utf-8", json_path.read_bytes()
+
+    return None
+
+
 def make_dashboard_handler(output_path: Path):
     class DashboardHandler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
-            if self.path not in {"/", "/dashboard.html"}:
+            asset = dashboard_asset_for_path(output_path, self.path)
+            if asset is None:
                 self.send_error(404)
                 return
-            if not output_path.exists():
-                body = (
-                    "<!doctype html><html><body><h1>Growatt Dashboard</h1>"
-                    "<p>Dashboard has not been generated yet.</p></body></html>"
-                ).encode("utf-8")
-                self.send_response(503)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-                return
-            body = output_path.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
+            status_code, content_type, body = asset
+            self.send_response(status_code)
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()

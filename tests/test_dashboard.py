@@ -21,8 +21,10 @@ from growatt_power_guard import (
 from growatt_guard.audit import build_chart_data
 from growatt_guard.dashboard import (
     append_dashboard_metric_snapshot,
+    build_dashboard_data_quality,
     build_dashboard_history_payload,
     build_dashboard_html,
+    dashboard_asset_for_path,
     extract_dashboard_metrics,
     read_dashboard_metrics_history,
     _today_job_rows,
@@ -74,6 +76,8 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(command_dashboard(config, str(output)), 0)
             html = output.read_text(encoding="utf-8")
             dashboard_json = json.loads(output.with_suffix(".json").read_text(encoding="utf-8"))
+            html_asset = dashboard_asset_for_path(output, "/dashboard.html?cache=1")
+            json_asset = dashboard_asset_for_path(output, "/dashboard.json")
 
         self.assertIn("Growatt Dashboard", html)
         self.assertIn("Dashboard Health", html)
@@ -86,6 +90,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Tonight Planner", html)
         self.assertIn("Metric source paths", html)
         self.assertIn("Projected Sunrise SOC", html)
+        self.assertIn("Data Quality", html)
         self.assertIn("System & Automation", html)
         self.assertIn("13.7 kWh", html)
         self.assertIn("2.86 MWh", html)
@@ -103,7 +108,17 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(dashboard_json["schema_version"], 1)
         self.assertEqual(dashboard_json["live"]["grid_today_kwh"], 13.7)
         self.assertEqual(dashboard_json["sources"]["load_today_kwh"], "storage_energy_overview.useEnergyToday")
+        self.assertEqual(dashboard_json["quality"]["data"]["level"], "poor")
         self.assertIn("tonight_risk", dashboard_json["planner"])
+
+        self.assertIsNotNone(html_asset)
+        self.assertIsNotNone(json_asset)
+        self.assertEqual(html_asset[0], 200)
+        self.assertEqual(html_asset[1], "text/html; charset=utf-8")
+        self.assertIn(b"Growatt Dashboard", html_asset[2])
+        self.assertEqual(json_asset[0], 200)
+        self.assertEqual(json_asset[1], "application/json; charset=utf-8")
+        self.assertEqual(json.loads(json_asset[2])["schema_version"], 1)
 
     def test_dashboard_topup_estimate_matches_auto_topup_floor(self):
         status = {
@@ -148,6 +163,41 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("Topup to Sunrise", html)
         self.assertIn("20min", html)
+
+    def test_dashboard_asset_for_path_handles_missing_json(self):
+        with TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "dashboard.html"
+            output.write_text("<html>ok</html>", encoding="utf-8")
+
+            asset = dashboard_asset_for_path(output, "/dashboard.json")
+
+        self.assertIsNotNone(asset)
+        self.assertEqual(asset[0], 503)
+        self.assertEqual(asset[1], "application/json; charset=utf-8")
+        self.assertEqual(json.loads(asset[2])["error"], "dashboard_json_not_generated")
+        self.assertIsNone(dashboard_asset_for_path(output, "/not-found"))
+
+    def test_dashboard_data_quality_explains_missing_and_estimated_values(self):
+        quality = build_dashboard_data_quality(
+            {
+                "soc": 47,
+                "mode": "SBU priority",
+                "pv_w": 1029,
+                "load_w": None,
+                "battery_net_w": 374,
+                "pv_today_kwh": 1.2,
+                "load_today_kwh": None,
+                "grid_today_kwh": 13.7,
+                "charge_today_kwh": 10.5,
+                "grid_source": "estimated",
+            },
+            {"pv_w": "channel-sum:pPv1,pPv2"},
+        )
+
+        self.assertEqual(quality["level"], "watch")
+        self.assertEqual(quality["score"], 78)
+        self.assertIn("load now", quality["missing"])
+        self.assertTrue(any("estimated" in item for item in quality["items"]))
 
     def test_dashboard_metrics_extracts_live_energy_values(self):
         now = dt.datetime(2026, 6, 25, 8, 30)
