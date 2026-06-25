@@ -906,6 +906,62 @@ def build_dashboard_energy_balance(live_metrics: dict[str, Any]) -> dict[str, An
     }
 
 
+def _positive_metric(value: Any) -> float | None:
+    if isinstance(value, (int, float)):
+        return max(0.0, float(value))
+    return None
+
+
+def _metric_share(value: float | None, total: float | None) -> float | None:
+    if value is None or total is None or total <= 0:
+        return None
+    return max(0.0, min(100.0, value / total * 100.0))
+
+
+def _round_optional(value: float | None, digits: int = 2) -> float | None:
+    return round(value, digits) if value is not None else None
+
+
+def build_dashboard_daily_mix(live_metrics: dict[str, Any]) -> dict[str, Any]:
+    """Summarize today's energy into source, demand, and battery mix values."""
+    pv_kwh = _positive_metric(live_metrics.get("pv_today_kwh"))
+    grid_kwh = _positive_metric(live_metrics.get("grid_today_kwh"))
+    load_kwh = _positive_metric(live_metrics.get("load_today_kwh"))
+    charge_kwh = _positive_metric(live_metrics.get("charge_today_kwh"))
+    discharge_kwh = _positive_metric(live_metrics.get("discharge_today_kwh"))
+
+    supply_parts = [value for value in (pv_kwh, grid_kwh) if value is not None]
+    demand_parts = [value for value in (load_kwh, charge_kwh) if value is not None]
+    battery_parts = [value for value in (charge_kwh, discharge_kwh) if value is not None]
+
+    supply_total = sum(supply_parts) if supply_parts else None
+    demand_total = sum(demand_parts) if demand_parts else None
+    battery_activity_total = sum(battery_parts) if battery_parts else None
+    battery_net = charge_kwh - discharge_kwh if charge_kwh is not None and discharge_kwh is not None else None
+    if battery_net is None:
+        battery_net_title = "Battery net unknown"
+    elif battery_net > 0.05:
+        battery_net_title = "Net stored"
+    elif battery_net < -0.05:
+        battery_net_title = "Net supplied"
+    else:
+        battery_net_title = "Battery balanced"
+
+    return {
+        "supply_total_kwh": _round_optional(supply_total),
+        "demand_total_kwh": _round_optional(demand_total),
+        "battery_activity_total_kwh": _round_optional(battery_activity_total),
+        "battery_net_kwh": _round_optional(battery_net),
+        "battery_net_title": battery_net_title,
+        "pv_supply_pct": _round_optional(_metric_share(pv_kwh, supply_total), 1),
+        "grid_supply_pct": _round_optional(_metric_share(grid_kwh, supply_total), 1),
+        "load_demand_pct": _round_optional(_metric_share(load_kwh, demand_total), 1),
+        "charge_demand_pct": _round_optional(_metric_share(charge_kwh, demand_total), 1),
+        "charge_battery_pct": _round_optional(_metric_share(charge_kwh, battery_activity_total), 1),
+        "discharge_battery_pct": _round_optional(_metric_share(discharge_kwh, battery_activity_total), 1),
+    }
+
+
 def build_dashboard_next_action(
     schedule: dict[str, Any],
     now: dt.datetime | None = None,
@@ -985,6 +1041,7 @@ def build_dashboard_data_payload(
     sources = extract_dashboard_metric_sources(status)
     data_quality = build_dashboard_data_quality(live_metrics, sources)
     energy_balance = build_dashboard_energy_balance(live_metrics)
+    daily_mix = build_dashboard_daily_mix(live_metrics)
     next_action = build_dashboard_next_action(schedule, now=now)
     daily_insights = build_dashboard_daily_insights(live_metrics, metric_history, now=now)
     risk = build_tonight_risk(
@@ -1004,7 +1061,7 @@ def build_dashboard_data_payload(
         "live": live_metrics,
         "sources": sources,
         "quality": {"data": data_quality, "energy_balance": energy_balance},
-        "insights": {"daily": daily_insights},
+        "insights": {"daily": daily_insights, "daily_mix": daily_mix},
         "planner": {"tonight_risk": risk},
         "threshold": {
             "value": getattr(threshold_decision, "threshold", None),
@@ -1371,6 +1428,7 @@ def build_dashboard_html(
     metric_sources = extract_dashboard_metric_sources(status)
     data_quality = build_dashboard_data_quality(live_metrics, metric_sources)
     energy_balance = build_dashboard_energy_balance(live_metrics)
+    daily_mix = build_dashboard_daily_mix(live_metrics)
     daily_insights = build_dashboard_daily_insights(live_metrics, metric_history, now=now)
     quality_badge_class = _status_badge_class(str(data_quality.get("level", "unknown")))
     quality_title = str(data_quality.get("title", "Unknown"))
@@ -1389,6 +1447,70 @@ def build_dashboard_html(
     balance_badge_class = _status_badge_class(str(energy_balance.get("level", "unknown")))
     balance_title = str(energy_balance.get("title", "Unknown"))
     balance_detail = str(energy_balance.get("detail", "Energy balance could not be calculated."))
+
+    def _mix_number(key: str) -> float | None:
+        value = daily_mix.get(key)
+        return float(value) if isinstance(value, (int, float)) else None
+
+    def _mix_width(key: str) -> str:
+        value = _mix_number(key)
+        return f"{max(0.0, min(100.0, value)):.0f}" if value is not None else "0"
+
+    def _mix_pct_display(key: str) -> str:
+        return _fmt_pct(_mix_number(key))
+
+    supply_total_display = _fmt_kwh(_mix_number("supply_total_kwh"))
+    demand_total_display = _fmt_kwh(_mix_number("demand_total_kwh"))
+    battery_activity_display = _fmt_kwh(_mix_number("battery_activity_total_kwh"))
+    battery_net_value = _mix_number("battery_net_kwh")
+    battery_net_display = _fmt_kwh(abs(battery_net_value)) if battery_net_value is not None else "--"
+    battery_net_title = str(daily_mix.get("battery_net_title", "Battery net unknown"))
+    daily_mix_html = f"""
+    <section class="daily-mix card" aria-label="Today energy mix">
+      <div class="mix-header">
+        <div>
+          <div class="label">Today Mix</div>
+          <div class="muted small">Where energy came from, where it went, and the battery net position.</div>
+        </div>
+        <span class="badge {esc(balance_badge_class)}">{esc(balance_title)}</span>
+      </div>
+      <div class="mix-grid">
+        <div class="mix-panel">
+          <div class="mix-row-head"><strong>Supply</strong><span>{esc(supply_total_display)}</span></div>
+          <div class="mix-bar" aria-label="PV and grid supply mix">
+            <span class="mix-segment primary" style="width:{esc(_mix_width('pv_supply_pct'))}%"></span>
+            <span class="mix-segment neutral" style="width:{esc(_mix_width('grid_supply_pct'))}%"></span>
+          </div>
+          <div class="mix-legend">
+            <div><span>PV</span><strong>{esc(pv_today_display)} - {esc(_mix_pct_display('pv_supply_pct'))}</strong></div>
+            <div><span>Grid</span><strong>{esc(grid_today_display)} - {esc(_mix_pct_display('grid_supply_pct'))}</strong></div>
+          </div>
+        </div>
+        <div class="mix-panel">
+          <div class="mix-row-head"><strong>Demand</strong><span>{esc(demand_total_display)}</span></div>
+          <div class="mix-bar" aria-label="Load and battery charging demand mix">
+            <span class="mix-segment primary" style="width:{esc(_mix_width('load_demand_pct'))}%"></span>
+            <span class="mix-segment neutral" style="width:{esc(_mix_width('charge_demand_pct'))}%"></span>
+          </div>
+          <div class="mix-legend">
+            <div><span>House load</span><strong>{esc(load_today_display)} - {esc(_mix_pct_display('load_demand_pct'))}</strong></div>
+            <div><span>Stored</span><strong>{esc(charge_today_display)} - {esc(_mix_pct_display('charge_demand_pct'))}</strong></div>
+          </div>
+        </div>
+        <div class="mix-panel">
+          <div class="mix-row-head"><strong>Battery</strong><span>{esc(battery_activity_display)}</span></div>
+          <div class="mix-bar" aria-label="Battery charge and discharge mix">
+            <span class="mix-segment primary" style="width:{esc(_mix_width('charge_battery_pct'))}%"></span>
+            <span class="mix-segment neutral" style="width:{esc(_mix_width('discharge_battery_pct'))}%"></span>
+          </div>
+          <div class="mix-legend">
+            <div><span>{esc(battery_net_title)}</span><strong>{esc(battery_net_display)}</strong></div>
+            <div><span>Discharged</span><strong>{esc(discharge_today_display)} - {esc(_mix_pct_display('discharge_battery_pct'))}</strong></div>
+          </div>
+        </div>
+      </div>
+    </section>
+"""
     next_action_relative = str(next_action.get("relative") or "none")
     next_action_title = str(next_action.get("title") or "No upcoming jobs")
     next_action_detail = str(next_action.get("detail") or "No scheduled jobs found.")
@@ -1772,6 +1894,26 @@ def build_dashboard_html(
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 16px; }}
     .overview-grid {{ display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }}
     .daily-grid {{ grid-template-columns: repeat(auto-fit, minmax(224px, 1fr)); }}
+    .daily-mix {{ display: grid; gap: 16px; margin-top: 16px; }}
+    .mix-header {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }}
+    .mix-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }}
+    .mix-panel {{
+      min-width: 0;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface);
+    }}
+    .mix-row-head {{ display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }}
+    .mix-row-head strong {{ font-size: 15px; font-weight: 720; }}
+    .mix-row-head span {{ color: var(--muted); font-size: 13px; font-weight: 640; white-space: nowrap; }}
+    .mix-bar {{ display: flex; height: 10px; margin: 14px 0 12px; overflow: hidden; border-radius: 999px; background: #eef2f7; }}
+    .mix-segment {{ display: block; height: 100%; }}
+    .mix-segment.primary {{ background: var(--accent); }}
+    .mix-segment.neutral {{ background: #cbd5e1; }}
+    .mix-legend {{ display: grid; gap: 8px; }}
+    .mix-legend div {{ display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; }}
+    .mix-legend strong {{ color: var(--ink); font-weight: 680; text-align: right; }}
     .ops-grid {{ grid-template-columns: repeat(auto-fit, minmax(216px, 1fr)); }}
     .insight-grid {{ grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)); }}
     .status-activity-grid {{ display: grid; grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr); gap: 12px; margin-top: 12px; }}
@@ -1857,7 +1999,7 @@ def build_dashboard_html(
       .sidebar-nav {{ grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }}
       .sidebar-status {{ margin-top: 18px; }}
       .overview-grid {{ grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }}
-      .hero-grid, .chart-grid, .planner-grid, .flow-map, .status-activity-grid {{ grid-template-columns: 1fr; }}
+      .hero-grid, .chart-grid, .planner-grid, .flow-map, .status-activity-grid, .mix-grid {{ grid-template-columns: 1fr; }}
       .hero-panel, .flow-stage {{ min-height: auto; }}
     }}
     @media (max-width: 720px) {{
@@ -2015,6 +2157,7 @@ def build_dashboard_html(
         <div class="muted">Production, consumption, grid import, and battery movement for today.</div>
       </div>
     </div>
+    {daily_mix_html}
     <section class="grid daily-grid">
       {energy_cards}
     </section>

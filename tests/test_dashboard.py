@@ -22,6 +22,7 @@ from growatt_guard.audit import build_chart_data
 from growatt_guard.dashboard import (
     append_dashboard_metric_snapshot,
     build_dashboard_daily_insights,
+    build_dashboard_daily_mix,
     build_dashboard_data_quality,
     build_dashboard_energy_balance,
     build_dashboard_history_payload,
@@ -93,6 +94,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Grid Import Now", html)
         self.assertIn("Grid Import Today", html)
         self.assertIn("Daily Energy", html)
+        self.assertIn("Today Mix", html)
+        self.assertIn("mix-grid", html)
+        self.assertIn("Where energy came from", html)
         self.assertIn("Local solar dashboard", html)
         self.assertIn("Command status", html)
         self.assertIn("Tonight Planner", html)
@@ -128,6 +132,8 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(dashboard_json["quality"]["data"]["level"], "poor")
         self.assertEqual(dashboard_json["quality"]["energy_balance"]["level"], "unknown")
         self.assertIn("daily", dashboard_json["insights"])
+        self.assertEqual(dashboard_json["insights"]["daily_mix"]["battery_net_title"], "Battery net unknown")
+        self.assertEqual(dashboard_json["insights"]["daily_mix"]["supply_total_kwh"], 13.7)
         self.assertEqual(dashboard_json["schedule"]["next_action"]["job_id"], "morning-preserve")
         self.assertIn("tonight_risk", dashboard_json["planner"])
 
@@ -296,6 +302,27 @@ class DashboardTests(unittest.TestCase):
 
         self.assertEqual(balance["level"], "unknown")
         self.assertIn("battery discharge today", balance["missing"])
+
+    def test_dashboard_daily_mix_summarizes_energy_context(self):
+        mix = build_dashboard_daily_mix(
+            {
+                "pv_today_kwh": 1.2,
+                "grid_today_kwh": 13.7,
+                "load_today_kwh": 12.5,
+                "charge_today_kwh": 10.5,
+                "discharge_today_kwh": 8.1,
+            }
+        )
+
+        self.assertEqual(mix["supply_total_kwh"], 14.9)
+        self.assertEqual(mix["demand_total_kwh"], 23.0)
+        self.assertEqual(mix["battery_activity_total_kwh"], 18.6)
+        self.assertEqual(mix["battery_net_kwh"], 2.4)
+        self.assertEqual(mix["battery_net_title"], "Net stored")
+        self.assertEqual(mix["pv_supply_pct"], 8.1)
+        self.assertEqual(mix["grid_supply_pct"], 91.9)
+        self.assertEqual(mix["load_demand_pct"], 54.3)
+        self.assertEqual(mix["charge_demand_pct"], 45.7)
 
     def test_dashboard_metrics_extracts_live_energy_values(self):
         now = dt.datetime(2026, 6, 25, 8, 30)
