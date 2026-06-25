@@ -142,6 +142,16 @@ class UploadPvoutputStatusTests(unittest.TestCase):
 
         self.assertFalse(result)
 
+    def test_moon_powered_400_returns_none(self):
+        # Nighttime rejection is benign: returns None (skip), not False (failure).
+        fields = {"d": "20260626", "t": "00:00", "v1": "0", "v2": "0"}
+        mock_response = MagicMock(status_code=400, text="Bad request 400: Moon Powered")
+        with patch("growatt_guard.pvoutput.requests.post", return_value=mock_response) as mock_post:
+            result = upload_pvoutput_status(self._config(), fields)
+
+        self.assertIsNone(result)
+        mock_post.assert_called_once()  # no extended-data retry
+
     def test_network_error_returns_false(self):
         import requests as req_lib
 
@@ -221,6 +231,23 @@ class CommandPvoutputUploadTests(unittest.TestCase):
              patch("growatt_guard.pvoutput.requests.post", return_value=mock_response):
             with self.assertRaises(GrowattGuardError):
                 command_pvoutput_upload(config)
+
+    def test_moon_powered_skip_succeeds_without_writing_state(self):
+        from growatt_guard.pvoutput import command_pvoutput_upload
+
+        config = make_config(dry_run=False, pvoutput_enabled=True, pvoutput_api_key="K", pvoutput_system_id="1")
+        status = _make_status()
+        mock_response = MagicMock(status_code=400, text="Bad request 400: Moon Powered")
+        with patch("growatt_guard.pvoutput.load_context", return_value=(None, None, status)), \
+             patch("growatt_guard.pvoutput.requests.post", return_value=mock_response), \
+             patch("growatt_guard.pvoutput.write_pvoutput_state") as mock_write, \
+             patch("builtins.print") as mock_print:
+            result = command_pvoutput_upload(config)
+
+        # Benign skip: exit 0 (no failure alert), informative message, no state clobber.
+        self.assertEqual(result, 0)
+        mock_write.assert_not_called()
+        self.assertIn("skipped", mock_print.call_args[0][0].lower())
 
 
 class PvoutputStateTests(unittest.TestCase):

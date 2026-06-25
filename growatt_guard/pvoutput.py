@@ -134,8 +134,9 @@ def _do_post(config: Any, params: dict[str, str]) -> requests.Response:
     )
 
 
-def upload_pvoutput_status(config: Any, fields: dict[str, Any]) -> bool:
-    """POST a status entry to PVOutput. Returns True on success.
+def upload_pvoutput_status(config: Any, fields: dict[str, Any]) -> bool | None:
+    """POST a status entry to PVOutput. Returns True on success, False on failure,
+    or None when PVOutput benignly rejects the upload (e.g. "Moon Powered" at night).
 
     If the account does not have extended data enabled, automatically retries
     without v7-v12 so basic generation data is always recorded.
@@ -153,6 +154,13 @@ def upload_pvoutput_status(config: Any, fields: dict[str, Any]) -> bool:
 
     if response.status_code == 200:
         return True
+
+    # "Moon Powered" is PVOutput rejecting a zero-generation status at night.
+    # This is expected after dark, not a fault — skip quietly so it neither logs
+    # an error nor triggers a Discord failure alert every overnight cycle.
+    if response.status_code == 400 and "moon powered" in response.text.lower():
+        logging.info("PVOutput upload skipped: no generation at night (Moon Powered).")
+        return None
 
     # Extended data (v7-v12) requires a PVOutput donation feature. Retry without
     # extended fields so standard generation data is still recorded.
@@ -222,8 +230,12 @@ def publish_pvoutput_status_from_status(
 
     if now is None:
         now = dt.datetime.now()
-    ok = upload_pvoutput_status(config, fields)
-    if ok:
+    result = upload_pvoutput_status(config, fields)
+    if result is None:
+        # Benign nighttime rejection (Moon Powered). Don't write state (keeps the
+        # last real daytime values) and report success so no failure alert fires.
+        return True, "PVOutput skipped: no generation to report (night)."
+    if result:
         write_pvoutput_state(fields, now=now)
         return True, f"PVOutput OK: {summary}{suffix}"
 
