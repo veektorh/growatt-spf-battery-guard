@@ -2784,7 +2784,7 @@ def _write_json_atomic(output_path: Path, payload: dict[str, Any]) -> None:
         prefix=".dash_tmp_", suffix=".json", delete=False,
     )
     try:
-        json.dump(payload, tmp, indent=2, sort_keys=True)
+        json.dump(payload, tmp, indent=2, sort_keys=True, default=lambda o: o.isoformat() if isinstance(o, (dt.datetime, dt.date)) else str(o))
         tmp.write("\n")
         tmp.flush()
         tmp.close()
