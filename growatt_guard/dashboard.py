@@ -1338,19 +1338,15 @@ def build_dashboard_html(
     if isinstance(soc_value, (int, float)) and soc_value < battery_bms_cutoff_soc + 5:
         soc_health = "Critical"
         soc_health_class = "badge-fail"
-        soc_color = "#ef4444"
     elif isinstance(soc_value, (int, float)) and soc_value < 50:
         soc_health = "Watch"
         soc_health_class = "badge-warn"
-        soc_color = "#f59e0b"
     elif isinstance(soc_value, (int, float)):
         soc_health = "Ready"
         soc_health_class = "badge-ok"
-        soc_color = "#22c55e"
     else:
         soc_health = "Unknown"
         soc_health_class = "badge-warn"
-        soc_color = "#94a3b8"
 
     def _ratio(numerator: Any, denominator: Any) -> float | None:
         if not isinstance(numerator, (int, float)) or not isinstance(denominator, (int, float)):
@@ -1413,36 +1409,31 @@ def build_dashboard_html(
         [
             (
                 f'<article class="card metric-card accent-pv"><div class="metric-head">'
-                f'<div><div class="label">PV Today</div><div class="value">{esc(pv_today_display)}</div></div>'
-                f'<div class="metric-icon solar-icon">PV</div></div>'
+                f'<div><div class="label">PV Today</div><div class="value">{esc(pv_today_display)}</div></div></div>'
                 f'<div class="metric-meter"><span style="width:{solar_share_width:.0f}%"></span></div>'
                 f'<div class="muted small">Solar share of load: {esc(solar_share_display)}</div></article>'
             ),
             (
                 f'<article class="card metric-card accent-grid"><div class="metric-head">'
-                f'<div><div class="label">Grid Import Today</div><div class="value">{esc(grid_today_display)}</div></div>'
-                f'<div class="metric-icon grid-icon">AC</div></div>'
+                f'<div><div class="label">Grid Import Today</div><div class="value">{esc(grid_today_display)}</div></div></div>'
                 f'<div class="metric-meter grid-meter"><span style="width:{grid_reliance_width:.0f}%"></span></div>'
                 f'<div class="muted small">Grid reliance vs load: {esc(grid_reliance_display)}</div></article>'
             ),
             (
                 f'<article class="card metric-card accent-load"><div class="metric-head">'
-                f'<div><div class="label">Load Today</div><div class="value">{esc(load_today_display)}</div></div>'
-                f'<div class="metric-icon load-icon">LD</div></div>'
+                f'<div><div class="label">Load Today</div><div class="value">{esc(load_today_display)}</div></div></div>'
                 f'<div class="metric-meter load-meter"><span style="width:100%"></span></div>'
                 f'<div class="muted small">Total house consumption</div></article>'
             ),
             (
                 f'<article class="card metric-card accent-battery"><div class="metric-head">'
-                f'<div><div class="label">Battery Charge Today</div><div class="value">{esc(charge_today_display)}</div></div>'
-                f'<div class="metric-icon battery-icon">BT</div></div>'
+                f'<div><div class="label">Battery Charge Today</div><div class="value">{esc(charge_today_display)}</div></div></div>'
                 f'<div class="metric-meter battery-meter"><span style="width:{battery_charge_share_width:.0f}%"></span></div>'
                 f'<div class="muted small">Stored energy vs load: {esc(battery_charge_share_display)}</div></article>'
             ),
             (
                 f'<article class="card metric-card accent-battery"><div class="metric-head">'
-                f'<div><div class="label">Battery Discharge Today</div><div class="value">{esc(discharge_today_display)}</div></div>'
-                f'<div class="metric-icon battery-icon">DC</div></div>'
+                f'<div><div class="label">Battery Discharge Today</div><div class="value">{esc(discharge_today_display)}</div></div></div>'
                 f'<div class="metric-meter battery-meter"><span style="width:100%"></span></div>'
                 f'<div class="muted small">Battery output to inverter</div></article>'
             ),
@@ -1451,7 +1442,7 @@ def build_dashboard_html(
     if pv_total_text:
         energy_cards += (
             f'\n<article class="card metric-card"><div class="metric-head"><div><div class="label">PV Lifetime</div>'
-            f'<div class="value">{esc(pv_total_text)}</div></div><div class="metric-icon solar-icon">ALL</div></div>'
+            f'<div class="value">{esc(pv_total_text)}</div></div></div>'
             f'<div class="muted small">Total production reported by Growatt</div></article>'
         )
 
@@ -1532,268 +1523,215 @@ def build_dashboard_html(
     :root {{
       color-scheme: light;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-      --ink: #172026;
-      --muted: #66737d;
-      --surface: #f4f7f6;
+      --ink: #111827;
+      --muted: #6b7280;
+      --soft: #9ca3af;
+      --surface: #f8fafc;
       --panel: #ffffff;
-      --line: #dce5e9;
-      --deep: #15201f;
-      --deep-2: #24322f;
-      --solar: #f4b83f;
-      --pv: #16b8c5;
-      --battery: #23b26b;
-      --grid: #7c6bf2;
-      --load: #f26f6f;
-      --warn: #f59e0b;
-      --danger: #ef4444;
-      --shadow: 0 22px 70px rgba(23, 32, 38, 0.12);
+      --line: #e5e7eb;
+      --line-strong: #d1d5db;
+      --accent: #2563eb;
+      --accent-soft: #eff6ff;
+      --radius: 10px;
     }}
     * {{ box-sizing: border-box; }}
     body {{
       margin: 0;
-      background: linear-gradient(180deg, #eaf1ee 0, #f6f8f7 420px, #f4f7f6 100%);
+      background: var(--surface);
       color: var(--ink);
+      font-size: 14px;
+      line-height: 1.45;
     }}
-    main {{ max-width: 1480px; margin: 0 auto; padding: 22px; }}
-    h1 {{ font-size: clamp(28px, 4vw, 48px); line-height: 1; margin: 0; letter-spacing: 0; }}
-    h2 {{ font-size: 18px; margin: 30px 0 12px; letter-spacing: 0; }}
-    code {{ color: #39464f; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }}
+    main {{ max-width: 1360px; margin: 0 auto; padding: 32px 24px 48px; }}
+    h1 {{ font-size: clamp(28px, 4vw, 40px); line-height: 1.05; margin: 0; letter-spacing: 0; font-weight: 760; }}
+    h2 {{ font-size: 18px; line-height: 1.3; margin: 40px 0 0; letter-spacing: 0; font-weight: 720; }}
+    code {{ color: #374151; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }}
     .muted {{ color: var(--muted); font-size: 14px; }}
     .small {{ font-size: 13px; margin-top: 8px; }}
     .topbar {{
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 14px;
-      margin-bottom: 18px;
+      gap: 16px;
+      margin-bottom: 32px;
     }}
     .brand {{ display: flex; align-items: center; gap: 12px; min-width: 0; }}
     .brand-mark {{
-      width: 38px;
-      height: 38px;
+      width: 32px;
+      height: 32px;
       border-radius: 8px;
-      background: conic-gradient(from 210deg, var(--solar), var(--pv), var(--battery), var(--solar));
-      box-shadow: 0 10px 28px rgba(22, 184, 197, 0.22);
+      border: 1px solid var(--line-strong);
+      background: var(--panel);
+      position: relative;
       flex: 0 0 auto;
     }}
-    .brand-title {{ font-weight: 850; font-size: 18px; }}
-    .top-actions {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }}
+    .brand-mark::after {{
+      content: "";
+      position: absolute;
+      inset: 10px;
+      border-radius: 999px;
+      background: var(--accent);
+    }}
+    .brand-title {{ font-weight: 720; font-size: 16px; }}
+    .top-actions {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }}
     .pill {{
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      min-height: 34px;
-      padding: 7px 11px;
-      border: 1px solid rgba(23, 32, 38, 0.1);
+      min-height: 32px;
+      padding: 6px 10px;
+      border: 1px solid var(--line);
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.78);
-      color: #39464f;
+      background: var(--panel);
+      color: #374151;
       font-size: 13px;
-      font-weight: 700;
+      font-weight: 620;
       white-space: nowrap;
     }}
     .hero-grid {{
       display: grid;
-      grid-template-columns: minmax(360px, 0.92fr) minmax(520px, 1.35fr);
-      gap: 18px;
+      grid-template-columns: minmax(340px, 0.9fr) minmax(520px, 1.35fr);
+      gap: 16px;
       align-items: stretch;
     }}
     .hero-panel, .flow-stage, .card, table, .source-drawer {{
-      background: rgba(255, 255, 255, 0.94);
+      background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 8px;
-      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
+      border-radius: var(--radius);
     }}
     .hero-panel {{
       padding: 24px;
-      min-height: 420px;
-      background:
-        linear-gradient(135deg, rgba(21, 32, 31, 0.98), rgba(36, 50, 47, 0.96)),
-        var(--deep);
-      color: #f7fbf8;
-      box-shadow: var(--shadow);
+      min-height: 360px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      overflow: hidden;
     }}
-    .hero-panel .muted {{ color: rgba(247, 251, 248, 0.72); }}
-    .hero-copy {{ display: grid; gap: 10px; }}
-    .hero-kicker {{ color: #aee9d0; font-size: 12px; font-weight: 850; text-transform: uppercase; letter-spacing: 0; }}
-    .hero-subtitle {{ max-width: 620px; font-size: 15px; color: rgba(247, 251, 248, 0.75); line-height: 1.5; }}
+    .hero-copy {{ display: grid; gap: 8px; }}
+    .hero-kicker {{ color: var(--accent); font-size: 12px; font-weight: 720; text-transform: uppercase; letter-spacing: 0; }}
+    .hero-subtitle {{ max-width: 620px; font-size: 15px; color: var(--muted); line-height: 1.55; }}
     .soc-command {{
       display: grid;
-      grid-template-columns: 210px minmax(0, 1fr);
-      gap: 22px;
+      grid-template-columns: 176px minmax(0, 1fr);
+      gap: 24px;
       align-items: center;
       margin-top: 24px;
     }}
     .soc-ring {{
-      --soc: 0;
-      --soc-color: var(--battery);
-      width: min(210px, 52vw);
+      width: min(176px, 52vw);
       aspect-ratio: 1;
-      border-radius: 50%;
+      border-radius: 12px;
       display: grid;
       place-items: center;
-      background:
-        radial-gradient(circle at center, var(--deep) 0 58%, transparent 59%),
-        conic-gradient(var(--soc-color) calc(var(--soc) * 1%), rgba(255, 255, 255, 0.16) 0);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      box-shadow: 0 0 0 10px rgba(255, 255, 255, 0.04), 0 26px 70px rgba(0, 0, 0, 0.24);
+      background: var(--surface);
+      border: 1px solid var(--line);
     }}
     .soc-core {{ text-align: center; }}
-    .soc-core strong {{ display: block; font-size: clamp(40px, 6vw, 64px); line-height: 0.95; letter-spacing: 0; }}
-    .soc-core span {{ color: rgba(247, 251, 248, 0.62); font-size: 12px; text-transform: uppercase; font-weight: 800; }}
+    .soc-core strong {{ display: block; font-size: clamp(40px, 6vw, 56px); line-height: 0.95; letter-spacing: 0; font-weight: 760; }}
+    .soc-core span {{ color: var(--muted); font-size: 12px; text-transform: uppercase; font-weight: 680; }}
     .mode-stack {{ display: grid; gap: 12px; min-width: 0; }}
     .mode-line {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }}
-    .mode-value {{ font-size: 24px; line-height: 1.15; font-weight: 850; overflow-wrap: anywhere; }}
-    .quick-stats {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 22px; }}
+    .mode-value {{ font-size: 24px; line-height: 1.15; font-weight: 720; overflow-wrap: anywhere; }}
+    .quick-stats {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 24px; }}
     .quick-stat {{
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 8px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
       padding: 12px;
-      background: rgba(255, 255, 255, 0.07);
+      background: var(--surface);
       min-width: 0;
     }}
-    .quick-stat b {{ display: block; font-size: 19px; line-height: 1.1; overflow-wrap: anywhere; }}
-    .quick-stat span {{ display: block; margin-top: 5px; color: rgba(247, 251, 248, 0.66); font-size: 12px; }}
-    .flow-stage {{ padding: 18px; min-height: 420px; box-shadow: var(--shadow); }}
-    .section-head, .flow-head {{ display: flex; justify-content: space-between; align-items: flex-end; gap: 14px; margin-bottom: 14px; }}
+    .quick-stat b {{ display: block; font-size: 20px; line-height: 1.1; overflow-wrap: anywhere; font-weight: 720; }}
+    .quick-stat span {{ display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }}
+    .flow-stage {{ padding: 24px; min-height: 360px; }}
+    .section-head, .flow-head {{ display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin: 40px 0 16px; }}
     .section-head h2, .flow-head h2 {{ margin: 0; }}
     .flow-map {{
       display: grid;
-      grid-template-columns: minmax(120px, 1fr) 34px minmax(120px, 1fr) 34px minmax(120px, 1fr);
-      grid-template-rows: auto 38px auto 38px auto;
-      gap: 10px 8px;
+      grid-template-columns: repeat(5, minmax(112px, 1fr));
+      gap: 12px;
       align-items: center;
-      min-height: 332px;
+      min-height: 260px;
     }}
     .flow-tile {{
-      min-height: 112px;
-      border: 1px solid rgba(23, 32, 38, 0.09);
-      border-radius: 8px;
-      padding: 14px;
-      background: #ffffff;
+      min-height: 144px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+      background: var(--panel);
       display: grid;
       align-content: space-between;
       position: relative;
-      overflow: hidden;
     }}
-    .flow-tile::before {{ content: ""; position: absolute; inset: 0 0 auto; height: 4px; background: var(--accent); }}
-    .flow-tile.solar {{ --accent: var(--pv); grid-column: 1; grid-row: 1; }}
-    .flow-tile.grid-source {{ --accent: var(--grid); grid-column: 1; grid-row: 5; }}
-    .flow-tile.inverter {{ --accent: var(--solar); grid-column: 3; grid-row: 3; min-height: 130px; }}
-    .flow-tile.battery {{ --accent: var(--battery); grid-column: 5; grid-row: 1; }}
-    .flow-tile.load {{ --accent: var(--load); grid-column: 5; grid-row: 5; }}
-    .flow-label {{ color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0; }}
-    .flow-value {{ font-size: 28px; font-weight: 850; line-height: 1; margin-top: 8px; overflow-wrap: anywhere; }}
+    .flow-tile::before {{ content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--accent); border-radius: 10px 0 0 10px; }}
+    .flow-tile.solar, .flow-tile.grid-source, .flow-tile.inverter, .flow-tile.battery, .flow-tile.load {{ grid-column: auto; grid-row: auto; }}
+    .flow-label {{ color: var(--muted); font-size: 12px; font-weight: 680; text-transform: uppercase; letter-spacing: 0; }}
+    .flow-value {{ font-size: 26px; font-weight: 740; line-height: 1.05; margin-top: 8px; overflow-wrap: anywhere; }}
     .flow-detail {{ color: var(--muted); font-size: 13px; margin-top: 8px; }}
-    .connector {{ position: relative; min-height: 4px; background: rgba(23, 32, 38, 0.12); border-radius: 999px; overflow: hidden; }}
-    .connector::after {{
-      content: "";
-      position: absolute;
-      width: 45%;
-      height: 100%;
-      border-radius: inherit;
-      background: currentColor;
-      animation: pulse-flow 2.2s linear infinite;
-    }}
-    .connector.pv {{ color: var(--pv); grid-column: 2; grid-row: 2; transform: rotate(32deg); }}
-    .connector.grid {{ color: var(--grid); grid-column: 2; grid-row: 4; transform: rotate(-32deg); }}
-    .connector.battery {{ color: var(--battery); grid-column: 4; grid-row: 2; transform: rotate(-32deg); }}
-    .connector.load {{ color: var(--load); grid-column: 4; grid-row: 4; transform: rotate(32deg); }}
-    @keyframes pulse-flow {{ from {{ transform: translateX(-110%); }} to {{ transform: translateX(230%); }} }}
-    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); gap: 12px; margin-top: 12px; }}
-    .daily-grid {{ grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }}
-    .ops-grid {{ grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }}
-    .insight-grid {{ grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }}
-    .card {{ padding: 15px; }}
-    .metric-card {{ min-height: 150px; display: grid; align-content: space-between; gap: 12px; }}
-    .insight-card {{ min-height: 132px; display: grid; align-content: space-between; gap: 10px; }}
+    .connector {{ display: none; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 16px; }}
+    .daily-grid {{ grid-template-columns: repeat(auto-fit, minmax(224px, 1fr)); }}
+    .ops-grid {{ grid-template-columns: repeat(auto-fit, minmax(216px, 1fr)); }}
+    .insight-grid {{ grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)); }}
+    .card {{ padding: 16px; }}
+    .metric-card {{ min-height: 148px; display: grid; align-content: space-between; gap: 12px; }}
+    .insight-card {{ min-height: 132px; display: grid; align-content: space-between; gap: 8px; }}
     .metric-head {{ display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }}
-    .metric-icon {{
-      width: 42px;
-      height: 42px;
-      border-radius: 8px;
-      display: grid;
-      place-items: center;
-      font-size: 12px;
-      font-weight: 900;
-      color: #172026;
-      background: #eef5f4;
-      flex: 0 0 auto;
-    }}
-    .solar-icon {{ background: rgba(22, 184, 197, 0.14); color: #0c6870; }}
-    .grid-icon {{ background: rgba(124, 107, 242, 0.13); color: #4c3cba; }}
-    .load-icon {{ background: rgba(242, 111, 111, 0.15); color: #af3434; }}
-    .battery-icon {{ background: rgba(35, 178, 107, 0.14); color: #176b42; }}
-    .metric-meter {{ height: 8px; border-radius: 999px; background: #e7edf0; overflow: hidden; }}
-    .metric-meter span {{ display: block; height: 100%; max-width: 100%; background: var(--pv); border-radius: inherit; }}
-    .grid-meter span {{ background: var(--grid); }}
-    .load-meter span {{ background: var(--load); }}
-    .battery-meter span {{ background: var(--battery); }}
-    .accent-pv {{ border-top: 4px solid var(--pv); }}
-    .accent-grid {{ border-top: 4px solid var(--grid); }}
-    .accent-load {{ border-top: 4px solid var(--load); }}
-    .accent-battery {{ border-top: 4px solid var(--battery); }}
-    .label {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0; font-weight: 800; }}
-    .value {{ font-size: 24px; font-weight: 850; margin-top: 8px; line-height: 1.05; overflow-wrap: anywhere; }}
+    .metric-meter {{ height: 6px; border-radius: 999px; background: #eef2f7; overflow: hidden; }}
+    .metric-meter span {{ display: block; height: 100%; max-width: 100%; background: var(--accent); border-radius: inherit; }}
+    .grid-meter span, .load-meter span, .battery-meter span {{ background: var(--accent); }}
+    .accent-pv, .accent-grid, .accent-load, .accent-battery {{ border-top: 1px solid var(--line); }}
+    .label {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0; font-weight: 680; }}
+    .value {{ font-size: 24px; font-weight: 740; margin-top: 8px; line-height: 1.08; overflow-wrap: anywhere; }}
     .badge {{
       display: inline-flex;
       align-items: center;
       border-radius: 999px;
-      padding: 5px 10px;
-      font-size: 13px;
-      font-weight: 850;
+      padding: 5px 9px;
+      font-size: 12px;
+      font-weight: 680;
       line-height: 1;
+      border: 1px solid transparent;
     }}
-    .badge-ok {{ background: #dff6e8; color: #155f34; }}
-    .badge-warn {{ background: #fff2cc; color: #775800; }}
-    .badge-fail {{ background: #ffe3df; color: #9a3526; }}
-    .planner-grid {{ display: grid; grid-template-columns: minmax(260px, 0.9fr) repeat(3, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }}
-    .planner-card {{ padding: 18px; background: #fff; border: 1px solid var(--line); border-radius: 8px; }}
-    .planner-card.primary {{ background: #172026; color: #f7fbf8; border-color: #172026; }}
-    .planner-card.primary .muted, .planner-card.primary .label {{ color: rgba(247, 251, 248, 0.68); }}
-    .banner-warn {{ background: #fff2cc; color: #775800; border-radius: 8px; padding: 10px 16px; margin: 16px 0; font-weight: 700; }}
+    .badge-ok {{ background: var(--accent-soft); color: #1d4ed8; border-color: #bfdbfe; }}
+    .badge-warn {{ background: #f9fafb; color: #374151; border-color: var(--line-strong); }}
+    .badge-fail {{ background: #111827; color: #ffffff; border-color: #111827; }}
+    .planner-grid {{ display: grid; grid-template-columns: minmax(260px, 0.9fr) repeat(3, minmax(160px, 1fr)); gap: 12px; margin-top: 16px; }}
+    .planner-card {{ padding: 16px; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); }}
+    .planner-card.primary {{ background: var(--panel); color: var(--ink); border-color: var(--line-strong); }}
+    .planner-card.primary .muted, .planner-card.primary .label {{ color: var(--muted); }}
+    .banner-warn {{ background: #fff; color: #374151; border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 12px 16px; margin: 16px 0 24px; font-weight: 620; }}
     .chart-grid {{ display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, .9fr); gap: 12px; }}
     .chart-card canvas {{ width: 100%; height: 240px; display: block; }}
     .chart-card.compact canvas {{ height: 200px; }}
-    .legend {{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; color: var(--muted); font-size: 13px; }}
+    .legend {{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; color: var(--muted); font-size: 13px; }}
     .legend span::before {{ content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; background: var(--c); }}
-    .table-wrap {{ overflow-x: auto; border-radius: 8px; border: 1px solid var(--line); background: #fff; }}
+    .table-wrap {{ overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--line); background: #fff; margin-top: 12px; }}
     table {{ width: 100%; border-collapse: collapse; box-shadow: none; border: 0; min-width: 640px; }}
-    th, td {{ padding: 11px 12px; border-bottom: 1px solid #e8eef2; text-align: left; font-size: 14px; vertical-align: top; }}
-    th {{ background: #eef4f3; color: #34444f; font-size: 12px; text-transform: uppercase; letter-spacing: 0; }}
+    th, td {{ padding: 12px 14px; border-bottom: 1px solid var(--line); text-align: left; font-size: 14px; vertical-align: top; }}
+    th {{ background: #f9fafb; color: #4b5563; font-size: 12px; text-transform: uppercase; letter-spacing: 0; font-weight: 680; }}
     tr:last-child td {{ border-bottom: 0; }}
-    .status-ok {{ color: #155f34; font-weight: 800; }}
-    .status-skip {{ color: #9a3526; font-weight: 800; }}
-    .status-replace {{ color: #775800; font-weight: 800; }}
-    .source-drawer {{ margin-top: 12px; padding: 12px 14px; }}
-    .source-drawer summary {{ cursor: pointer; font-weight: 850; color: #34444f; }}
+    .status-ok {{ color: #111827; font-weight: 680; }}
+    .status-skip {{ color: #111827; font-weight: 680; }}
+    .status-replace {{ color: #111827; font-weight: 680; }}
+    .source-drawer {{ margin-top: 16px; padding: 12px 14px; }}
+    .source-drawer summary {{ cursor: pointer; font-weight: 680; color: #374151; }}
     @media (max-width: 1040px) {{
-      .hero-grid, .chart-grid, .planner-grid {{ grid-template-columns: 1fr; }}
+      .hero-grid, .chart-grid, .planner-grid, .flow-map {{ grid-template-columns: 1fr; }}
       .hero-panel, .flow-stage {{ min-height: auto; }}
     }}
     @media (max-width: 720px) {{
-      main {{ padding: 14px; }}
+      main {{ padding: 20px 14px 36px; }}
       .topbar, .section-head, .flow-head {{ align-items: flex-start; flex-direction: column; }}
       .top-actions {{ justify-content: flex-start; }}
-      .hero-panel {{ padding: 18px; }}
-      .soc-command {{ grid-template-columns: 145px minmax(0, 1fr); gap: 14px; margin-top: 18px; }}
-      .soc-ring {{ width: 145px; }}
+      .hero-panel, .flow-stage {{ padding: 16px; }}
+      .soc-command {{ grid-template-columns: 1fr; gap: 16px; margin-top: 18px; }}
+      .soc-ring {{ width: 100%; max-width: none; height: auto; min-height: 136px; aspect-ratio: auto; }}
       .mode-stack {{ gap: 9px; }}
       .mode-value {{ font-size: 20px; }}
-      .quick-stats {{ grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 16px; }}
-      .quick-stat {{ padding: 9px; }}
-      .quick-stat b {{ font-size: 17px; }}
+      .quick-stats {{ grid-template-columns: 1fr; gap: 8px; margin-top: 16px; }}
+      .quick-stat {{ padding: 10px; }}
+      .quick-stat b {{ font-size: 18px; }}
       .quick-stat span {{ font-size: 11px; }}
-      .flow-map {{ grid-template-columns: 1fr; grid-template-rows: none; min-height: auto; }}
-      .flow-tile.solar, .flow-tile.grid-source, .flow-tile.inverter, .flow-tile.battery, .flow-tile.load {{
-        grid-column: auto;
-        grid-row: auto;
-      }}
-      .connector {{ display: none; }}
+      .flow-map {{ grid-template-rows: none; min-height: auto; }}
       table {{ min-width: 560px; }}
     }}
   </style>
@@ -1824,7 +1762,7 @@ def build_dashboard_html(
           <div class="hero-subtitle">Battery, grid, solar, schedule, topup planning, and automation health in one control surface.</div>
         </div>
         <div class="soc-command">
-          <div class="soc-ring" style="--soc:{soc_gauge_value:.0f}; --soc-color:{soc_color};">
+          <div class="soc-ring">
             <div class="soc-core">
               <strong>{esc(soc)}</strong>
               <span>Battery SOC</span>
@@ -1995,40 +1933,40 @@ def build_dashboard_html(
         <div class="label">Power Today</div>
         <canvas id="power-trend-chart"></canvas>
         <div class="legend">
-          <span style="--c:#16b8c5">PV</span>
-          <span style="--c:#f26f6f">Load</span>
-          <span style="--c:#7c6bf2">Grid</span>
+          <span style="--c:#2563eb">PV</span>
+          <span style="--c:#6b7280">Load</span>
+          <span style="--c:#111827">Grid</span>
         </div>
       </div>
       <div class="card chart-card compact">
         <div class="label">Battery SOC</div>
         <canvas id="soc-trend-chart"></canvas>
-        <div class="legend"><span style="--c:#23b26b">SOC</span></div>
+        <div class="legend"><span style="--c:#2563eb">SOC</span></div>
       </div>
       <div class="card chart-card compact">
         <div class="label">7-Day Battery Energy</div>
         <canvas id="battery-energy-chart"></canvas>
         <div class="legend">
-          <span style="--c:#23b26b">Charge</span>
-          <span style="--c:#a58b27">Discharge</span>
+          <span style="--c:#2563eb">Charge</span>
+          <span style="--c:#6b7280">Discharge</span>
         </div>
       </div>
       <div class="card chart-card compact">
         <div class="label">7-Day Supply Mix</div>
         <canvas id="supply-energy-chart"></canvas>
         <div class="legend">
-          <span style="--c:#16b8c5">PV</span>
-          <span style="--c:#7c6bf2">Grid</span>
-          <span style="--c:#f26f6f">Load</span>
+          <span style="--c:#2563eb">PV</span>
+          <span style="--c:#111827">Grid</span>
+          <span style="--c:#6b7280">Load</span>
         </div>
       </div>
       <div class="card chart-card compact">
         <div class="label">7-Day History</div>
         <canvas id="history-chart"></canvas>
         <div class="legend">
-          <span style="--c:#3b82f6">Preserve</span>
-          <span style="--c:#f59e0b">Utility</span>
-          <span style="--c:#ef4444">Watchdog</span>
+          <span style="--c:#2563eb">Preserve</span>
+          <span style="--c:#6b7280">Utility</span>
+          <span style="--c:#111827">Watchdog</span>
         </div>
       </div>
     </section>
@@ -2077,7 +2015,7 @@ def build_dashboard_html(
           }}
           const groupW = chartW / n;
           const barW = Math.max(4, groupW / 4 - 2);
-          const COLORS = ["#3b82f6", "#f59e0b", "#ef4444"];
+          const COLORS = ["#2563eb", "#6b7280", "#111827"];
           const SERIES = ["preserve_checks", "utility_switches", "watchdog_repairs"];
           SERIES.forEach(function (key, si) {{
             ctx.fillStyle = COLORS[si];
@@ -2095,7 +2033,7 @@ def build_dashboard_html(
           }});
           ctx.textAlign = "left";
           const legendY = PAD.top; const legendX = PAD.left + chartW - 200;
-          [["Preserve checks", "#3b82f6"], ["Utility switches", "#f59e0b"], ["Watchdog repairs", "#ef4444"]].forEach(function (item, i) {{
+          [["Preserve checks", "#2563eb"], ["Utility switches", "#6b7280"], ["Watchdog repairs", "#111827"]].forEach(function (item, i) {{
             ctx.fillStyle = item[1];
             ctx.fillRect(legendX + i * 70, legendY, 8, 8);
             ctx.fillStyle = "#64727d";
@@ -2227,21 +2165,21 @@ def build_dashboard_html(
       try {{
         const data = JSON.parse(dataEl.textContent);
         drawLineChart("power-trend-chart", data.power.labels || [], [
-          {{ color: "#25b8c7", values: data.power.pv_w || [] }},
-          {{ color: "#f97373", values: data.power.load_w || [] }},
-          {{ color: "#6366f1", values: data.power.grid_w || [] }}
+          {{ color: "#2563eb", values: data.power.pv_w || [] }},
+          {{ color: "#6b7280", values: data.power.load_w || [] }},
+          {{ color: "#111827", values: data.power.grid_w || [] }}
         ], {{ suffix: "W", minMax: 1000 }});
         drawLineChart("soc-trend-chart", data.soc.labels || [], [
-          {{ color: "#4ade80", values: data.soc.soc || [] }}
+          {{ color: "#2563eb", values: data.soc.soc || [] }}
         ], {{ suffix: "%", minMax: 100 }});
         drawBarChart("battery-energy-chart", data.daily.labels || [], [
-          {{ color: "#4ade80", values: data.daily.charge_kwh || [] }},
-          {{ color: "#a58b27", values: data.daily.discharge_kwh || [] }}
+          {{ color: "#2563eb", values: data.daily.charge_kwh || [] }},
+          {{ color: "#6b7280", values: data.daily.discharge_kwh || [] }}
         ], "kWh");
         drawBarChart("supply-energy-chart", data.daily.labels || [], [
-          {{ color: "#25b8c7", values: data.daily.pv_kwh || [] }},
-          {{ color: "#f0b429", values: data.daily.grid_kwh || [] }},
-          {{ color: "#f97373", values: data.daily.load_kwh || [] }}
+          {{ color: "#2563eb", values: data.daily.pv_kwh || [] }},
+          {{ color: "#111827", values: data.daily.grid_kwh || [] }},
+          {{ color: "#6b7280", values: data.daily.load_kwh || [] }}
         ], "kWh");
       }} catch (e) {{ /* metric chart render failed */ }}
     }})();
