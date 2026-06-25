@@ -63,7 +63,11 @@ PV_TODAY_KEYS = ("epvToday", "ePvToday", "epvTodayTotal")
 PV_TODAY_CHANNEL_KEYS = ("epv1Today", "epv2Today", "ePv1Today", "ePv2Today")
 PV_TOTAL_KEYS = ("epvTotalText", "ePvTotalText", "eTotalText", "epvTotal", "ePvTotal", "eTotal")
 LOAD_POWER_KEYS = ("outPutPower", "outPutPower1", "activePower", "outPower")
-LOAD_TODAY_KEYS = ("eLoadToday", "eLoadTodayText", "eloadToday", "eConsumptionToday", "consumptionToday")
+LOAD_TODAY_KEYS = (
+    "eLoadToday", "eLoadTodayText", "eloadToday", "eConsumptionToday",
+    "consumptionToday", "useEnergyToday", "useEnergyTodayText",
+    "eopDischrToday", "eopDischrTodayText",
+)
 GRID_POWER_KEYS = (
     "pGrid", "pGridText", "gridPower", "pImport", "pImportText",
     "pAcInput", "pAcInPut", "pacToUser", "pToUser",
@@ -153,6 +157,21 @@ def _metric_max(status: dict[str, Any], keys: tuple[str, ...]) -> float | None:
     return max(values) if values else None
 
 
+def _metric_energy_kwh_max(status: dict[str, Any], keys: tuple[str, ...]) -> float | None:
+    values: list[float] = []
+    wanted = set(keys)
+    for path, value in deep_values(status):
+        if path.split(".")[-1] not in wanted:
+            continue
+        parsed = parse_number(value)
+        if parsed is None:
+            continue
+        if isinstance(value, str) and "mwh" in value.lower():
+            parsed *= 1000
+        values.append(parsed)
+    return max(values) if values else None
+
+
 def _metric_number_or_channel_sum(
     status: dict[str, Any],
     total_keys: tuple[str, ...],
@@ -165,17 +184,17 @@ def _metric_number_or_channel_sum(
     return total
 
 
+def _format_lifetime_kwh(value: float) -> str:
+    if abs(value) >= 1000:
+        return f"{value / 1000:.2f} MWh"
+    return f"{value:g} kWh"
+
+
 def _metric_lifetime_text(status: dict[str, Any]) -> str:
-    result = extract_first_metric(status, PV_TOTAL_KEYS)
-    if result is None:
+    value_kwh = _metric_energy_kwh_max(status, PV_TOTAL_KEYS)
+    if value_kwh is None:
         return ""
-    value, _ = result
-    if isinstance(value, str) and any(ch.isalpha() for ch in value):
-        return value
-    parsed = parse_number(value)
-    if parsed is None:
-        return str(value)
-    return f"{parsed:g} MWh"
+    return _format_lifetime_kwh(value_kwh)
 
 
 def _rounded(value: float | None, digits: int = 1) -> float | None:
@@ -233,14 +252,14 @@ def extract_dashboard_metrics(status: dict[str, Any], now: dt.datetime | None = 
         "pv_total": _metric_lifetime_text(status),
         "load_w": _rounded(load_w, 0),
         "load_pct": _rounded(_metric_number(status, LOAD_PERCENT_KEYS), 0),
-        "load_today_kwh": _rounded(_metric_number(status, LOAD_TODAY_KEYS), 2),
+        "load_today_kwh": _rounded(_metric_max(status, LOAD_TODAY_KEYS), 2),
         "grid_w": _rounded(grid_w, 0),
         "grid_source": grid_source,
         "grid_today_kwh": _rounded(_metric_max(status, GRID_TODAY_KEYS), 2),
         "charge_w": _rounded(charge_w, 0),
-        "charge_today_kwh": _rounded(_metric_number(status, CHARGE_TODAY_KEYS), 2),
+        "charge_today_kwh": _rounded(_metric_max(status, CHARGE_TODAY_KEYS), 2),
         "discharge_w": _rounded(discharge_w, 0),
-        "discharge_today_kwh": _rounded(_metric_number(status, DISCHARGE_TODAY_KEYS), 2),
+        "discharge_today_kwh": _rounded(_metric_max(status, DISCHARGE_TODAY_KEYS), 2),
         "battery_net_w": _rounded(battery_net_w, 0),
         "vbat": _rounded(_metric_number(status, BATTERY_VOLTAGE_KEYS), 2),
     }

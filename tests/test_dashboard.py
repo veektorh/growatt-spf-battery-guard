@@ -36,9 +36,20 @@ class DashboardTests(unittest.TestCase):
             "device": {"capacity": "50%"},
             "storage_params": {
                 "outputConfig": "0",
-                "storageBean": {"pGrid": 0, "eToUserToday": 0},
+                "storageBean": {
+                    "pGrid": 0,
+                    "eToUserToday": 0,
+                    "epvTotal": 0,
+                    "eChargeToday": 0,
+                    "useEnergyToday": 0,
+                },
             },
-            "storage_energy_overview": {"eToUserToday": "13.7"},
+            "storage_energy_overview": {
+                "eToUserToday": "13.7",
+                "epvTotal": "2864.1",
+                "eChargeToday": "10.5",
+                "useEnergyToday": "12.5",
+            },
         }
         schedule = {
             "timezone": "Africa/Lagos",
@@ -70,6 +81,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Daily Energy", html)
         self.assertIn("System & Automation", html)
         self.assertIn("13.7 kWh", html)
+        self.assertIn("2.86 MWh", html)
+        self.assertIn("10.5 kWh", html)
+        self.assertIn("12.5 kWh", html)
         self.assertNotIn('<div class="label">PV Power</div>', html)
         self.assertNotIn('<div class="label">Load Power</div>', html)
         self.assertNotIn('<div class="label">Output Source</div>', html)
@@ -135,6 +149,8 @@ class DashboardTests(unittest.TestCase):
                     "epvToday": 1.2,
                     "pGrid": 0,
                     "eToUserToday": 0,
+                    "eChargeToday": 0,
+                    "useEnergyToday": 0,
                     "outPutPower": 1145,
                     "eLoadToday": 11.8,
                 },
@@ -146,7 +162,11 @@ class DashboardTests(unittest.TestCase):
                     "statusText": "Discharging",
                 },
             },
-            "storage_energy_overview": {"eToUserToday": "13.7"},
+            "storage_energy_overview": {
+                "eToUserToday": "13.7",
+                "eChargeToday": "10.5",
+                "useEnergyToday": "12.5",
+            },
         }
 
         metrics = extract_dashboard_metrics(status, now=now)
@@ -156,6 +176,8 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(metrics["pv_today_kwh"], 1.2)
         self.assertEqual(metrics["grid_w"], 0)
         self.assertEqual(metrics["grid_today_kwh"], 13.7)
+        self.assertEqual(metrics["charge_today_kwh"], 10.5)
+        self.assertEqual(metrics["load_today_kwh"], 12.5)
         self.assertEqual(metrics["load_w"], 1145)
         self.assertEqual(metrics["discharge_w"], 374)
         self.assertEqual(metrics["battery_net_w"], 374)
@@ -172,9 +194,9 @@ class DashboardTests(unittest.TestCase):
                     "pPv2": 692,
                     "epv1Today": 0.4,
                     "epv2Today": 0.8,
-                    "epvTotal": 2.9,
+                    "epvTotal": 0,
                 },
-                "storageDetailBean": {"bmsSoc": 47},
+                "storageDetailBean": {"bmsSoc": 47, "epvTotal": 2864.1},
             },
         }
 
@@ -182,7 +204,7 @@ class DashboardTests(unittest.TestCase):
 
         self.assertEqual(metrics["pv_w"], 1029)
         self.assertEqual(metrics["pv_today_kwh"], 1.2)
-        self.assertEqual(metrics["pv_total"], "2.9 MWh")
+        self.assertEqual(metrics["pv_total"], "2.86 MWh")
 
     def test_dashboard_metrics_history_roundtrip_and_payload(self):
         status = {
