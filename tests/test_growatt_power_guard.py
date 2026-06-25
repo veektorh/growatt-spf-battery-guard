@@ -23,6 +23,7 @@ from growatt_power_guard import (
     command_health_check,
     format_health_report,
 )
+from growatt_guard.schedule import HealthCheckItem as ScheduleHealthCheckItem
 
 
 class GrowattPowerGuardTests(unittest.TestCase):
@@ -229,6 +230,16 @@ class GrowattPowerGuardTests(unittest.TestCase):
         )
 
         self.assertIn("Result: FAIL", report)
+        self.assertIn("[FAIL] Cron jobs: missing", report)
+        self.assertIn("Next:", report)
+
+    def test_health_report_accepts_schedule_health_items(self):
+        report = format_health_report(
+            [
+                ScheduleHealthCheckItem("Cron jobs", "FAIL", "missing"),
+            ]
+        )
+
         self.assertIn("[FAIL] Cron jobs: missing", report)
         self.assertIn("Next:", report)
 

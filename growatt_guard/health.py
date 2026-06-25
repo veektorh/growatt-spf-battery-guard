@@ -96,7 +96,7 @@ def format_health_report(checks: list[HealthCheckItem]) -> str:
     for check in checks:
         detail = " ".join(str(check.detail).split())
         line = f"[{check.status}] {check.name}: {detail}"
-        suggestion = check.suggestion or default_health_suggestion(check)
+        suggestion = getattr(check, "suggestion", "") or default_health_suggestion(check)
         if suggestion:
             line += f" Next: {' '.join(str(suggestion).split())}"
         lines.append(line)
@@ -107,7 +107,7 @@ def health_embed_fields(checks: list[HealthCheckItem]) -> list[dict[str, Any]]:
     fields: list[dict[str, Any]] = []
     for check in checks:
         value = " ".join(str(check.detail).split()) or "-"
-        suggestion = check.suggestion or default_health_suggestion(check)
+        suggestion = getattr(check, "suggestion", "") or default_health_suggestion(check)
         if suggestion:
             value = f"{value}\nNext: {' '.join(str(suggestion).split())}"
         fields.append({"name": f"[{check.status}] {check.name}", "value": value[:1024], "inline": False})
