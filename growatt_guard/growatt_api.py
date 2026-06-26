@@ -49,6 +49,8 @@ SPF_OUTPUT_SOURCE = {
 }
 
 DEVICE_TYPE_PRIORITY = ("storage", "mix", "sph", "tlx", "inverter")
+SESSION_REUSE_SAFETY_CEILING_MINUTES = 23 * 60
+SESSION_REUSE_REFRESH_BUFFER_MINUTES = 5.0
 PV_POWER_CHANNELS = (
     ("pPv1", "ppv1", "pv1Power", "ppv", "ppvText"),
     ("pPv2", "ppv2", "pv2Power"),
@@ -116,6 +118,14 @@ def login_response_is_locked(login_response: Any) -> bool:
     return "locked" in str(login_response.get("error", "")).lower()
 
 
+def session_reuse_age_limit_minutes(ttl_minutes: float) -> float:
+    if ttl_minutes <= 0:
+        return 0.0
+    ceiling = min(ttl_minutes, SESSION_REUSE_SAFETY_CEILING_MINUTES)
+    buffer = min(SESSION_REUSE_REFRESH_BUFFER_MINUTES, ceiling * 0.1)
+    return max(0.0, ceiling - buffer)
+
+
 def _build_api(config: Any):
     api = growattServer.GrowattApi(add_random_user_id=True, agent_identifier=config.username)
     api.server_url = config.server_url
@@ -169,15 +179,21 @@ def connect(config: Any):
         cached = read_session_cache()
         if cached and isinstance(cached.get("cookies"), dict):
             age = session_cache_age_minutes(cached)
-            # Reuse the session regardless of age; the server will reject stale cookies
-            # with an HTTP error that load_context catches, clears the cache for, and
-            # retries. The 23h ceiling is a safety net in case the server never explicitly
-            # rejects an expired session.
-            if age is not None and age < 23 * 60:
+            # Refresh shortly before the configured session TTL. Growatt has been
+            # observed rejecting reused cookies at about the 60-minute mark, and
+            # waiting for that rejection creates noisy retry/failure log lines.
+            reuse_limit = session_reuse_age_limit_minutes(ttl)
+            if age is not None and age < reuse_limit:
                 api = _build_api(config)
                 api.session.cookies.update(requests.utils.cookiejar_from_dict(cached["cookies"]))
                 logging.info("Reusing cached Growatt session (age %.0f min).", age)
                 return api, cached.get("login_response") or {"success": True}
+            if age is not None:
+                logging.info(
+                    "Cached Growatt session age %.0f min reached refresh threshold %.0f min; logging in fresh.",
+                    age,
+                    reuse_limit,
+                )
 
     api = _build_api(config)
     logging.info("Logging into Growatt server %s", config.server_url)

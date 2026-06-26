@@ -36,6 +36,12 @@ MODE_AUDIT_FIELDS = (
 )
 
 
+def _line_counts_as_failure(lower_line: str) -> bool:
+    if "growatt api call failed (attempt" in lower_line and " retrying in " in lower_line:
+        return False
+    return " error " in lower_line or " failed" in lower_line or "unhandled error" in lower_line
+
+
 def summarize_today_log_counts() -> dict[str, int]:
     today = dt.datetime.now().strftime("%Y-%m-%d")
     counts = {
@@ -54,7 +60,7 @@ def summarize_today_log_counts() -> dict[str, int]:
         lower = line.lower()
         if "inv_set_success" in lower or "mode response" in lower:
             counts["success"] += 1
-        if " error " in lower or " failed" in lower or "unhandled error" in lower:
+        if _line_counts_as_failure(lower):
             counts["failure"] += 1
         if "watchdog detected" in lower or "watchdog repaired" in lower:
             counts["watchdog_repairs"] += 1

@@ -190,11 +190,11 @@ GROWATT_CLOUD_FAILURE_ALERT_THRESHOLD=3
 DASHBOARD_STALE_MINUTES=30
 GROWATT_MODE_DRIVER=spf5000
 
-# Session reuse: cache the Growatt session and reuse it until the server rejects
-# it (0 = disabled, log in every run). Reduces logins from ~250/day to a handful
-# and is the main defence against the 24h account lock (507). Any non-zero value
-# enables reuse; the value itself is no longer a TTL — sessions are held until
-# the server rejects the cookie or a 23h safety ceiling is reached.
+# Session reuse: cache the Growatt session and reuse it until shortly before the
+# configured TTL (0 = disabled, log in every run). Reduces logins from ~250/day
+# to a handful and is the main defence against the 24h account lock (507).
+# Growatt sessions have been observed expiring around 60 minutes, so 60 refreshes
+# proactively at about 55 minutes.
 # Enable after the account is healthy, then confirm the log shows
 # "Reusing cached Growatt session" between logins. Set back to 0 to disable.
 GROWATT_SESSION_TTL_MINUTES=60

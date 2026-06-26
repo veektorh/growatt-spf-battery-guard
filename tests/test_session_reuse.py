@@ -9,7 +9,7 @@ import requests
 
 from helpers import make_config
 from growatt_guard import state as state_mod
-from growatt_guard.growatt_api import connect, load_context
+from growatt_guard.growatt_api import connect, load_context, session_reuse_age_limit_minutes
 from growatt_guard.exceptions import GrowattGuardError
 
 
@@ -86,6 +86,58 @@ class SessionReuseTests(unittest.TestCase):
                 for p in patches:
                     p.stop()
 
+    def test_cache_before_refresh_threshold_skips_login(self):
+        config = make_config(growatt_session_ttl_minutes=60)
+        fake = _FakeServer(SUCCESS)
+        with TemporaryDirectory() as tmpdir:
+            patches = self._ctx(tmpdir, fake)
+            for p in patches:
+                p.start()
+            try:
+                saved_at = (state_mod.utc_now() - dt.timedelta(minutes=50)).isoformat()
+                state_mod.write_json_state(
+                    state_mod.SESSION_CACHE_FILE,
+                    {
+                        "cookies": {"JSESSIONID": "cached"},
+                        "login_response": {"success": True, "userId": "u1"},
+                        "saved_at": saved_at,
+                    },
+                )
+
+                api, _ = connect(config)
+
+                self.assertEqual(fake.api.login_calls, 0)
+                self.assertEqual(api.session.cookies.get("JSESSIONID"), "cached")
+            finally:
+                for p in patches:
+                    p.stop()
+
+    def test_cache_at_refresh_threshold_triggers_fresh_login(self):
+        config = make_config(growatt_session_ttl_minutes=60)
+        fake = _FakeServer(SUCCESS)
+        with TemporaryDirectory() as tmpdir:
+            patches = self._ctx(tmpdir, fake)
+            for p in patches:
+                p.start()
+            try:
+                saved_at = (state_mod.utc_now() - dt.timedelta(minutes=56)).isoformat()
+                state_mod.write_json_state(
+                    state_mod.SESSION_CACHE_FILE,
+                    {
+                        "cookies": {"JSESSIONID": "old"},
+                        "login_response": {"success": True, "userId": "u1"},
+                        "saved_at": saved_at,
+                    },
+                )
+
+                api, _ = connect(config)
+
+                self.assertEqual(fake.api.login_calls, 1)
+                self.assertEqual(api.session.cookies.get("JSESSIONID"), "tok123")
+            finally:
+                for p in patches:
+                    p.stop()
+
     def test_session_beyond_safety_ceiling_triggers_fresh_login(self):
         # Sessions older than the 23h safety ceiling are proactively refreshed.
         # Sessions younger than that are reused and rely on the server to reject
@@ -107,6 +159,11 @@ class SessionReuseTests(unittest.TestCase):
             finally:
                 for p in patches:
                     p.stop()
+
+    def test_session_reuse_age_limit_keeps_buffer_before_ttl(self):
+        self.assertEqual(session_reuse_age_limit_minutes(60), 55)
+        self.assertEqual(session_reuse_age_limit_minutes(10), 9)
+        self.assertEqual(session_reuse_age_limit_minutes(0), 0)
 
     def test_ttl_zero_disables_reuse(self):
         config = make_config(growatt_session_ttl_minutes=0)
