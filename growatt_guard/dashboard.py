@@ -220,6 +220,17 @@ def _metric_number_or_channel_sum(
     return total
 
 
+def _metric_number_or_channel_fallback(
+    status: dict[str, Any],
+    total_keys: tuple[str, ...],
+    channel_keys: tuple[str, ...],
+) -> float | None:
+    total = _metric_number(status, total_keys)
+    if total is not None:
+        return total
+    return _metric_sum(status, channel_keys)
+
+
 def _format_lifetime_kwh(value: float) -> str:
     if abs(value) >= 1000:
         return f"{value / 1000:.2f} MWh"
@@ -241,10 +252,8 @@ def extract_dashboard_metric_sources(status: dict[str, Any]) -> dict[str, str]:
         result = extract_first_metric(status, keys)
         return result[1] if result else ""
 
-    pv_total = _metric_number(status, PV_POWER_KEYS)
-    pv_channel_total = _metric_sum(status, PV_POWER_CHANNEL_KEYS)
     pv_source = first_path(PV_POWER_KEYS)
-    if pv_channel_total is not None and (pv_total is None or pv_channel_total > pv_total):
+    if not pv_source and _metric_sum(status, PV_POWER_CHANNEL_KEYS) is not None:
         pv_source = "channel-sum:" + ",".join(PV_POWER_CHANNEL_KEYS)
 
     pv_today_total = _metric_number(status, PV_TODAY_KEYS)
@@ -300,7 +309,9 @@ def extract_dashboard_metrics(status: dict[str, Any], now: dt.datetime | None = 
     now = now or dt.datetime.now().astimezone()
     soc_result = extract_soc(status)
     output_source = extract_spf_output_source(status)
-    pv_w = _metric_number_or_channel_sum(status, PV_POWER_KEYS, PV_POWER_CHANNEL_KEYS)
+    # Instantaneous SPF PV channel fields are not always additive; the Growatt app
+    # follows the aggregate ppv/pPv value when present.
+    pv_w = _metric_number_or_channel_fallback(status, PV_POWER_KEYS, PV_POWER_CHANNEL_KEYS)
     load_w = _metric_number(status, LOAD_POWER_KEYS)
     charge_w = _metric_number(status, CHARGE_POWER_KEYS)
     discharge_w = _metric_number(status, DISCHARGE_POWER_KEYS)

@@ -31,6 +31,7 @@ from growatt_guard.dashboard import (
     build_dashboard_next_action,
     build_dashboard_schedule_timeline,
     dashboard_asset_for_path,
+    extract_dashboard_metric_sources,
     extract_dashboard_metrics,
     read_dashboard_metrics_history,
     _today_job_rows,
@@ -420,7 +421,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(metrics["discharge_w"], 374)
         self.assertEqual(metrics["battery_net_w"], 374)
 
-    def test_dashboard_metrics_sums_pv_channels_when_total_is_lower(self):
+    def test_dashboard_metrics_uses_aggregate_pv_power_when_channels_are_higher(self):
         now = dt.datetime(2026, 6, 25, 8, 30)
         status = {
             "device": {"capacity": "47%"},
@@ -439,10 +440,33 @@ class DashboardTests(unittest.TestCase):
         }
 
         metrics = extract_dashboard_metrics(status, now=now)
+        sources = extract_dashboard_metric_sources(status)
 
-        self.assertEqual(metrics["pv_w"], 1029)
+        self.assertEqual(metrics["pv_w"], 337)
+        self.assertEqual(sources["pv_w"], "storage_params.storageBean.ppv")
         self.assertEqual(metrics["pv_today_kwh"], 1.2)
+        self.assertTrue(str(sources["pv_today_kwh"]).startswith("channel-sum:"))
         self.assertEqual(metrics["pv_total"], "2.86 MWh")
+
+    def test_dashboard_metrics_falls_back_to_pv_channel_power_without_total(self):
+        now = dt.datetime(2026, 6, 25, 8, 30)
+        status = {
+            "device": {"capacity": "47%"},
+            "storage_params": {
+                "storageBean": {
+                    "outputConfig": "0",
+                    "pPv1": 300,
+                    "pPv2": 200,
+                },
+                "storageDetailBean": {"bmsSoc": 47},
+            },
+        }
+
+        metrics = extract_dashboard_metrics(status, now=now)
+        sources = extract_dashboard_metric_sources(status)
+
+        self.assertEqual(metrics["pv_w"], 500)
+        self.assertTrue(str(sources["pv_w"]).startswith("channel-sum:"))
 
     def test_dashboard_metrics_history_roundtrip_and_payload(self):
         status = {

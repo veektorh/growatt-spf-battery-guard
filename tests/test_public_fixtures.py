@@ -22,7 +22,8 @@ class PublicFixtureTests(unittest.TestCase):
 
         self.assertEqual(metrics["soc"], 47)
         self.assertEqual(metrics["mode"], "SBU priority")
-        self.assertEqual(metrics["pv_w"], 1029)
+        self.assertEqual(metrics["pv_w"], 337)
+        self.assertIn("ppv", sources["pv_w"])
         self.assertEqual(metrics["grid_today_kwh"], 13.7)
         self.assertEqual(metrics["charge_today_kwh"], 10.5)
         self.assertEqual(metrics["load_today_kwh"], 12.5)
