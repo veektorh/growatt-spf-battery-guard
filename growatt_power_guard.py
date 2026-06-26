@@ -92,6 +92,7 @@ from growatt_guard.health import (
     health_result,
 )
 from growatt_guard.modes import (
+    command_adopt_utility,
     command_auto_topup_check,
     command_battery_alert,
     command_daily_summary,
@@ -99,16 +100,21 @@ from growatt_guard.modes import (
     command_force_utility,
     command_monthly_summary,
     command_morning_check,
+
     command_preserve_battery,
     command_probe,
+    command_prune_audit,
     command_return_sbu,
     command_rotate_logs,
     command_run_scheduled,
     command_runtime_alert,
+    command_snooze_waste,
     command_status,
     command_test_discord,
     command_topup_complete_check,
+    command_topup_soc,
     command_utility_check,
+    command_waste_alert_check,
     command_watchdog_sbu,
     command_weather_threshold,
     command_weekly_summary,
@@ -190,7 +196,7 @@ LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "growatt_power_guard.log"
 
 PAUSABLE_COMMANDS = {"preserve-battery", "utility-check", "morning-check", "return-sbu", "watchdog-sbu"}
-LOCKED_COMMANDS = PAUSABLE_COMMANDS | {"force-utility"}
+LOCKED_COMMANDS = PAUSABLE_COMMANDS | {"force-utility", "topup", "adopt-utility"}
 
 
 def setup_logging(verbose: bool) -> None:

@@ -194,6 +194,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Send a Discord alert if estimated battery runtime is below RUNTIME_ALERT_MINUTES.",
     )
 
+    topup_parser = subparsers.add_parser(
+        "topup",
+        help="Charge battery to a target SOC%% and return to SBU when done.",
+    )
+    topup_parser.add_argument(
+        "target_soc", type=float, help="Target battery SOC percentage (e.g. 40)."
+    )
+
+    adopt_parser = subparsers.add_parser(
+        "adopt-utility",
+        help="Adopt the current Utility state and auto-return to SBU at target SOC%%.",
+    )
+    adopt_parser.add_argument(
+        "target_soc", type=float, help="Target battery SOC percentage to charge to before returning to SBU."
+    )
+
+    snooze_parser = subparsers.add_parser(
+        "snooze-waste",
+        help="Snooze waste-alert-check notifications. Duration: '2h', '30m', or 'today'.",
+    )
+    snooze_parser.add_argument("duration", help="Snooze duration: '2h', '30m', or 'today'.")
+
+    subparsers.add_parser(
+        "waste-alert-check",
+        help=(
+            "Notify if Utility is on during daylight, PV can cover load, "
+            "and Growatt Guard has no active hold."
+        ),
+    )
+
     return parser
 
 
@@ -288,6 +318,14 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_topup_complete_check(config)
         if command == "runtime-alert":
             return app.command_runtime_alert(config)
+        if command == "topup":
+            return app.command_topup_soc(config, args.target_soc)
+        if command == "adopt-utility":
+            return app.command_adopt_utility(config, args.target_soc)
+        if command == "snooze-waste":
+            return app.command_snooze_waste(config, args.duration)
+        if command == "waste-alert-check":
+            return app.command_waste_alert_check(config)
         raise app.GrowattGuardError(f"Unknown command: {command}")
 
     if command in app.LOCKED_COMMANDS:

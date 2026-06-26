@@ -347,15 +347,29 @@ def write_topup_skip_notification_state(key: str, detail: dict[str, Any] | None 
 
 
 def topup_is_active(now: dt.datetime | None = None) -> bool:
-    state = read_topup_state()
-    if state is None:
-        return False
     now = now or utc_now()
-    try:
-        paused_until = parse_utc_datetime(str(state["paused_until"]))
-        return now < paused_until
-    except (KeyError, ValueError):
-        return False
+    state = read_topup_state()
+    if state is not None:
+        try:
+            paused_until = parse_utc_datetime(str(state["paused_until"]))
+            if now < paused_until:
+                return True
+        except (KeyError, ValueError):
+            pass
+    # Also active if a utility hold (owned/adopted) with unexpired max_expiry exists.
+    # Checked via utility_hold_is_active() but we avoid a forward reference by inlining.
+    hold = read_utility_hold_state()
+    if hold is not None:
+        max_expiry_str = hold.get("max_expiry")
+        if not max_expiry_str:
+            return True
+        try:
+            max_expiry = parse_utc_datetime(str(max_expiry_str))
+            if now < max_expiry:
+                return True
+        except ValueError:
+            pass
+    return False
 
 
 CHARGE_RATE_HISTORY_FILE = STATE_DIR / "charge_rate_history.json"
@@ -419,3 +433,115 @@ def write_runtime_alert_state(runtime_min: float) -> None:
 
 def clear_runtime_alert_state() -> None:
     clear_state_file(RUNTIME_ALERT_FILE)
+
+
+# ---------------------------------------------------------------------------
+# Utility hold — tracks owned/adopted Utility state for auto-return logic
+# ---------------------------------------------------------------------------
+
+UTILITY_HOLD_FILE = STATE_DIR / "utility_hold.json"
+
+
+def read_utility_hold_state() -> dict[str, Any] | None:
+    return read_json_state(UTILITY_HOLD_FILE, "utility hold")
+
+
+def write_utility_hold_state(
+    ownership: str,
+    target_soc: float,
+    max_expiry: dt.datetime,
+    start_soc: float | None = None,
+) -> None:
+    state: dict[str, Any] = {
+        "ownership": ownership,
+        "target_soc": target_soc,
+        "max_expiry": max_expiry.isoformat(),
+        "started_at": utc_now().isoformat(),
+    }
+    if start_soc is not None:
+        state["start_soc"] = start_soc
+    write_json_state(UTILITY_HOLD_FILE, state)
+
+
+def clear_utility_hold_state() -> None:
+    clear_state_file(UTILITY_HOLD_FILE)
+
+
+def utility_hold_ownership() -> str | None:
+    """Return "owned", "adopted", or None if no active hold."""
+    state = read_utility_hold_state()
+    if state is None:
+        return None
+    return str(state.get("ownership")) if state.get("ownership") else None
+
+
+def utility_hold_is_active(now: dt.datetime | None = None) -> bool:
+    state = read_utility_hold_state()
+    if state is None:
+        return False
+    max_expiry_str = state.get("max_expiry")
+    if not max_expiry_str:
+        return True  # no expiry set means indefinitely active
+    try:
+        max_expiry = parse_utc_datetime(str(max_expiry_str))
+        return (now or utc_now()) < max_expiry
+    except ValueError:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Waste alert — throttles avoidable-waste notifications + snooze
+# ---------------------------------------------------------------------------
+
+WASTE_ALERT_FILE = STATE_DIR / "waste_alert.json"
+
+
+def read_waste_alert_state() -> dict[str, Any] | None:
+    return read_json_state(WASTE_ALERT_FILE, "waste alert")
+
+
+def write_waste_alert_last_sent() -> None:
+    state = read_waste_alert_state() or {}
+    state["last_sent_at"] = utc_now().isoformat()
+    write_json_state(WASTE_ALERT_FILE, state)
+
+
+def write_waste_alert_snooze(until: dt.datetime) -> None:
+    state = read_waste_alert_state() or {}
+    state["snooze_until"] = until.isoformat()
+    write_json_state(WASTE_ALERT_FILE, state)
+
+
+def waste_alert_is_snoozed(now: dt.datetime | None = None) -> bool:
+    state = read_waste_alert_state()
+    if not state:
+        return False
+    snooze_str = state.get("snooze_until")
+    if not snooze_str:
+        return False
+    try:
+        snooze_until = parse_utc_datetime(str(snooze_str))
+    except ValueError:
+        return False
+    return (now or utc_now()) < snooze_until
+
+
+def waste_alert_is_due(cooldown_minutes: float = 30.0, now: dt.datetime | None = None) -> bool:
+    """Return True if enough time has passed since the last waste alert."""
+    state = read_waste_alert_state()
+    if not state:
+        return True
+    last_sent_str = state.get("last_sent_at")
+    if not last_sent_str:
+        return True
+    try:
+        last_sent = parse_utc_datetime(str(last_sent_str))
+    except ValueError:
+        return True
+    return ((now or utc_now()) - last_sent).total_seconds() >= cooldown_minutes * 60
+
+
+def clear_waste_alert_state() -> None:
+    clear_state_file(WASTE_ALERT_FILE)
+
+

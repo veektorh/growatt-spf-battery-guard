@@ -33,6 +33,7 @@ SCHEDULE_COMMANDS = {
     "observability-refresh",
     "auto-topup-check",
     "topup-complete-check",
+    "waste-alert-check",
     "runtime-alert",
 }
 SCHEDULE_COMMAND_ARGS = {

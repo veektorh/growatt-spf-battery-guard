@@ -55,6 +55,11 @@ def make_config(**overrides):
         "auto_topup_solar_skip_min_margin_minutes": 60.0,
         "runtime_alert_minutes": 0.0,
         "runtime_alert_clear_minutes": 0.0,
+        "growatt_session_ttl_minutes": 0.0,
+        "betterstack_heartbeat_url": "",
+        "auto_topup_sunrise_floor_soc": 35.0,
+        "auto_topup_sunrise_buffer_soc": 38.0,
+        "auto_topup_unusual_soc_threshold": 70.0,
     }
     values.update(overrides)
     return Config(**values)

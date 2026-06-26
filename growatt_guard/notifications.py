@@ -297,6 +297,86 @@ def embed_auto_topup_started(
     return _embed("⚡ Auto-topup started", _COLOR_WARN, fields)
 
 
+def embed_topup_soc_started(
+    current_soc: float,
+    target_soc: float,
+    eta_min: float,
+    max_min: float,
+    ownership: str = "owned",
+) -> dict:
+    from growatt_guard.growatt_api import format_duration_minutes
+    action = "Adopted Utility" if ownership == "adopted" else "Topup started"
+    fields = [
+        _f("SOC", f"{current_soc:.0f}% → {target_soc:.0f}%"),
+        _f("ETA", format_duration_minutes(eta_min)),
+        _f("Max", format_duration_minutes(max_min)),
+        _f("Return", "SBU when done", inline=False),
+    ]
+    return _embed(f"⚡ {action}", _COLOR_WARN, fields)
+
+
+def embed_topup_soc_complete(
+    start_soc: float,
+    end_soc: float,
+    target_soc: float,
+    duration_min: float,
+    ownership: str = "owned",
+) -> dict:
+    from growatt_guard.growatt_api import format_duration_minutes
+    label = "Adopted Utility complete" if ownership == "adopted" else "Topup complete"
+    fields = [
+        _f("SOC", f"{start_soc:.0f}% → {end_soc:.0f}% (target {target_soc:.0f}%)"),
+        _f("Duration", format_duration_minutes(duration_min)),
+        _f("Returned to", "SBU"),
+    ]
+    return _embed(f"✅ {label}", _COLOR_OK, fields)
+
+
+def embed_topup_below_target(
+    start_soc: float,
+    end_soc: float,
+    target_soc: float,
+    ownership: str = "owned",
+) -> dict:
+    label = "Adopted Utility below target" if ownership == "adopted" else "Topup below target"
+    fields = [
+        _f("SOC", f"{start_soc:.0f}% → {end_soc:.0f}%"),
+        _f("Target", f"{target_soc:.0f}%"),
+        _f("Note", "Max expiry reached before target; returned to SBU.", inline=False),
+    ]
+    return _embed(f"⚠️ {label}", _COLOR_WARN, fields)
+
+
+def embed_topup_failed_low(
+    end_soc: float,
+    target_soc: float,
+    ownership: str = "owned",
+) -> dict:
+    label = "Adopted Utility expired low" if ownership == "adopted" else "Topup expired low"
+    fields = [
+        _f("SOC at expiry", f"{end_soc:.0f}%"),
+        _f("Target", f"{target_soc:.0f}%"),
+        _f("Action", "Returned to SBU. Investigate — SOC is at or below safety floor.", inline=False),
+    ]
+    return _embed(f"❌ {label}", _COLOR_FAIL, fields)
+
+
+def embed_waste_alert(soc: float | None, pv_w: float, load_w: float) -> dict:
+    fields = [
+        _f("PV output", f"{pv_w:g} W"),
+        _f("Load", f"{load_w:g} W"),
+    ]
+    if soc is not None:
+        fields.insert(0, _f("Battery SOC", f"{soc:g}%"))
+    fields.append(_f(
+        "Note",
+        "Utility is on during daylight hours and PV can cover load. "
+        "Growatt Guard did not create this state, so no auto-return was made.",
+        inline=False,
+    ))
+    return _embed("⚠️ Utility may be wasting grid", _COLOR_WARN, fields)
+
+
 def embed_topup_complete_summary(
     start_soc: float,
     end_soc: float,

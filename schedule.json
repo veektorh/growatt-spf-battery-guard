@@ -53,6 +53,12 @@
       "command": "daily-summary"
     },
     {
+      "id": "waste-alert-check",
+      "name": "Alert if Utility is on while PV can cover the load",
+      "cron": "*/30 7-19 * * *",
+      "command": "waste-alert-check"
+    },
+    {
       "id": "battery-alert",
       "name": "Check emergency battery SOC",
       "cron": "*/30 * * * *",

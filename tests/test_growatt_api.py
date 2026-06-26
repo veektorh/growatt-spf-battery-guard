@@ -89,17 +89,28 @@ class GrowattApiTests(unittest.TestCase):
         set_mode_mock.assert_not_called()
 
     def test_watchdog_sbu_retries_when_not_sbu(self):
+        import datetime as _dt, json as _json
         config = make_config()
 
-        with TemporaryDirectory() as tmpdir, patch("growatt_guard.audit.LOG_DIR", Path(tmpdir)), patch(
-            "growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
-        ), patch("growatt_guard.state.PAUSE_FILE", Path(tmpdir) / "pause.json"), patch(
-            "growatt_guard.modes.load_context",
-            return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), {"storage_params": {"outputConfig": "2"}}),
-        ), patch("growatt_guard.modes.set_mode", return_value={"success": True}) as set_mode_mock, patch(
-            "logging.warning"
-        ), redirect_stdout(StringIO()):
-            self.assertEqual(command_watchdog_sbu(config), 0)
+        with TemporaryDirectory() as tmpdir:
+            hold_file = Path(tmpdir) / "utility_hold.json"
+            # Use expired max_expiry so watchdog proceeds to repair (not ceiling-hold).
+            expiry = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(minutes=5)).isoformat()
+            hold_file.write_text(
+                _json.dumps({"ownership": "owned", "target_soc": 40.0, "max_expiry": expiry, "started_at": expiry}),
+                encoding="utf-8",
+            )
+            with patch("growatt_guard.audit.LOG_DIR", Path(tmpdir)), patch(
+                "growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
+            ), patch("growatt_guard.state.PAUSE_FILE", Path(tmpdir) / "pause.json"), patch(
+                "growatt_guard.state.UTILITY_HOLD_FILE", hold_file
+            ), patch(
+                "growatt_guard.modes.load_context",
+                return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), {"storage_params": {"outputConfig": "2"}}),
+            ), patch("growatt_guard.modes.set_mode", return_value={"success": True}) as set_mode_mock, patch(
+                "logging.warning"
+            ), redirect_stdout(StringIO()):
+                self.assertEqual(command_watchdog_sbu(config), 0)
 
         set_mode_mock.assert_called_once()
 
@@ -610,6 +621,7 @@ class AutoTopupTargetSocTests(unittest.TestCase):
             patch("growatt_guard.modes.set_mode", return_value="ok"),
             patch("growatt_guard.modes.command_pause", return_value=0),
             patch("growatt_guard.modes.write_topup_state", side_effect=make_fake_write(store)),
+            patch("growatt_guard.modes.write_utility_hold_state"),
             patch("growatt_guard.modes.append_mode_audit"),
         ]
 
@@ -682,6 +694,7 @@ class AutoTopupTargetSocTests(unittest.TestCase):
                   patch("growatt_guard.modes.set_mode", return_value="ok"),
                   patch("growatt_guard.modes.command_pause", return_value=0),
                   patch("growatt_guard.modes.write_topup_state"),
+                  patch("growatt_guard.modes.write_utility_hold_state"),
                   patch("growatt_guard.modes.append_mode_audit"),
                   redirect_stdout(buf)):
                 command_auto_topup_check(cfg)
@@ -789,6 +802,7 @@ class AutoTopupMinMinutesTests(unittest.TestCase):
                 patch("growatt_guard.modes.set_mode", return_value="ok"),
                 patch("growatt_guard.modes.command_pause", return_value=0),
                 patch("growatt_guard.modes.write_topup_state", side_effect=fake_write_topup_state),
+                patch("growatt_guard.modes.write_utility_hold_state"),
                 patch("growatt_guard.modes.append_mode_audit"),
                 redirect_stdout(buf),
             ):
@@ -1118,12 +1132,13 @@ class SolarSkipTopupTests(unittest.TestCase):
                 patch("growatt_guard.modes.set_mode", return_value="ok"),
                 patch("growatt_guard.modes.command_pause", return_value=0),
                 patch("growatt_guard.modes.write_topup_state", side_effect=fake_write_topup_state),
+                patch("growatt_guard.modes.write_utility_hold_state"),
                 patch("growatt_guard.modes.append_mode_audit"),
                 patch("growatt_guard.weather.get_tomorrow_solar_kwh_m2", return_value=tomorrow_kwh),
             ]
             with patches[0], patches[1], patches[2], patches[3], patches[4], \
                  patches[5], patches[6], patches[7], patches[8], patches[9], \
-                 patches[10], patches[11], redirect_stdout(buf):
+                 patches[10], patches[11], patches[12], redirect_stdout(buf):
                 rc = command_auto_topup_check(cfg)
 
         return rc, buf.getvalue(), written
@@ -1449,6 +1464,7 @@ class DischargeRateAverageTests(unittest.TestCase):
               patch("growatt_guard.modes.set_mode", return_value="ok"),
               patch("growatt_guard.modes.command_pause", return_value=0),
               patch("growatt_guard.modes.write_topup_state", side_effect=fake_write),
+              patch("growatt_guard.modes.write_utility_hold_state"),
               patch("growatt_guard.modes.append_mode_audit"),
               redirect_stdout(StringIO())):
             command_auto_topup_check(cfg)

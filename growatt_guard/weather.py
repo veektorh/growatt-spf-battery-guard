@@ -197,6 +197,36 @@ def hours_until_next_sunrise(config: Any, now: dt.datetime | None = None) -> flo
         return None
 
 
+def hours_until_next_sunset(config: Any, now: dt.datetime | None = None) -> float | None:
+    """Return fractional hours from now until the next sunset, or None if unavailable.
+
+    Returns a positive value if sunset is in the future; negative if it has already passed today.
+    """
+    if not getattr(config, "weather_lat", None) or not getattr(config, "weather_lon", None):
+        return None
+    try:
+        daily = fetch_sunrise_data(config)
+        _now = now or dt.datetime.now()
+        best: float | None = None
+        for ss_str in daily.get("sunset", []):
+            ss = parse_forecast_time(str(ss_str))
+            hours = (ss - _now).total_seconds() / 3600.0
+            # Return the smallest positive value (next upcoming sunset).
+            if hours > 0 and (best is None or hours < best):
+                best = hours
+        if best is not None:
+            return best
+        # All sunsets are in the past — return the most recent one's negative delta.
+        for ss_str in reversed(daily.get("sunset", [])):
+            ss = parse_forecast_time(str(ss_str))
+            hours = (ss - _now).total_seconds() / 3600.0
+            return hours
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logging.debug("Could not fetch sunset time: %s", exc)
+        return None
+
+
 def fetch_weather_forecast(config: Any) -> dict[str, Any]:
     if config.weather_lat is None or config.weather_lon is None:
         raise weather_error("WEATHER_LAT and WEATHER_LON must be set when WEATHER_ENABLED=true.")

@@ -33,6 +33,11 @@ from growatt_guard.notifications import (
     embed_auto_topup_started,
     embed_topup_complete_summary,
     embed_topup_skipped_sunny,
+    embed_topup_soc_started,
+    embed_topup_soc_complete,
+    embed_topup_below_target,
+    embed_topup_failed_low,
+    embed_waste_alert,
     embed_battery_alert,
     embed_battery_cleared,
     embed_mode_not_confirmed,
@@ -61,6 +66,8 @@ from growatt_guard.state import (
     clear_battery_alert_state,
     clear_runtime_alert_state,
     clear_topup_state,
+    clear_utility_hold_state,
+    clear_waste_alert_state,
     parse_utc_datetime,
     pause_message,
     read_battery_alert_state,
@@ -68,18 +75,64 @@ from growatt_guard.state import (
     read_pause_state,
     read_runtime_alert_state,
     read_topup_state,
+    read_utility_hold_state,
     topup_skip_notification_due,
     topup_is_active,
+    utility_hold_ownership,
     utc_now,
+    waste_alert_is_due,
+    waste_alert_is_snoozed,
     write_battery_alert_state,
     write_runtime_alert_state,
     write_topup_skip_notification_state,
     write_topup_state,
+    write_utility_hold_state,
+    write_waste_alert_last_sent,
+    write_waste_alert_snooze,
 )
 from growatt_guard.weather import apply_load_adjustment, choose_preserve_threshold, hours_until_next_sunrise
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 LOG_DIR = BASE_DIR / "logs"
+
+_TOPUP_EXPIRY_BUFFER_FACTOR = 1.2  # max_expiry = eta * 1.2
+_TOPUP_EXPIRY_BUFFER_MIN_MINUTES = 15.0  # minimum buffer added to ETA
+
+
+def _projected_sunrise_soc(
+    soc: float,
+    load_w: float,
+    capacity_wh: float,
+    bms_cutoff_soc: float,
+    hours: float,
+) -> float | None:
+    """Estimated battery SOC at next sunrise given current discharge rate."""
+    if capacity_wh <= 0 or hours <= 0:
+        return None
+    drain_soc_pct = load_w * hours / capacity_wh * 100.0
+    return max(bms_cutoff_soc, soc - drain_soc_pct)
+
+
+def _eta_minutes(
+    current_soc: float,
+    target_soc: float,
+    capacity_wh: float,
+    charge_rate_w: float,
+) -> float | None:
+    """Minutes to charge from current_soc to target_soc at charge_rate_w."""
+    if capacity_wh <= 0 or charge_rate_w <= 0 or target_soc <= current_soc:
+        return None
+    soc_gain = target_soc - current_soc
+    wh_needed = soc_gain / 100.0 * capacity_wh
+    return wh_needed / charge_rate_w * 60.0
+
+
+def _topup_max_expiry(eta_min: float) -> tuple[float, dt.datetime]:
+    """Return (max_minutes, max_expiry_utc) given an ETA in minutes."""
+    buffer = max(_TOPUP_EXPIRY_BUFFER_MIN_MINUTES, eta_min * (_TOPUP_EXPIRY_BUFFER_FACTOR - 1))
+    max_min = eta_min + buffer
+    return max_min, utc_now() + dt.timedelta(minutes=max_min)
+
 
 _MODE_CHANGING_COMMANDS = {
     "preserve-battery",
@@ -437,10 +490,36 @@ def command_watchdog_sbu(config: Config) -> int:
         print(f"SBU watchdog OK: output={label} [{raw}]")
         return 0
 
-    # Charge ceiling: if we're on Utility and haven't reached the target SOC yet, hold off
-    if config.battery_charge_target_soc > 0 and soc is not None and soc < config.battery_charge_target_soc:
+    # On Utility — check ownership before deciding whether to repair.
+    hold_state = read_utility_hold_state()
+    ownership = hold_state.get("ownership") if hold_state else None
+
+    if ownership not in ("owned", "adopted"):
+        # Observed state: Guard did not create this Utility hold; never auto-return.
         logging.info(
-            "Charge ceiling: SOC %.1f%% < target %.1f%%; staying on Utility.", soc, config.battery_charge_target_soc
+            "watchdog-sbu: Utility detected with no Guard ownership (observed); skipping repair."
+        )
+        append_mode_audit(
+            config,
+            "watchdog-sbu",
+            soc=soc,
+            previous_mode=previous_mode,
+            action="observed-utility",
+            result="skipped",
+            note="no Guard ownership state — hard rule: never auto-return from observed Utility",
+        )
+        print("On Utility with no Guard ownership; watchdog skipping repair (observed state).")
+        return 0
+
+    # Owned or adopted: check if topup target/ceiling still active.
+    hold_target_soc = hold_state.get("target_soc") if hold_state else 0
+    hold_expiry_str = hold_state.get("max_expiry") if hold_state else None
+
+    # Use hold target_soc as ceiling (preferred over legacy config var).
+    ceiling_soc = float(hold_target_soc) if hold_target_soc else config.battery_charge_target_soc
+    if ceiling_soc > 0 and soc is not None and soc < ceiling_soc:
+        logging.info(
+            "Charge ceiling: SOC %.1f%% < target %.1f%%; staying on Utility.", soc, ceiling_soc
         )
         append_mode_audit(
             config,
@@ -449,10 +528,25 @@ def command_watchdog_sbu(config: Config) -> int:
             previous_mode=previous_mode,
             action="ceiling-hold",
             result="ok",
-            note=f"SOC {soc:.0f}% below ceiling {config.battery_charge_target_soc:g}%",
+            note=f"SOC {soc:.0f}% below ceiling {ceiling_soc:g}% ({ownership})",
         )
-        print(f"Charge ceiling hold: SOC {soc:.0f}% < target {config.battery_charge_target_soc:g}%; staying on Utility.")
+        print(f"Charge ceiling hold: SOC {soc:.0f}% < target {ceiling_soc:g}% ({ownership}); staying on Utility.")
         return 0
+
+    # If max_expiry has not passed yet, hold off — topup-complete-check will finalize.
+    if hold_expiry_str:
+        try:
+            hold_expiry = parse_utc_datetime(str(hold_expiry_str))
+            if utc_now() < hold_expiry:
+                remaining_min = (hold_expiry - utc_now()).total_seconds() / 60
+                logging.info(
+                    "watchdog-sbu: owned/adopted hold still within expiry (%.0f min left); skipping repair.",
+                    remaining_min,
+                )
+                print(f"Hold active ({ownership}): {remaining_min:.0f} min until max expiry; watchdog holding.")
+                return 0
+        except ValueError:
+            pass
 
     logging.warning("SBU watchdog detected output=%s [%s] from %s; retrying SBU.", label, raw, path)
     try:
@@ -911,7 +1005,17 @@ def command_auto_topup_check(config: Config) -> int:
         clear_pause_state()
         raise
 
+    # Compute the current SOC target (what we need to reach NOW to have effective_target_soc at sunrise).
+    drain_soc_pct = load_w * hrs / config.battery_capacity_wh * 100.0 if config.battery_capacity_wh > 0 else 0.0
+    current_soc_target = min(100.0, effective_target_soc + drain_soc_pct)
+
     write_topup_state(topup_min, reason, paused_until, start_soc=soc, start_load_w=load_w)
+    write_utility_hold_state(
+        ownership="owned",
+        target_soc=current_soc_target,
+        max_expiry=paused_until,
+        start_soc=soc,
+    )
     append_mode_audit(
         config, "auto-topup-check", soc=soc, previous_mode=previous_mode,
         action="auto-topup-started", result=result,
@@ -926,9 +1030,29 @@ def command_auto_topup_check(config: Config) -> int:
     return 0
 
 
+def _topup_record_charge_rate(
+    config: Config,
+    start_soc: float | None,
+    end_soc: float | None,
+    actual_min: float,
+) -> None:
+    """Record implied charge rate from a completed topup if there was SOC gain."""
+    if end_soc is None or start_soc is None or config.battery_capacity_wh <= 0:
+        return
+    soc_gain = end_soc - start_soc
+    if soc_gain <= 0:
+        return
+    energy_wh = soc_gain / 100.0 * config.battery_capacity_wh
+    implied_rate_w = energy_wh / (max(1.0, actual_min) / 60.0)
+    append_charge_rate_reading(implied_rate_w)
+
+
 def command_topup_complete_check(config: Config) -> int:
-    state = read_topup_state()
-    if state is None:
+    hold_state = read_utility_hold_state()
+    topup_state = read_topup_state()
+
+    # Nothing active — check audit for overdue unclosed topup.
+    if hold_state is None and topup_state is None:
         overdue = find_overdue_unclosed_topup()
         if overdue is not None:
             row = overdue["row"]
@@ -941,23 +1065,133 @@ def command_topup_complete_check(config: Config) -> int:
             return command_return_sbu(config)
         print("No active topup.")
         return 0
+
+    # ---- SOC-based completion path (owned/adopted utility hold) ----
+    if hold_state is not None:
+        ownership = str(hold_state.get("ownership", "owned"))
+        target_soc_raw = hold_state.get("target_soc")
+        max_expiry_str = hold_state.get("max_expiry")
+        start_soc_raw = hold_state.get("start_soc")
+        started_at_str = hold_state.get("started_at")
+
+        def _flt(v: object) -> float | None:
+            try:
+                return float(v)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                return None
+
+        target_soc = _flt(target_soc_raw)
+        start_soc = _flt(start_soc_raw)
+
+        # Read current SOC.
+        end_soc: float | None = None
+        try:
+            _, _, end_status = load_context(config)
+            end_soc_result = extract_soc(end_status)
+            if end_soc_result:
+                end_soc, _ = end_soc_result
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Compute actual duration.
+        actual_min = 0.0
+        if started_at_str:
+            try:
+                actual_min = max(1.0, (utc_now() - parse_utc_datetime(str(started_at_str))).total_seconds() / 60.0)
+            except ValueError:
+                pass
+
+        # Check if SOC target reached (early completion).
+        if target_soc is not None and end_soc is not None and end_soc >= target_soc:
+            logging.info("Topup SOC target reached: %.0f%% >= %.0f%%", end_soc, target_soc)
+            _topup_record_charge_rate(config, start_soc, end_soc, actual_min)
+            if config.discord_notify_success and not config.dry_run:
+                send_discord_embed(config, embed_topup_soc_complete(
+                    start_soc or end_soc, end_soc, target_soc, actual_min, ownership=ownership,
+                ))
+            print(f"Topup complete: reached {end_soc:.0f}% (target {target_soc:.0f}%), returning to SBU.")
+            command_resume(config)
+            try:
+                rc = command_return_sbu(config)
+            except Exception:
+                logging.warning("topup-complete-check: return-sbu failed; state preserved for retry")
+                raise
+            clear_utility_hold_state()
+            clear_topup_state()
+            return rc
+
+        # Check max expiry.
+        if max_expiry_str:
+            try:
+                max_expiry = parse_utc_datetime(str(max_expiry_str))
+            except ValueError:
+                max_expiry = None
+
+            if max_expiry is not None and utc_now() >= max_expiry:
+                # Expiry reached — determine outcome based on final SOC.
+                floor_soc = config.auto_topup_sunrise_floor_soc
+                logging.warning(
+                    "Topup max expiry reached: end_soc=%s target=%s", end_soc, target_soc
+                )
+                _topup_record_charge_rate(config, start_soc, end_soc, actual_min)
+                command_resume(config)
+                if end_soc is not None and end_soc <= floor_soc:
+                    # At or below safety floor — urgent alert.
+                    if config.discord_notify_failure and not config.dry_run:
+                        send_discord_embed(config, embed_topup_failed_low(
+                            end_soc, target_soc or 0, ownership=ownership,
+                        ))
+                    print(
+                        f"Topup expired at {end_soc:.0f}% — at or below {floor_soc:.0f}% floor. "
+                        "Returning to SBU; investigate manually."
+                    )
+                else:
+                    # Above floor but below target — soft completion.
+                    if config.discord_notify_success and not config.dry_run:
+                        send_discord_embed(config, embed_topup_below_target(
+                            start_soc or (end_soc or 0), end_soc or 0,
+                            target_soc or 0, ownership=ownership,
+                        ))
+                    soc_str = f"{end_soc:.0f}%" if end_soc is not None else "unknown"
+                    print(f"Topup expired below target: {soc_str} (target {target_soc:.0f}%); returning to SBU.")
+                try:
+                    rc = command_return_sbu(config)
+                except Exception:
+                    logging.warning("topup-complete-check: return-sbu failed; state preserved for retry")
+                    raise
+                clear_utility_hold_state()
+                clear_topup_state()
+                return rc
+
+            if max_expiry is not None:
+                remaining_min = max(0, int((max_expiry - utc_now()).total_seconds() // 60))
+                soc_str = f"{end_soc:.0f}%" if end_soc is not None else "unknown"
+                target_str = f"{target_soc:.0f}%" if target_soc is not None else "unknown"
+                print(f"Topup active ({ownership}): SOC {soc_str} / {target_str} target, ~{remaining_min} min max remaining.")
+                return 0
+
+        # Hold exists but no max_expiry and target not reached — still active.
+        print("Topup active; skipping.")
+        return 0
+
+    # ---- Legacy time-based completion path (topup_active.json only, no hold) ----
     if topup_is_active():
         try:
-            paused_until = parse_utc_datetime(str(state["paused_until"]))
+            paused_until = parse_utc_datetime(str(topup_state["paused_until"]))
             remaining = max(0, int((paused_until - utc_now()).total_seconds() // 60))
             print(f"Topup still active (~{remaining} min remaining); skipping.")
         except (KeyError, ValueError):
             print("Topup still active; skipping.")
         return 0
 
-    logging.info("Topup window expired; completing topup.")
+    logging.info("Topup window expired; completing topup (legacy time-based).")
 
-    end_soc: float | None = None
+    end_soc_legacy: float | None = None
     try:
         _, _, end_status = load_context(config)
         end_soc_result = extract_soc(end_status)
         if end_soc_result:
-            end_soc, _ = end_soc_result
+            end_soc_legacy, _ = end_soc_result
     except Exception:  # noqa: BLE001
         pass
 
@@ -969,32 +1203,32 @@ def command_topup_complete_check(config: Config) -> int:
         except (TypeError, ValueError):
             return None
 
-    start_soc = _f(state.get("start_soc"))
-    started_at_str = state.get("started_at")
-    planned_min = _f(state.get("minutes")) or 0.0
+    start_soc_legacy = _f(topup_state.get("start_soc"))
+    started_at_str_legacy = topup_state.get("started_at")
+    planned_min = _f(topup_state.get("minutes")) or 0.0
 
-    actual_min = planned_min
-    if started_at_str:
+    actual_min_legacy = planned_min
+    if started_at_str_legacy:
         try:
-            actual_min = max(1.0, (utc_now() - parse_utc_datetime(str(started_at_str))).total_seconds() / 60.0)
+            actual_min_legacy = max(
+                1.0, (utc_now() - parse_utc_datetime(str(started_at_str_legacy))).total_seconds() / 60.0
+            )
         except ValueError:
             pass
 
-    if end_soc is not None and start_soc is not None and config.battery_capacity_wh > 0:
-        soc_gain = end_soc - start_soc
+    if end_soc_legacy is not None and start_soc_legacy is not None and config.battery_capacity_wh > 0:
+        soc_gain = end_soc_legacy - start_soc_legacy
         if soc_gain > 0:
-            # On Utility mode the load is grid-served, so the battery only
-            # charges — net gain is the SOC delta alone (matches
-            # estimate-charge-rate). Do not add load power here.
             energy_wh = soc_gain / 100.0 * config.battery_capacity_wh
-            implied_rate_w = energy_wh / (actual_min / 60.0)
+            implied_rate_w = energy_wh / (actual_min_legacy / 60.0)
 
             history = append_charge_rate_reading(implied_rate_w)
             rates = [r["rate_w"] for r in history if isinstance(r.get("rate_w"), (int, float))]
             avg_rate_w = sum(rates) / len(rates) if len(rates) >= 2 else None
 
             print(
-                f"Topup complete: {actual_min:.0f}min, {start_soc:.0f}% → {end_soc:.0f}% (+{soc_gain:.0f}%)\n"
+                f"Topup complete: {actual_min_legacy:.0f}min, "
+                f"{start_soc_legacy:.0f}% → {end_soc_legacy:.0f}% (+{soc_gain:.0f}%)\n"
                 f"Implied charge rate: {implied_rate_w:.0f} W (configured: {config.battery_charge_rate_w:g} W)"
             )
             if avg_rate_w is not None:
@@ -1008,16 +1242,15 @@ def command_topup_complete_check(config: Config) -> int:
                     print(f"  Tip: consider updating BATTERY_CHARGE_RATE_W={ref_rate:.0f}")
             if config.discord_notify_success and not config.dry_run:
                 send_discord_embed(config, embed_topup_complete_summary(
-                    start_soc, end_soc, actual_min, implied_rate_w, config.battery_charge_rate_w,
+                    start_soc_legacy, end_soc_legacy, actual_min_legacy,
+                    implied_rate_w, config.battery_charge_rate_w,
                     avg_rate_w=avg_rate_w, reading_count=len(rates),
                 ))
         else:
-            print(f"Topup complete: {start_soc:.0f}% → {end_soc:.0f}% (no SOC gain detected).")
+            print(f"Topup complete: {start_soc_legacy:.0f}% → {end_soc_legacy:.0f}% (no SOC gain detected).")
     else:
         print("Topup complete.")
 
-    # Clear state only after a successful return to SBU so the next cron run
-    # retries the switch if the Growatt API was temporarily unavailable.
     try:
         rc = command_return_sbu(config)
     except Exception:
@@ -1025,6 +1258,228 @@ def command_topup_complete_check(config: Config) -> int:
         raise
     clear_topup_state()
     return rc
+
+
+def command_topup_soc(config: Config, target_soc: float) -> int:
+    """Manual topup: charge to target_soc% then return to SBU."""
+    if config.battery_capacity_wh <= 0 or config.battery_charge_rate_w <= 0:
+        raise GrowattGuardError(
+            "BATTERY_CAPACITY_WH and BATTERY_CHARGE_RATE_W must be configured for the topup command."
+        )
+
+    api, device, status = load_context(config)
+    soc_result = extract_soc(status)
+    if not soc_result:
+        raise GrowattGuardError("Could not read SOC from Growatt.")
+    soc, _ = soc_result
+    previous_mode = describe_status_output_source(status)
+    current_source = extract_spf_output_source(status)
+    already_on_utility = bool(current_source and current_source[0] == "2")
+
+    if already_on_utility:
+        ownership = utility_hold_ownership()
+        if ownership not in ("owned", "adopted"):
+            # Observed state: report and exit without adopting.
+            print(
+                f"Already on Utility. No topup started, no auto-return scheduled. "
+                f"Current SOC: {soc:.0f}%."
+            )
+            return 0
+        # Owned/adopted hold already active.
+        print(f"Topup already in progress ({ownership}); current SOC {soc:.0f}%.")
+        return 0
+
+    if soc >= target_soc:
+        print(f"SOC {soc:.0f}% already at or above target {target_soc:.0f}%; no topup needed.")
+        return 0
+
+    eta_min = _eta_minutes(soc, target_soc, config.battery_capacity_wh, config.battery_charge_rate_w)
+    if eta_min is None:
+        raise GrowattGuardError("Cannot compute ETA: check BATTERY_CAPACITY_WH and BATTERY_CHARGE_RATE_W.")
+
+    max_min, max_expiry = _topup_max_expiry(eta_min)
+
+    if not config.dry_run:
+        result = set_mode(api, config, device, "utility")
+        append_mode_audit(
+            config, "topup", soc=soc, previous_mode=previous_mode,
+            action="switch-to-utility", result=result,
+            note=f"target {target_soc:.0f}%, eta {eta_min:.0f}min",
+        )
+        write_utility_hold_state(ownership="owned", target_soc=target_soc, max_expiry=max_expiry, start_soc=soc)
+        # Pause automation so watchdog-sbu holds off.
+        command_pause(config, max_min / 60.0, f"topup to {target_soc:.0f}%")
+        confirmed = verify_mode_switch(api, device, "utility")
+        if confirmed is False:
+            logging.warning("topup: Utility switch not confirmed.")
+            if config.discord_notify_failure:
+                send_discord_embed(config, embed_mode_not_confirmed("topup", "Utility first"))
+    else:
+        append_mode_audit(
+            config, "topup", soc=soc, previous_mode=previous_mode,
+            action="switch-to-utility-dry", result="dry-run",
+            note=f"target {target_soc:.0f}%",
+        )
+
+    if config.discord_notify_success and not config.dry_run:
+        send_discord_embed(config, embed_topup_soc_started(soc, target_soc, eta_min, max_min, ownership="owned"))
+
+    from growatt_guard.growatt_api import format_duration_minutes
+    print(
+        f"Topup started: {soc:.0f}% -> {target_soc:.0f}%, "
+        f"ETA {format_duration_minutes(eta_min)}, max {format_duration_minutes(max_min)}, "
+        "will return to SBU."
+    )
+    return 0
+
+
+def command_adopt_utility(config: Config, target_soc: float) -> int:
+    """Adopt the current Utility state and schedule auto-return at target_soc%."""
+    if config.battery_capacity_wh <= 0 or config.battery_charge_rate_w <= 0:
+        raise GrowattGuardError(
+            "BATTERY_CAPACITY_WH and BATTERY_CHARGE_RATE_W must be configured for adopt-utility."
+        )
+
+    api, device, status = load_context(config)
+    soc_result = extract_soc(status)
+    if not soc_result:
+        raise GrowattGuardError("Could not read SOC from Growatt.")
+    soc, _ = soc_result
+    previous_mode = describe_status_output_source(status)
+    current_source = extract_spf_output_source(status)
+
+    if not (current_source and current_source[0] == "2"):
+        raise GrowattGuardError(
+            f"Inverter is not currently on Utility (mode: {previous_mode}). "
+            "adopt-utility is only valid when already on Utility."
+        )
+
+    existing = utility_hold_ownership()
+    if existing in ("owned", "adopted"):
+        print(f"Hold already {existing}; current SOC {soc:.0f}%.")
+        return 0
+
+    eta_min = _eta_minutes(soc, target_soc, config.battery_capacity_wh, config.battery_charge_rate_w)
+    if eta_min is None:
+        raise GrowattGuardError("Cannot compute ETA: check BATTERY_CAPACITY_WH and BATTERY_CHARGE_RATE_W.")
+
+    max_min, max_expiry = _topup_max_expiry(eta_min)
+
+    append_mode_audit(
+        config, "adopt-utility", soc=soc, previous_mode=previous_mode,
+        action="adopted", result="ok",
+        note=f"target {target_soc:.0f}%, eta {eta_min:.0f}min",
+    )
+    if not config.dry_run:
+        write_utility_hold_state(ownership="adopted", target_soc=target_soc, max_expiry=max_expiry, start_soc=soc)
+        command_pause(config, max_min / 60.0, f"adopted Utility to {target_soc:.0f}%")
+
+    if config.discord_notify_success and not config.dry_run:
+        send_discord_embed(config, embed_topup_soc_started(soc, target_soc, eta_min, max_min, ownership="adopted"))
+
+    from growatt_guard.growatt_api import format_duration_minutes
+    print(
+        f"Adopted Utility: {soc:.0f}% -> {target_soc:.0f}%, "
+        f"ETA {format_duration_minutes(eta_min)}, max {format_duration_minutes(max_min)}, "
+        "will return to SBU."
+    )
+    return 0
+
+
+def command_snooze_waste(config: Config, duration: str) -> int:
+    """Snooze waste-alert-check notifications for a duration ('2h', '30m', 'today')."""
+    now = utc_now()
+    dur_lower = duration.strip().lower()
+    if dur_lower == "today":
+        local_midnight = (now.astimezone() + dt.timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        snooze_until = local_midnight.astimezone(dt.timezone.utc)
+    elif dur_lower.endswith("h"):
+        hours = float(dur_lower[:-1])
+        snooze_until = now + dt.timedelta(hours=hours)
+    elif dur_lower.endswith("m"):
+        minutes = float(dur_lower[:-1])
+        snooze_until = now + dt.timedelta(minutes=minutes)
+    else:
+        raise GrowattGuardError(
+            f"Unrecognised duration '{duration}'. Use e.g. '2h', '30m', or 'today'."
+        )
+    write_waste_alert_snooze(snooze_until)
+    local_str = snooze_until.astimezone().strftime("%H:%M %Z")
+    print(f"Waste alerts snoozed until {local_str}.")
+    return 0
+
+
+def _pv_can_cover_load(status: dict) -> tuple[float, float, bool]:
+    """Return (pv_w, load_w, can_cover) by reading PV and load power from status."""
+    from growatt_guard.growatt_api import extract_channel_metric_sum, parse_number, extract_first_metric
+    from growatt_guard.growatt_api import PV_POWER_CHANNELS
+
+    pv_w = extract_channel_metric_sum(status, PV_POWER_CHANNELS)
+    if pv_w is None:
+        pv_w = 0.0
+
+    load_keys = ("outPutPower", "outPutPower1", "activePower", "outPower", "pLoad", "pLoadText")
+    load_raw = extract_first_metric(status, load_keys)
+    load_w_val = parse_number(load_raw[0]) if load_raw else None
+    load_w = load_w_val if load_w_val is not None else 0.0
+
+    return pv_w, load_w, (pv_w > 0 and pv_w >= load_w)
+
+
+def command_waste_alert_check(config: Config) -> int:
+    """Notify if Utility is on during daylight, PV can cover load, and no Guard hold is active."""
+    current_source_result = None
+    soc: float | None = None
+    try:
+        _, _, status = load_context(config)
+        soc_result = extract_soc(status)
+        if soc_result:
+            soc, _ = soc_result
+        current_source_result = extract_spf_output_source(status)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("waste-alert-check: could not load status: %s", exc)
+        return 0
+
+    # Must be on Utility to be wasteful.
+    if not (current_source_result and current_source_result[0] == "2"):
+        clear_waste_alert_state()
+        return 0
+
+    # If Guard owns/adopted this state, it's intentional — not waste.
+    ownership = utility_hold_ownership()
+    if ownership in ("owned", "adopted"):
+        clear_waste_alert_state()
+        return 0
+
+    pv_w, load_w, can_cover = _pv_can_cover_load(status)
+    if not can_cover:
+        # PV can't cover load — not waste (or nighttime).
+        clear_waste_alert_state()
+        return 0
+
+    # Snoozed?
+    if waste_alert_is_snoozed():
+        print("Waste condition detected but alerts are snoozed.")
+        return 0
+
+    # Throttle to once per 30 min.
+    if not waste_alert_is_due(cooldown_minutes=30.0):
+        print(f"Waste condition detected (PV {pv_w:g} W covers load {load_w:g} W); alert already sent recently.")
+        return 0
+
+    logging.warning(
+        "Utility on during daylight: PV %.0f W covers load %.0f W; no Guard ownership.", pv_w, load_w
+    )
+    if config.discord_notify_failure and not config.dry_run:
+        send_discord_embed(config, embed_waste_alert(soc, pv_w, load_w))
+    write_waste_alert_last_sent()
+    print(
+        f"Waste alert sent: Utility on, PV {pv_w:g} W can cover load {load_w:g} W, "
+        "no Guard ownership — no auto-return made."
+    )
+    return 0
 
 
 def command_runtime_alert(config: Config) -> int:

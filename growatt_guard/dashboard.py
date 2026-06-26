@@ -661,6 +661,53 @@ def _average_recent_discharge_w() -> float | None:
     return sum(rates) / len(rates)
 
 
+def compute_tonight_safe(
+    projected_sunrise_soc: float | None,
+    hours_to_sunset: float | None,
+    floor_soc: float = 35.0,
+    comfortable_soc: float = 45.0,
+    cutoff_offset_minutes: float = 30.0,
+) -> dict[str, Any]:
+    """Return tonight-safe headline data.
+
+    Show only after the evening cutoff (sunset minus cutoff_offset_minutes).
+    A negative hours_to_sunset means sunset already passed.
+    """
+    cutoff_hours = cutoff_offset_minutes / 60.0
+    past_cutoff = hours_to_sunset is None or hours_to_sunset <= cutoff_hours
+
+    if not past_cutoff:
+        return {"show": False}
+    if projected_sunrise_soc is None:
+        return {"show": False}
+
+    if projected_sunrise_soc < floor_soc:
+        return {
+            "show": True,
+            "headline": "Topup needed tonight",
+            "subtext": "Battery may not last until morning.",
+            "reason": f"Projected sunrise: {projected_sunrise_soc:.0f}%, below {floor_soc:.0f}% floor.",
+            "score": None,
+            "level": "danger",
+        }
+    if projected_sunrise_soc >= comfortable_soc:
+        return {
+            "show": True,
+            "headline": "Tonight safe: 100%",
+            "subtext": "",
+            "score": 100,
+            "level": "ok",
+        }
+    score = int(projected_sunrise_soc)
+    return {
+        "show": True,
+        "headline": f"Tonight safe: {score}%",
+        "subtext": "",
+        "score": score,
+        "level": "watch",
+    }
+
+
 def build_tonight_risk(
     live_metrics: dict[str, Any],
     battery_capacity_wh: float,
@@ -1378,6 +1425,10 @@ def build_dashboard_html(
     auto_topup_min_minutes: float = 0.0,
     discord_topup_max_minutes: float = 0.0,
     metrics_history: list[dict[str, Any]] | None = None,
+    hours_to_sunset: float | None = None,
+    tonight_floor_soc: float = 35.0,
+    tonight_comfortable_soc: float = 45.0,
+    utility_hold_state: dict[str, Any] | None = None,
 ) -> str:
     now = dt.datetime.now()
     generated_at = now.astimezone()
@@ -1506,6 +1557,55 @@ def build_dashboard_html(
         if isinstance(tonight_topup, (int, float)) and tonight_topup > 0
         else ("not needed" if tonight_topup == 0 else "--")
     )
+
+    # Tonight Safe headline (only shown after evening cutoff).
+    _tonight_proj = tonight_risk.get("projected_sunrise_soc")
+    tonight_safe = compute_tonight_safe(
+        projected_sunrise_soc=_tonight_proj if isinstance(_tonight_proj, (int, float)) else None,
+        hours_to_sunset=hours_to_sunset,
+        floor_soc=tonight_floor_soc,
+        comfortable_soc=tonight_comfortable_soc,
+    )
+    tonight_safe_html = ""
+    if tonight_safe.get("show"):
+        _ts_level = tonight_safe.get("level", "watch")
+        _ts_badge = "badge-fail" if _ts_level == "danger" else ("badge-ok" if _ts_level == "ok" else "badge-warn")
+        _ts_headline = esc(str(tonight_safe.get("headline", "")))
+        _ts_subtext = esc(str(tonight_safe.get("subtext", "")))
+        _ts_reason = esc(str(tonight_safe.get("reason", "")))
+        tonight_safe_html = f"""
+      <div class="planner-card primary">
+        <div class="label">Tonight Safe</div>
+        <div class="value"><span class="badge {_ts_badge}">{_ts_headline}</span></div>
+        {f'<div class="muted small">{_ts_subtext}</div>' if _ts_subtext else ''}
+        {f'<div class="muted small">{_ts_reason}</div>' if _ts_reason else ''}
+      </div>"""
+
+    # Utility hold status (shown when owned/adopted hold is active).
+    from growatt_guard.state import read_utility_hold_state as _read_hold
+    _hold_state = utility_hold_state if utility_hold_state is not None else _read_hold()
+    utility_hold_html = ""
+    if _hold_state and _hold_state.get("ownership") in ("owned", "adopted"):
+        _own = str(_hold_state.get("ownership", "owned")).capitalize()
+        _target = _hold_state.get("target_soc")
+        _expiry_str = _hold_state.get("max_expiry", "")
+        _eta_str = ""
+        if _expiry_str:
+            try:
+                import datetime as _dt2
+                from growatt_guard.state import parse_utc_datetime as _putc, utc_now as _unow
+                _exp = _putc(str(_expiry_str))
+                _rem_min = int(max(0, (_exp - _unow()).total_seconds() // 60))
+                _eta_str = f" · ETA {_rem_min}m"
+            except Exception:  # noqa: BLE001
+                pass
+        _target_str = f"{_target:.0f}%" if isinstance(_target, (int, float)) else "?"
+        utility_hold_html = f"""
+      <div class="planner-card">
+        <div class="label">Utility Hold</div>
+        <div class="value"><span class="badge badge-warn">{esc(_own)}</span></div>
+        <div class="muted small">Returning to SBU at {esc(_target_str)}{esc(_eta_str)}</div>
+      </div>"""
 
     soc_value = soc_result[0] if soc_result else None
     soc_gauge_value = max(0.0, min(100.0, float(soc_value))) if isinstance(soc_value, (int, float)) else 0.0
@@ -2342,6 +2442,8 @@ def build_dashboard_html(
 
     <h2 id="planner">Tonight Planner</h2>
     <section class="planner-grid">
+      {tonight_safe_html}
+      {utility_hold_html}
       <div class="planner-card primary">
         <div class="label">Tonight Risk</div>
         <div class="value"><span class="badge {esc(tonight_badge_class)}">{esc(tonight_title)}</span></div>
@@ -2787,12 +2889,19 @@ def _write_json_atomic(output_path: Path, payload: dict[str, Any]) -> None:
 
 
 def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str) -> Path:
+    from growatt_guard.weather import hours_until_next_sunset
+    from growatt_guard.state import read_utility_hold_state
     schedule = validate_schedule()
     overrides = validate_schedule_overrides(schedule)
     threshold_decision = choose_preserve_threshold(config)
     hrs_to_sunrise: float | None = None
+    hrs_to_sunset: float | None = None
     try:
         hrs_to_sunrise = hours_until_next_sunrise(config)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        hrs_to_sunset = hours_until_next_sunset(config)
     except Exception:  # noqa: BLE001
         pass
     output_path = resolve_dashboard_output(output)
@@ -2815,6 +2924,10 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
         config.auto_topup_min_minutes,
         config.discord_topup_max_minutes,
         metrics_history,
+        hours_to_sunset=hrs_to_sunset,
+        tonight_floor_soc=getattr(config, "auto_topup_sunrise_floor_soc", 35.0),
+        tonight_comfortable_soc=45.0,
+        utility_hold_state=read_utility_hold_state(),
     )
     # Atomic write: temp file in same directory then rename to avoid serving
     # a partially written file when the browser auto-refreshes mid-write.
