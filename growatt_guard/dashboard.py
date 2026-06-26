@@ -60,9 +60,9 @@ DASHBOARD_METRICS_RETENTION_DAYS = 8
 MIN_DASHBOARD_REFRESH_MINUTES = 5
 
 PV_POWER_KEYS = ("ppv", "ppvText", "pPv", "pvPower")
-PV_POWER_CHANNEL_KEYS = ("pPv1", "pPv2", "ppv1", "ppv2", "pv1Power", "pv2Power")
+PV_POWER_CHANNEL_GROUPS = (("pPv1", "pPv2"), ("ppv1", "ppv2"), ("pv1Power", "pv2Power"))
 PV_TODAY_KEYS = ("epvToday", "ePvToday", "epvTodayTotal")
-PV_TODAY_CHANNEL_KEYS = ("epv1Today", "epv2Today", "ePv1Today", "ePv2Today")
+PV_TODAY_CHANNEL_GROUPS = (("epv1Today", "epv2Today"), ("ePv1Today", "ePv2Today"))
 PV_TOTAL_KEYS = ("epvTotalText", "ePvTotalText", "eTotalText", "epvTotal", "ePvTotal", "eTotal")
 LOAD_POWER_KEYS = ("outPutPower", "outPutPower1", "activePower", "outPower")
 LOAD_TODAY_KEYS = (
@@ -132,19 +132,42 @@ def _metric_number(status: dict[str, Any], keys: tuple[str, ...]) -> float | Non
     return parse_number(result[0])
 
 
-def _metric_sum(status: dict[str, Any], keys: tuple[str, ...]) -> float | None:
-    total = 0.0
-    found = False
-    wanted = set(keys)
-    for path, value in deep_values(status):
-        if path.split(".")[-1] not in wanted:
-            continue
-        parsed = parse_number(value)
-        if parsed is None:
-            continue
-        total += parsed
-        found = True
-    return total if found else None
+def _metric_channel_sum(status: dict[str, Any], groups: tuple[tuple[str, ...], ...]) -> tuple[float, str] | None:
+    partial: tuple[float, str] | None = None
+
+    def walk(data: Any, path: str = "") -> tuple[float, str] | None:
+        nonlocal partial
+        if isinstance(data, dict):
+            for group in groups:
+                total = 0.0
+                paths: list[str] = []
+                for key in group:
+                    if key not in data:
+                        continue
+                    parsed = parse_number(data[key])
+                    if parsed is None:
+                        continue
+                    total += parsed
+                    paths.append(f"{path}.{key}" if path else key)
+                if paths:
+                    result = (total, "channel-sum:" + ",".join(paths))
+                    if len(paths) == len(group):
+                        return result
+                    if partial is None:
+                        partial = result
+            for key, value in data.items():
+                next_path = f"{path}.{key}" if path else str(key)
+                result = walk(value, next_path)
+                if result is not None:
+                    return result
+        elif isinstance(data, list):
+            for index, value in enumerate(data):
+                result = walk(value, f"{path}[{index}]")
+                if result is not None:
+                    return result
+        return None
+
+    return walk(status) or partial
 
 
 def _metric_max(status: dict[str, Any], keys: tuple[str, ...]) -> float | None:
@@ -211,24 +234,14 @@ def _metric_energy_kwh_max_source(status: dict[str, Any], keys: tuple[str, ...])
 def _metric_number_or_channel_sum(
     status: dict[str, Any],
     total_keys: tuple[str, ...],
-    channel_keys: tuple[str, ...],
+    channel_groups: tuple[tuple[str, ...], ...],
 ) -> float | None:
     total = _metric_number(status, total_keys)
-    channel_total = _metric_sum(status, channel_keys)
+    channel_result = _metric_channel_sum(status, channel_groups)
+    channel_total = channel_result[0] if channel_result is not None else None
     if channel_total is not None and (total is None or channel_total > total):
         return channel_total
     return total
-
-
-def _metric_number_or_channel_fallback(
-    status: dict[str, Any],
-    total_keys: tuple[str, ...],
-    channel_keys: tuple[str, ...],
-) -> float | None:
-    total = _metric_number(status, total_keys)
-    if total is not None:
-        return total
-    return _metric_sum(status, channel_keys)
 
 
 def _format_lifetime_kwh(value: float) -> str:
@@ -252,15 +265,18 @@ def extract_dashboard_metric_sources(status: dict[str, Any]) -> dict[str, str]:
         result = extract_first_metric(status, keys)
         return result[1] if result else ""
 
+    pv_total = _metric_number(status, PV_POWER_KEYS)
+    pv_channel_result = _metric_channel_sum(status, PV_POWER_CHANNEL_GROUPS)
     pv_source = first_path(PV_POWER_KEYS)
-    if not pv_source and _metric_sum(status, PV_POWER_CHANNEL_KEYS) is not None:
-        pv_source = "channel-sum:" + ",".join(PV_POWER_CHANNEL_KEYS)
+    if pv_channel_result is not None and (pv_total is None or pv_channel_result[0] > pv_total):
+        pv_source = pv_channel_result[1]
 
     pv_today_total = _metric_number(status, PV_TODAY_KEYS)
-    pv_today_channel_total = _metric_sum(status, PV_TODAY_CHANNEL_KEYS)
+    pv_today_channel_result = _metric_channel_sum(status, PV_TODAY_CHANNEL_GROUPS)
+    pv_today_channel_total = pv_today_channel_result[0] if pv_today_channel_result is not None else None
     pv_today_source = first_path(PV_TODAY_KEYS)
     if pv_today_channel_total is not None and (pv_today_total is None or pv_today_channel_total > pv_today_total):
-        pv_today_source = "channel-sum:" + ",".join(PV_TODAY_CHANNEL_KEYS)
+        pv_today_source = pv_today_channel_result[1] if pv_today_channel_result else pv_today_source
 
     return {
         "soc": soc_result[1] if soc_result else "",
@@ -309,9 +325,7 @@ def extract_dashboard_metrics(status: dict[str, Any], now: dt.datetime | None = 
     now = now or dt.datetime.now().astimezone()
     soc_result = extract_soc(status)
     output_source = extract_spf_output_source(status)
-    # Instantaneous SPF PV channel fields are not always additive; the Growatt app
-    # follows the aggregate ppv/pPv value when present.
-    pv_w = _metric_number_or_channel_fallback(status, PV_POWER_KEYS, PV_POWER_CHANNEL_KEYS)
+    pv_w = _metric_number_or_channel_sum(status, PV_POWER_KEYS, PV_POWER_CHANNEL_GROUPS)
     load_w = _metric_number(status, LOAD_POWER_KEYS)
     charge_w = _metric_number(status, CHARGE_POWER_KEYS)
     discharge_w = _metric_number(status, DISCHARGE_POWER_KEYS)
@@ -334,7 +348,7 @@ def extract_dashboard_metrics(status: dict[str, Any], now: dt.datetime | None = 
         "mode_source": output_source[2] if output_source else "",
         "battery_status": extract_battery_status(status) or "",
         "pv_w": _rounded(pv_w, 0),
-        "pv_today_kwh": _rounded(_metric_number_or_channel_sum(status, PV_TODAY_KEYS, PV_TODAY_CHANNEL_KEYS), 2),
+        "pv_today_kwh": _rounded(_metric_number_or_channel_sum(status, PV_TODAY_KEYS, PV_TODAY_CHANNEL_GROUPS), 2),
         "pv_total": _metric_lifetime_text(status),
         "load_w": _rounded(load_w, 0),
         "load_pct": _rounded(_metric_number(status, LOAD_PERCENT_KEYS), 0),
