@@ -16,9 +16,11 @@ from growatt_guard.diagnostics import (
     build_pv_metric_probe_payload,
     build_service_status,
     build_service_status_payload,
+    command_redact_probe,
     command_service_status,
     format_diagnostic_items,
     format_pv_metric_probe,
+    redact_probe_fixture,
 )
 
 
@@ -128,14 +130,14 @@ class DiagnosticsTests(unittest.TestCase):
             return_value=[DiagnosticItem("Schedule", "OK", "15 jobs")],
         ), patch("growatt_guard.diagnostics.read_mode_audit_rows", return_value=[]):
             (Path(tmpdir) / "growatt_power_guard.log").write_text(
-                "2026-06-26 ERROR DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/123/token\n",
+                "2026-06-26 ERROR DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/example\n",
                 encoding="utf-8",
             )
             bundle = build_diagnostic_bundle(config)
 
         self.assertIn("Growatt diagnostic bundle", bundle)
         self.assertIn("DISCORD_WEBHOOK_CONFIGURED=True", bundle)
-        self.assertNotIn("discord.com/api/webhooks/123/token", bundle)
+        self.assertNotIn("discord.com/api/webhooks/example", bundle)
         self.assertIn("This bundle is local/read-only", bundle)
 
     def test_diagnostic_bundle_payload_can_include_cloud_summary(self):
@@ -174,3 +176,38 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(payload["dashboard"]["pv_w"], 423)
         self.assertIn("storage_params.storageDetailBean.ppv2", text)
         self.assertIn("PV now: 423 W", text)
+
+    def test_redact_probe_fixture_preserves_metrics_and_removes_identifiers(self):
+        raw = {
+            "plantId": "real-plant-id",
+            "deviceSn": "real-device-sn",
+            "dataloggerSn": "real-datalogger-sn",
+            "storage_params": {"storageDetailBean": {"ppv": 156, "ppv2": 267}},
+            "note": "DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/example",
+        }
+
+        redacted = redact_probe_fixture(raw)
+
+        self.assertEqual(redacted["plantId"], "[redacted]")
+        self.assertEqual(redacted["deviceSn"], "[redacted]")
+        self.assertEqual(redacted["dataloggerSn"], "[redacted]")
+        self.assertEqual(redacted["storage_params"]["storageDetailBean"]["ppv"], 156)
+        self.assertEqual(redacted["storage_params"]["storageDetailBean"]["ppv2"], 267)
+        self.assertNotIn("discord.com/api/webhooks/example", redacted["note"])
+
+    def test_command_redact_probe_writes_redacted_json(self):
+        raw = {"plantName": "private plant", "storage_params": {"storageDetailBean": {"epvToday": 14.9}}}
+
+        with TemporaryDirectory() as tmpdir, redirect_stdout(StringIO()) as stdout:
+            input_path = Path(tmpdir) / "raw.json"
+            output_path = Path(tmpdir) / "redacted.json"
+            input_path.write_text(json.dumps(raw), encoding="utf-8")
+
+            result = command_redact_probe(str(input_path), str(output_path))
+
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(result, 0)
+        self.assertEqual(payload["plantName"], "[redacted]")
+        self.assertEqual(payload["storage_params"]["storageDetailBean"]["epvToday"], 14.9)
+        self.assertIn("Redacted probe written", stdout.getvalue())

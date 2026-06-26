@@ -56,9 +56,11 @@ from growatt_guard.diagnostics import (
     build_service_status_payload,
     command_diagnostic_bundle,
     command_pv_metric_probe,
+    command_redact_probe,
     command_service_status,
     format_diagnostic_items,
     format_pv_metric_probe,
+    redact_probe_fixture,
 )
 from growatt_guard.discord_control import (
     command_result_text,

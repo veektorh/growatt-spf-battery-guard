@@ -49,6 +49,14 @@ SPF_OUTPUT_SOURCE = {
 }
 
 DEVICE_TYPE_PRIORITY = ("storage", "mix", "sph", "tlx", "inverter")
+PV_POWER_CHANNELS = (
+    ("pPv1", "ppv1", "pv1Power", "ppv", "ppvText"),
+    ("pPv2", "ppv2", "pv2Power"),
+)
+PV_TODAY_CHANNELS = (
+    ("epv1Today", "ePv1Today"),
+    ("epv2Today", "ePv2Today"),
+)
 
 
 @dataclass(frozen=True)
@@ -290,6 +298,61 @@ def parse_number(value: Any) -> float | None:
         match = re.search(r"-?\d+(?:\.\d+)?", value.replace(",", ""))
         if match:
             return float(match.group(0))
+    return None
+
+
+def extract_channel_metric_sum(
+    data: Any,
+    channels: tuple[tuple[str, ...], ...],
+) -> tuple[float, str] | None:
+    """Return a summed metric from one alias per physical channel.
+
+    Growatt sometimes reports PV1 as a total-looking key (`ppv`) and PV2 as
+    `ppv2`/`pPv2`. Keep this logic shared so dashboard and PVOutput interpret
+    those shapes the same way.
+    """
+    partial: tuple[float, str, int] | None = None
+
+    def remember_partial(total: float, source: str, count: int) -> None:
+        nonlocal partial
+        if partial is None or count > partial[2] or (count == partial[2] and total > partial[0]):
+            partial = (total, source, count)
+
+    def walk(node: Any, path: str = "") -> tuple[float, str] | None:
+        if isinstance(node, dict):
+            total = 0.0
+            paths: list[str] = []
+            for aliases in channels:
+                for key in aliases:
+                    if key not in node:
+                        continue
+                    parsed = parse_number(node[key])
+                    if parsed is None:
+                        continue
+                    total += parsed
+                    paths.append(f"{path}.{key}" if path else key)
+                    break
+            if paths:
+                source = "channel-sum:" + ",".join(paths)
+                if len(paths) == len(channels):
+                    return total, source
+                remember_partial(total, source, len(paths))
+            for key, value in node.items():
+                result = walk(value, f"{path}.{key}" if path else str(key))
+                if result is not None:
+                    return result
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                result = walk(value, f"{path}[{index}]")
+                if result is not None:
+                    return result
+        return None
+
+    result = walk(data)
+    if result is not None:
+        return result
+    if partial is not None:
+        return partial[0], partial[1]
     return None
 
 

@@ -60,12 +60,11 @@ Why: Growatt returns duplicate and inconsistent fields. Fixtures make parser
 fixes faster and safer.
 
 - Add more fixture variants:
-  - PV charging plus load
   - missing grid import live power
   - unavailable SOC/output source paths
 - Cover PVOutput extraction, status summary, and Discord dashboard embed parsing
   with the fixtures.
-- Add a fixture redaction helper for future probe files.
+- Use `redact-probe` when turning raw probe JSON into public-safe fixtures.
 
 ### 4. Health Check Remediation Mode
 

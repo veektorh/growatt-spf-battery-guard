@@ -16,6 +16,7 @@ from growatt_guard.dashboard import (
     extract_dashboard_metric_sources,
     extract_dashboard_metrics,
 )
+from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import deep_values, extract_soc, extract_spf_output_source, load_context
 from growatt_guard.pvoutput import extract_pvoutput_fields, read_pvoutput_state
 from growatt_guard.schedule import (
@@ -68,6 +69,28 @@ REDACTION_PATTERNS = (
     (re.compile(r"(DISCORD_WEBHOOK_URL=)\S+"), r"\1[redacted]"),
     (re.compile(r"(DISCORD_BOT_TOKEN=)\S+"), r"\1[redacted]"),
 )
+SENSITIVE_PROBE_KEY_PARTS = (
+    "apikey",
+    "apiuser",
+    "coord",
+    "datalog",
+    "deviceid",
+    "devicesn",
+    "email",
+    "ipaddress",
+    "latitude",
+    "longitude",
+    "macaddress",
+    "password",
+    "plantid",
+    "plantname",
+    "secret",
+    "serial",
+    "token",
+    "username",
+    "webhook",
+)
+SENSITIVE_PROBE_KEYS = {"ip", "mac", "serverurl", "sn"}
 
 
 @dataclass(frozen=True)
@@ -94,6 +117,42 @@ def _redact_text(value: Any) -> str:
     for pattern, replacement in REDACTION_PATTERNS:
         text = pattern.sub(replacement, text)
     return text
+
+
+def _probe_key_is_sensitive(key: Any) -> bool:
+    normalized = re.sub(r"[^a-z0-9]", "", str(key).lower())
+    return normalized in SENSITIVE_PROBE_KEYS or any(part in normalized for part in SENSITIVE_PROBE_KEY_PARTS)
+
+
+def redact_probe_fixture(data: Any) -> Any:
+    """Redact identifiers/secrets from raw probe-like JSON while preserving metrics."""
+    if isinstance(data, dict):
+        return {
+            key: "[redacted]" if _probe_key_is_sensitive(key) else redact_probe_fixture(value)
+            for key, value in data.items()
+        }
+    if isinstance(data, list):
+        return [redact_probe_fixture(value) for value in data]
+    if isinstance(data, str):
+        return _redact_text(data)
+    return data
+
+
+def command_redact_probe(input_path: str, output_path: str = "") -> int:
+    source = Path(input_path)
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise GrowattGuardError(f"Could not read JSON probe {input_path}: {exc}") from exc
+
+    text = json.dumps(redact_probe_fixture(data), indent=2, sort_keys=True) + "\n"
+    if output_path:
+        destination = Path(output_path)
+        destination.write_text(text, encoding="utf-8")
+        print(f"Redacted probe written to {destination}")
+    else:
+        print(text, end="")
+    return 0
 
 
 def _fmt_probe_number(value: Any) -> str:

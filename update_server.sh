@@ -44,7 +44,7 @@ echo "Checking syntax..."
 "${PYTHON_BIN}" -m py_compile "${ROOT}"/growatt_power_guard.py "${ROOT}"/growatt_guard/*.py
 
 echo "Running tests..."
-"${PYTHON_BIN}" -m unittest discover -s tests -q
+"${PYTHON_BIN}" tests/run_quiet.py
 
 echo "Validating schedule..."
 "${PYTHON_BIN}" growatt_power_guard.py validate-schedule
@@ -77,9 +77,14 @@ if command -v systemctl >/dev/null 2>&1 && systemctl cat growatt-discord-control
 fi
 
 echo "Running post-deploy smoke checks..."
-"${PYTHON_BIN}" growatt_power_guard.py observability-refresh || echo "  (smoke check non-fatal — see log above)"
-"${PYTHON_BIN}" growatt_power_guard.py dashboard-refresh --once || echo "  (smoke check non-fatal — see log above)"
-"${PYTHON_BIN}" growatt_power_guard.py dashboard-stale-alert || echo "  (smoke check non-fatal — see log above)"
+"${PYTHON_BIN}" growatt_power_guard.py observability-refresh || echo "  (smoke check non-fatal - see log above)"
+"${PYTHON_BIN}" growatt_power_guard.py service-status --json
+if [[ "${RUN_PV_METRIC_PROBE:-false}" == "true" ]]; then
+  "${PYTHON_BIN}" growatt_power_guard.py pv-metric-probe --json || echo "  (PV metric probe non-fatal - see log above)"
+else
+  echo "Skipping PV metric probe (set RUN_PV_METRIC_PROBE=true to include one extra Growatt read)."
+fi
+"${PYTHON_BIN}" growatt_power_guard.py dashboard-stale-alert || echo "  (smoke check non-fatal - see log above)"
 
 echo "Running health check..."
 if [[ "${NOTIFY}" == "1" ]]; then

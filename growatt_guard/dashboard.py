@@ -16,11 +16,14 @@ from typing import Any
 from growatt_guard.audit import build_chart_data, read_mode_audit_rows
 from growatt_guard.pvoutput import publish_pvoutput_status_from_status, read_pvoutput_state
 from growatt_guard.growatt_api import (
+    PV_POWER_CHANNELS,
+    PV_TODAY_CHANNELS,
     estimate_charge_time,
     estimate_runtime,
     estimate_topup_for_sunrise,
     deep_values,
     extract_battery_status,
+    extract_channel_metric_sum,
     extract_first_metric,
     extract_soc,
     extract_spf_output_source,
@@ -60,9 +63,7 @@ DASHBOARD_METRICS_RETENTION_DAYS = 8
 MIN_DASHBOARD_REFRESH_MINUTES = 5
 
 PV_POWER_KEYS = ("ppv", "ppvText", "pPv", "pvPower")
-PV_POWER_CHANNELS = (("pPv1", "ppv1", "pv1Power", "ppv", "ppvText"), ("pPv2", "ppv2", "pv2Power"))
 PV_TODAY_KEYS = ("epvToday", "ePvToday", "epvTodayTotal")
-PV_TODAY_CHANNELS = (("epv1Today", "ePv1Today"), ("epv2Today", "ePv2Today"))
 PV_TOTAL_KEYS = ("epvTotalText", "ePvTotalText", "eTotalText", "epvTotal", "ePvTotal", "eTotal")
 LOAD_POWER_KEYS = ("outPutPower", "outPutPower1", "activePower", "outPower")
 LOAD_TODAY_KEYS = (
@@ -132,53 +133,6 @@ def _metric_number(status: dict[str, Any], keys: tuple[str, ...]) -> float | Non
     return parse_number(result[0])
 
 
-def _metric_channel_sum(status: dict[str, Any], channels: tuple[tuple[str, ...], ...]) -> tuple[float, str] | None:
-    partial: tuple[float, str, int] | None = None
-
-    def remember_partial(total: float, source: str, count: int) -> None:
-        nonlocal partial
-        if partial is None or count > partial[2] or (count == partial[2] and total > partial[0]):
-            partial = (total, source, count)
-
-    def walk(data: Any, path: str = "") -> tuple[float, str] | None:
-        if isinstance(data, dict):
-            total = 0.0
-            paths: list[str] = []
-            for aliases in channels:
-                for key in aliases:
-                    if key not in data:
-                        continue
-                    parsed = parse_number(data[key])
-                    if parsed is None:
-                        continue
-                    total += parsed
-                    paths.append(f"{path}.{key}" if path else key)
-                    break
-            if paths:
-                source = "channel-sum:" + ",".join(paths)
-                if len(paths) == len(channels):
-                    return total, source
-                remember_partial(total, source, len(paths))
-            for key, value in data.items():
-                next_path = f"{path}.{key}" if path else str(key)
-                result = walk(value, next_path)
-                if result is not None:
-                    return result
-        elif isinstance(data, list):
-            for index, value in enumerate(data):
-                result = walk(value, f"{path}[{index}]")
-                if result is not None:
-                    return result
-        return None
-
-    result = walk(status)
-    if result is not None:
-        return result
-    if partial is not None:
-        return partial[0], partial[1]
-    return None
-
-
 def _metric_max(status: dict[str, Any], keys: tuple[str, ...]) -> float | None:
     values: list[float] = []
     wanted = set(keys)
@@ -246,7 +200,7 @@ def _metric_number_or_channel_sum(
     channels: tuple[tuple[str, ...], ...],
 ) -> float | None:
     total = _metric_number(status, total_keys)
-    channel_result = _metric_channel_sum(status, channels)
+    channel_result = extract_channel_metric_sum(status, channels)
     channel_total = channel_result[0] if channel_result is not None else None
     if channel_total is not None and (total is None or channel_total > total):
         return channel_total
@@ -275,13 +229,13 @@ def extract_dashboard_metric_sources(status: dict[str, Any]) -> dict[str, str]:
         return result[1] if result else ""
 
     pv_total = _metric_number(status, PV_POWER_KEYS)
-    pv_channel_result = _metric_channel_sum(status, PV_POWER_CHANNELS)
+    pv_channel_result = extract_channel_metric_sum(status, PV_POWER_CHANNELS)
     pv_source = first_path(PV_POWER_KEYS)
     if pv_channel_result is not None and (pv_total is None or pv_channel_result[0] > pv_total):
         pv_source = pv_channel_result[1]
 
     pv_today_total = _metric_number(status, PV_TODAY_KEYS)
-    pv_today_channel_result = _metric_channel_sum(status, PV_TODAY_CHANNELS)
+    pv_today_channel_result = extract_channel_metric_sum(status, PV_TODAY_CHANNELS)
     pv_today_channel_total = pv_today_channel_result[0] if pv_today_channel_result is not None else None
     pv_today_source = first_path(PV_TODAY_KEYS)
     if pv_today_channel_total is not None and (pv_today_total is None or pv_today_channel_total > pv_today_total):

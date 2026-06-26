@@ -7,7 +7,12 @@ from typing import Any
 
 from growatt_guard.config import Config, load_config, validate_config
 from growatt_guard.dashboard import DASHBOARD_FILE, MIN_DASHBOARD_REFRESH_MINUTES
-from growatt_guard.diagnostics import command_diagnostic_bundle, command_pv_metric_probe, command_service_status
+from growatt_guard.diagnostics import (
+    command_diagnostic_bundle,
+    command_pv_metric_probe,
+    command_redact_probe,
+    command_service_status,
+)
 from growatt_guard.discord_control import command_serve_discord_bot
 from growatt_guard.notifications import notify_failure
 from growatt_guard.pvoutput import command_pvoutput_upload
@@ -62,6 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
     bundle_parser.add_argument("--include-cloud", action="store_true", help="Include one read-only Growatt cloud summary.")
     pv_probe_parser = subparsers.add_parser("pv-metric-probe", help="Print redacted PV metric paths and parsed dashboard values.")
     pv_probe_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    redact_probe_parser = subparsers.add_parser("redact-probe", help="Redact a raw JSON probe for fixture use.")
+    redact_probe_parser.add_argument("input", help="Raw JSON probe file.")
+    redact_probe_parser.add_argument("--output", default="", help="Optional redacted JSON output file.")
     dashboard_parser = subparsers.add_parser("dashboard", help="Generate a small local HTML dashboard.")
     dashboard_parser.add_argument("--output", default=str(DASHBOARD_FILE), help="Dashboard HTML output path.")
     refresh_parser = subparsers.add_parser("dashboard-refresh", help="Regenerate dashboard.html on a safe interval.")
@@ -238,6 +246,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return command_diagnostic_bundle(config, args.json, args.include_cloud)
         if command == "pv-metric-probe":
             return command_pv_metric_probe(config, args.json)
+        if command == "redact-probe":
+            return command_redact_probe(args.input, args.output)
         if command == "dashboard":
             return app.command_dashboard(config, args.output)
         if command == "dashboard-refresh":
@@ -295,6 +305,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "validate-schedule":
             return command_validate_schedule()
+        if args.command == "redact-probe":
+            return command_redact_probe(args.input, args.output)
         config = load_config()
         for _w in validate_config(config):
             logging.warning("Config: %s", _w)

@@ -1,0 +1,27 @@
+{
+  "device": {
+    "capacity": "52%",
+    "deviceType": "storage"
+  },
+  "storage_energy_overview": {
+    "epvToday": "14.9"
+  },
+  "storage_params": {
+    "storageBean": {
+      "loadPercent": 26,
+      "outPutPower": 1405,
+      "outputConfig": "0"
+    },
+    "storageDetailBean": {
+      "bmsSoc": 52,
+      "epvToday": 14.9,
+      "pCharge": 0,
+      "pDischarge": 959,
+      "ppv": 156,
+      "ppv2": 267,
+      "ppvText": "156.0 W",
+      "statusText": "PV charge and discharge",
+      "vBat": 52.11
+    }
+  }
+}

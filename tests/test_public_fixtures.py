@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from growatt_guard.dashboard import extract_dashboard_metric_sources, extract_dashboard_metrics
+from growatt_guard.pvoutput import extract_pvoutput_fields
 
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -42,3 +43,20 @@ class PublicFixtureTests(unittest.TestCase):
         self.assertEqual(metrics["grid_w"], 3880)
         self.assertEqual(metrics["charge_w"], 2400)
         self.assertEqual(metrics["battery_net_w"], -2400)
+
+    def test_pv_charging_ppv2_fixture_aligns_dashboard_and_pvoutput(self):
+        status = load_fixture("spf_pv_charging_ppv2.json")
+
+        now = dt.datetime(2026, 6, 26, 15, 0)
+        metrics = extract_dashboard_metrics(status, now=now)
+        sources = extract_dashboard_metric_sources(status)
+        pvoutput_fields = extract_pvoutput_fields(status, now=now)
+
+        self.assertEqual(metrics["pv_w"], 423)
+        self.assertEqual(metrics["pv_today_kwh"], 14.9)
+        self.assertEqual(pvoutput_fields["v2"], 423)
+        self.assertEqual(pvoutput_fields["v1"], 14900)
+        self.assertEqual(
+            sources["pv_w"],
+            "channel-sum:storage_params.storageDetailBean.ppv,storage_params.storageDetailBean.ppv2",
+        )
