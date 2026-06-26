@@ -1443,11 +1443,13 @@ def build_dashboard_html(
                     topup_sunrise_display = "not needed"
                 else:
                     topup_min = max(1, round(_ts))
-                    if auto_topup_min_minutes > 0 and topup_min < auto_topup_min_minutes:
-                        topup_min = round(auto_topup_min_minutes)
-                    if discord_topup_max_minutes > 0 and topup_min > discord_topup_max_minutes:
-                        topup_min = round(discord_topup_max_minutes)
-                    topup_sunrise_display = format_duration_minutes(topup_min)
+                    if auto_topup_min_minutes > 0 and _ts < auto_topup_min_minutes:
+                        minimum = format_duration_minutes(auto_topup_min_minutes)
+                        topup_sunrise_display = f"skip (<{minimum})"
+                    else:
+                        if discord_topup_max_minutes > 0 and topup_min > discord_topup_max_minutes:
+                            topup_min = round(discord_topup_max_minutes)
+                        topup_sunrise_display = format_duration_minutes(topup_min)
     pause_state = read_pause_state()
     pause = pause_message(pause_state) if pause_state else "active"
     alert_state = read_battery_alert_state()

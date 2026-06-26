@@ -821,9 +821,24 @@ def command_auto_topup_check(config: Config) -> int:
     # Floor at 1 min: topup_min_f can be e.g. 0.3 (passes the >0 check above) yet
     # round to 0, which would make command_pause raise on a 0-hour pause.
     topup_min = max(1, round(topup_min_f))
-    if config.auto_topup_min_minutes > 0 and topup_min < config.auto_topup_min_minutes:
-        logging.info("Topup floor applied: calculated %d min < min %g min; using %g min.", topup_min, config.auto_topup_min_minutes, config.auto_topup_min_minutes)
-        topup_min = round(config.auto_topup_min_minutes)
+    if config.auto_topup_min_minutes > 0 and topup_min_f < config.auto_topup_min_minutes:
+        calculated_text = f"{topup_min_f:.1f}min"
+        msg = (
+            f"Calculated topup {calculated_text} is below AUTO_TOPUP_MIN_MINUTES="
+            f"{config.auto_topup_min_minutes:g}; skipping Utility switch."
+        )
+        logging.info(msg)
+        print(msg)
+        append_mode_audit(
+            config,
+            "auto-topup-check",
+            soc=soc,
+            previous_mode=previous_mode,
+            action="topup-skipped-short",
+            result="ok",
+            note=f"calculated {calculated_text} < minimum {config.auto_topup_min_minutes:g}min",
+        )
+        return 0
     topup_min = min(topup_min, config.discord_topup_max_minutes)
 
     if config.auto_topup_solar_skip_kwh_m2 > 0:

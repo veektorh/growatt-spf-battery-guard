@@ -689,7 +689,7 @@ class AutoTopupTargetSocTests(unittest.TestCase):
 
 
 class AutoTopupMinMinutesTests(unittest.TestCase):
-    """Tests for AUTO_TOPUP_MIN_MINUTES floor applied in command_auto_topup_check."""
+    """Tests for AUTO_TOPUP_MIN_MINUTES skip threshold in command_auto_topup_check."""
 
     def _make_status(self, soc: float, discharge_w: float) -> dict:
         return {
@@ -702,7 +702,7 @@ class AutoTopupMinMinutesTests(unittest.TestCase):
             },
         }
 
-    def test_floor_applied_when_calculated_topup_below_minimum(self):
+    def test_skips_when_calculated_topup_below_minimum(self):
         from growatt_guard.modes import command_auto_topup_check
         from growatt_guard import state as state_mod
         from contextlib import redirect_stdout
@@ -714,6 +714,7 @@ class AutoTopupMinMinutesTests(unittest.TestCase):
             auto_topup_enabled=True,
             auto_topup_min_hours_to_sunrise=4.0,
             auto_topup_min_minutes=20.0,
+            auto_topup_solar_skip_min_margin_minutes=0.0,
             battery_capacity_wh=30000.0,
             battery_charge_rate_w=3000.0,
             battery_bms_cutoff_soc=25.0,
@@ -736,18 +737,22 @@ class AutoTopupMinMinutesTests(unittest.TestCase):
                 patch("growatt_guard.modes.topup_is_active", return_value=False),
                 patch("growatt_guard.modes.hours_until_next_sunrise", return_value=5.5),
                 patch("growatt_guard.modes.load_context", return_value=(None, None, status)),
-                patch("growatt_guard.modes.set_mode", return_value="ok"),
-                patch("growatt_guard.modes.command_pause", return_value=0),
+                patch("growatt_guard.modes.set_mode", return_value="ok") as set_mode_mock,
+                patch("growatt_guard.modes.command_pause", return_value=0) as pause_mock,
                 patch("growatt_guard.modes.write_topup_state", side_effect=fake_write_topup_state),
-                patch("growatt_guard.modes.append_mode_audit"),
+                patch("growatt_guard.modes.append_mode_audit") as audit_mock,
                 redirect_stdout(buf),
             ):
                 command_auto_topup_check(cfg)
 
-        self.assertIn("minutes", written)
-        self.assertGreaterEqual(written["minutes"], 20)
+        self.assertNotIn("minutes", written)
+        set_mode_mock.assert_not_called()
+        pause_mock.assert_not_called()
+        audit_mock.assert_called_once()
+        self.assertEqual(audit_mock.call_args.kwargs["action"], "topup-skipped-short")
+        self.assertIn("below AUTO_TOPUP_MIN_MINUTES=20", buf.getvalue())
 
-    def test_floor_not_applied_when_calculated_topup_exceeds_minimum(self):
+    def test_minimum_does_not_skip_when_calculated_topup_exceeds_minimum(self):
         from growatt_guard.modes import command_auto_topup_check
         from growatt_guard import state as state_mod
         from contextlib import redirect_stdout

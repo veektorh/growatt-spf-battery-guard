@@ -167,6 +167,7 @@ Enable auto-topup to automatically charge from Utility at night when the battery
 ```text
 AUTO_TOPUP_ENABLED=true
 AUTO_TOPUP_MIN_HOURS_TO_SUNRISE=4
+AUTO_TOPUP_MIN_MINUTES=0
 AUTO_TOPUP_TARGET_SOC=0
 AUTO_TOPUP_SOLAR_SKIP_KWH_M2=0
 AUTO_TOPUP_SOLAR_SKIP_MIN_MARGIN_MINUTES=60
@@ -175,6 +176,8 @@ AUTO_TOPUP_SOLAR_SKIP_MIN_MARGIN_MINUTES=60
 Requires `BATTERY_CAPACITY_WH`, `BATTERY_CHARGE_RATE_W`, `WEATHER_LAT`, and `WEATHER_LON`.
 
 `AUTO_TOPUP_MIN_HOURS_TO_SUNRISE` prevents late-night fires: if sunrise is less than 4 hours away, `auto-topup-check` exits immediately. With a 06:30 sunrise that means no new topups after ~02:30. Set to `0` to disable the cutoff.
+
+`AUTO_TOPUP_MIN_MINUTES` skips tiny topups: if the calculated charge duration is below this value, the inverter stays in SBU. Set to `0` to allow any positive topup duration.
 
 `AUTO_TOPUP_TARGET_SOC` is an optional reserve target for sunrise. `AUTO_TOPUP_SOLAR_SKIP_KWH_M2` may skip only optional reserve topups on sunny forecasts; it will not skip topups needed to reach sunrise plus `AUTO_TOPUP_SOLAR_SKIP_MIN_MARGIN_MINUTES`.
 

@@ -248,7 +248,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(items["pv_today_kwh"]["baseline"], 1.1)
         self.assertIn("same-time average", items["pv_today_kwh"]["detail"])
 
-    def test_dashboard_topup_estimate_matches_auto_topup_floor(self):
+    def test_dashboard_topup_estimate_shows_short_topup_skip(self):
         status = {
             "storage_params": {
                 "storageBean": {"outputConfig": "0"},
@@ -290,7 +290,7 @@ class DashboardTests(unittest.TestCase):
             )
 
         self.assertIn("Topup to Sunrise", html)
-        self.assertIn("20min", html)
+        self.assertIn("skip (&lt;20min)", html)
 
     def test_dashboard_asset_for_path_handles_missing_json(self):
         with TemporaryDirectory() as tmpdir:
