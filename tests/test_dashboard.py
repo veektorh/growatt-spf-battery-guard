@@ -480,6 +480,53 @@ class DashboardTests(unittest.TestCase):
             "channel-sum:storage_params.storageBean.pPv1,storage_params.storageBean.pPv2",
         )
 
+    def test_dashboard_metrics_sums_ppv_and_ppv2_live_spf_shape(self):
+        now = dt.datetime(2026, 6, 25, 8, 30)
+        status = {
+            "device": {"capacity": "47%"},
+            "storage_params": {
+                "storageDetailBean": {
+                    "bmsSoc": 47,
+                    "outputConfig": "0",
+                    "ppv": 156,
+                    "ppvText": "156.0 W",
+                    "ppv2": 267,
+                },
+            },
+        }
+
+        metrics = extract_dashboard_metrics(status, now=now)
+        sources = extract_dashboard_metric_sources(status)
+
+        self.assertEqual(metrics["pv_w"], 423)
+        self.assertEqual(
+            sources["pv_w"],
+            "channel-sum:storage_params.storageDetailBean.ppv,storage_params.storageDetailBean.ppv2",
+        )
+
+    def test_dashboard_metrics_sums_mixed_pv_channel_aliases(self):
+        now = dt.datetime(2026, 6, 25, 8, 30)
+        status = {
+            "device": {"capacity": "47%"},
+            "storage_params": {
+                "storageBean": {
+                    "outputConfig": "0",
+                    "ppv": 156,
+                    "pPv2": 267,
+                },
+                "storageDetailBean": {"bmsSoc": 47},
+            },
+        }
+
+        metrics = extract_dashboard_metrics(status, now=now)
+        sources = extract_dashboard_metric_sources(status)
+
+        self.assertEqual(metrics["pv_w"], 423)
+        self.assertEqual(
+            sources["pv_w"],
+            "channel-sum:storage_params.storageBean.ppv,storage_params.storageBean.pPv2",
+        )
+
     def test_dashboard_metrics_falls_back_to_pv_channel_power_without_total(self):
         now = dt.datetime(2026, 6, 25, 8, 30)
         status = {
