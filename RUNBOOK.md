@@ -242,7 +242,11 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py observability-refresh
 .venv/bin/python growatt_power_guard.py dashboard-stale-alert
 .venv/bin/python growatt_power_guard.py service-status
+.venv/bin/python growatt_power_guard.py service-status --json
 .venv/bin/python growatt_power_guard.py diagnostic-bundle
+.venv/bin/python growatt_power_guard.py diagnostic-bundle --include-cloud
+.venv/bin/python growatt_power_guard.py pv-metric-probe
+.venv/bin/python growatt_power_guard.py schedule-preview --days 14 --json
 ```
 
 Update the VPS from GitHub, reinstall cron, and run health check:

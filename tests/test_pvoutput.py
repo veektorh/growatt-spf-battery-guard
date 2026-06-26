@@ -62,6 +62,27 @@ class ExtractPvoutputFieldsTests(unittest.TestCase):
         fields = extract_pvoutput_fields(status, now=FIXED_NOW)
         self.assertEqual(fields["v1"], 2100)  # epvToday wins over epvTodayTotal
 
+    def test_sums_live_spf_ppv_and_ppv2_for_power(self):
+        status = {
+            "device": {"capacity": "65 %"},
+            "storage_params": {"storageDetailBean": {"ppv": 156, "ppvText": "156.0 W", "ppv2": 267, "epvToday": 1.0}},
+        }
+
+        fields = extract_pvoutput_fields(status, now=FIXED_NOW)
+
+        self.assertEqual(fields["v2"], 423)
+        self.assertEqual(
+            fields["_v2_key"],
+            "channel-sum:storage_params.storageDetailBean.ppv,storage_params.storageDetailBean.ppv2",
+        )
+
+    def test_does_not_double_count_duplicate_pv_power_aliases(self):
+        status = _make_status(bean={"ppv": 300, "pPv2": 500, "pv1Power": 300, "pv2Power": 500})
+
+        fields = extract_pvoutput_fields(status, now=FIXED_NOW)
+
+        self.assertEqual(fields["v2"], 800)
+
     def test_missing_pv_power_omits_v2(self):
         status = {
             "device": {"capacity": "65 %"},

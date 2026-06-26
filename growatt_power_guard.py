@@ -50,10 +50,15 @@ from growatt_guard.dashboard import (
 from growatt_guard.diagnostics import (
     DiagnosticItem,
     build_diagnostic_bundle,
+    build_diagnostic_bundle_payload,
+    build_pv_metric_probe_payload,
     build_service_status,
+    build_service_status_payload,
     command_diagnostic_bundle,
+    command_pv_metric_probe,
     command_service_status,
     format_diagnostic_items,
+    format_pv_metric_probe,
 )
 from growatt_guard.discord_control import (
     command_result_text,
@@ -135,11 +140,13 @@ from growatt_guard.pause import (
 from growatt_guard.schedule import (
     BUILTIN_OUTAGE_PROFILES,
     check_cron_schedule,
+    build_schedule_preview_payload,
     command_outage_profile,
     command_schedule_override,
     command_schedule_preview,
     command_validate_schedule,
     find_schedule_job,
+    lint_schedule,
     next_scheduled_runs,
     schedule_job_tokens,
     today_schedule_override,

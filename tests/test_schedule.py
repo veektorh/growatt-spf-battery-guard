@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -8,6 +9,7 @@ from unittest.mock import patch
 
 from helpers import make_config
 from growatt_guard.schedule import command_schedule_preview
+from growatt_guard.schedule import lint_schedule
 from growatt_power_guard import (
     GrowattGuardError,
     build_parser,
@@ -157,10 +159,11 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(runs[0][1]["id"], "morning-preserve")
 
     def test_schedule_preview_command_is_available(self):
-        args = build_parser().parse_args(["schedule-preview", "--days", "3"])
+        args = build_parser().parse_args(["schedule-preview", "--days", "3", "--json"])
 
         self.assertEqual(args.command, "schedule-preview")
         self.assertEqual(args.days, 3)
+        self.assertTrue(args.json)
 
     def test_schedule_preview_shows_fixed_and_interval_jobs(self):
         config = make_config()
@@ -186,6 +189,46 @@ class ScheduleTests(unittest.TestCase):
         self.assertIn("every 30 min", output)
         self.assertIn("battery-alert", output)
         self.assertIn("x48/day", output)
+
+    def test_schedule_preview_json_output(self):
+        config = make_config()
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [{"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"}],
+        }
+
+        with patch("growatt_guard.schedule.validate_schedule", return_value=schedule), patch(
+            "growatt_guard.schedule.validate_schedule_overrides", return_value={"dates": {}}
+        ), redirect_stdout(StringIO()) as stdout:
+            result = command_schedule_preview(config, days=1, today=dt.date(2026, 6, 20), json_output=True)
+
+        self.assertEqual(result, 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["dates"][0]["jobs"][0]["job_id"], "morning-preserve")
+
+    def test_schedule_lint_warns_about_duplicate_pvoutput_poller(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "observability", "cron": "*/10 * * * *", "command": "observability-refresh"},
+                {"id": "pvoutput", "cron": "*/10 * * * *", "command": "pvoutput-upload"},
+            ],
+        }
+
+        items = lint_schedule(schedule)
+
+        self.assertTrue(any(item.status == "WARN" and "both scheduled" in item.detail for item in items))
+
+    def test_schedule_lint_warns_about_fast_polling(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [{"id": "observability", "cron": "*/3 * * * *", "command": "observability-refresh"}],
+        }
+
+        items = lint_schedule(schedule)
+
+        self.assertTrue(any(item.status == "WARN" and "every 3 min" in item.detail for item in items))
 
     def test_schedule_preview_marks_skipped_and_replaced_jobs(self):
         config = make_config()

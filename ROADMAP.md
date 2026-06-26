@@ -29,6 +29,10 @@ The project already has the main automation shape in place:
   script gates.
 - Unit tests split by module and a public-repo hygiene guide.
 - Read-only `service-status` and `diagnostic-bundle` commands for VPS support.
+- JSON output for service status, diagnostic bundles, and schedule previews.
+- Redacted PV metric probing for Growatt field-shape debugging.
+- Schedule lint warnings for duplicate PVOutput pollers, fast polling, and
+  tightly spaced mode-changing jobs.
 - Public-safe SPF fixtures for parser regression tests.
 - Health checks include next-step remediation hints.
 
@@ -48,8 +52,6 @@ should be explicit and reusable.
 
 Why: when something looks wrong on the VPS, the next step should be one command.
 
-- Add optional `--include-cloud` to run live `health-check` inside the bundle.
-- Add `--json` output for automation/monitoring.
 - Add more systemd detail: enabled/disabled and recent restart count.
 
 ### 3. Public-Safe Fixture Library

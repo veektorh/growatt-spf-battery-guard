@@ -106,11 +106,17 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertTrue(args.notify)
 
     def test_diagnostic_commands_are_available(self):
-        service_args = build_parser().parse_args(["service-status"])
-        bundle_args = build_parser().parse_args(["diagnostic-bundle"])
+        service_args = build_parser().parse_args(["service-status", "--json"])
+        bundle_args = build_parser().parse_args(["diagnostic-bundle", "--json", "--include-cloud"])
+        pv_probe_args = build_parser().parse_args(["pv-metric-probe", "--json"])
 
         self.assertEqual(service_args.command, "service-status")
+        self.assertTrue(service_args.json)
         self.assertEqual(bundle_args.command, "diagnostic-bundle")
+        self.assertTrue(bundle_args.json)
+        self.assertTrue(bundle_args.include_cloud)
+        self.assertEqual(pv_probe_args.command, "pv-metric-probe")
+        self.assertTrue(pv_probe_args.json)
 
     def test_run_scheduled_command_is_available(self):
         args = build_parser().parse_args(["run-scheduled", "morning-preserve"])

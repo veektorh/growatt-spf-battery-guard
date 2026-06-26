@@ -20,6 +20,7 @@ PVOUTPUT_STATE_FILE = Path(__file__).resolve().parents[1] / "state" / "pvoutput_
 # are intentionally excluded because they include grid charging and would underreport PV.
 _V1_KEYS = ("epvToday", "ePvToday", "epvTodayTotal", "epv1Today", "epv2Today")
 _V2_KEYS = ("ppv", "ppvText", "pPv1", "pPv2")
+_V2_CHANNELS = (("pPv1", "ppv1", "pv1Power", "ppv", "ppvText"), ("pPv2", "ppv2", "pv2Power"))
 _V4_KEYS = ("outPutPower", "outPutPowerText", "activePower", "outPower")
 _V6_KEYS = ("vGrid", "vGridText", "vAc1", "vac1")
 _V8_KEYS = ("pCharge", "pChargeText", "chargePower")
@@ -59,6 +60,34 @@ def _extract_float(status: dict[str, Any], keys: tuple[str, ...]) -> float | Non
     return result[0] if result is not None else None
 
 
+def _extract_channel_sum(data: Any, channels: tuple[tuple[str, ...], ...], path: str = "") -> tuple[float, str] | None:
+    if isinstance(data, dict):
+        total = 0.0
+        paths: list[str] = []
+        for aliases in channels:
+            for key in aliases:
+                if key not in data:
+                    continue
+                parsed = parse_number(data[key])
+                if parsed is None:
+                    continue
+                total += parsed
+                paths.append(f"{path}.{key}" if path else key)
+                break
+        if len(paths) == len(channels):
+            return total, "channel-sum:" + ",".join(paths)
+        for key, value in data.items():
+            result = _extract_channel_sum(value, channels, f"{path}.{key}" if path else str(key))
+            if result is not None:
+                return result
+    elif isinstance(data, list):
+        for index, value in enumerate(data):
+            result = _extract_channel_sum(value, channels, f"{path}[{index}]")
+            if result is not None:
+                return result
+    return None
+
+
 def extract_pvoutput_fields(
     status: dict[str, Any], now: dt.datetime | None = None
 ) -> dict[str, Any]:
@@ -76,7 +105,12 @@ def extract_pvoutput_fields(
     }
 
     # v2: current PV generation power (W)
-    pv_power = _extract_float(status, _V2_KEYS)
+    pv_total = _extract_float(status, _V2_KEYS)
+    pv_channel_result = _extract_channel_sum(status, _V2_CHANNELS)
+    pv_power = pv_total
+    if pv_channel_result is not None and (pv_total is None or pv_channel_result[0] > pv_total):
+        pv_power = pv_channel_result[0]
+        fields["_v2_key"] = pv_channel_result[1]
     if pv_power is not None and pv_power >= 0:
         fields["v2"] = int(pv_power)
 

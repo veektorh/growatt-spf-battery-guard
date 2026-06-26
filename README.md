@@ -612,6 +612,7 @@ Check service status:
 
 ```bash
 .venv/bin/python growatt_power_guard.py service-status
+.venv/bin/python growatt_power_guard.py service-status --json
 sudo systemctl status growatt-dashboard-refresh.service
 sudo systemctl status growatt-dashboard-server.service
 sudo systemctl status growatt-dashboard-stale-alert.timer
@@ -622,10 +623,26 @@ For support/debugging without exposing secrets:
 ```bash
 cd ~/automation
 .venv/bin/python growatt_power_guard.py diagnostic-bundle
+.venv/bin/python growatt_power_guard.py diagnostic-bundle --json
+.venv/bin/python growatt_power_guard.py diagnostic-bundle --include-cloud
 ```
 
-`diagnostic-bundle` is local/read-only and does not call Growatt. Use
-`health-check` when you specifically want a live cloud connectivity check.
+`diagnostic-bundle` is local/read-only unless `--include-cloud` is used. Use
+`health-check` when you specifically want the full live cloud readiness check.
+
+If PV values differ from the Growatt app, capture only redacted PV metric paths
+and parser output:
+
+```bash
+.venv/bin/python growatt_power_guard.py pv-metric-probe
+.venv/bin/python growatt_power_guard.py pv-metric-probe --json
+```
+
+The schedule preview also has a JSON form for monitoring or scripts:
+
+```bash
+.venv/bin/python growatt_power_guard.py schedule-preview --days 14 --json
+```
 
 Stale dashboard alerts use Discord when `DISCORD_WEBHOOK_URL` is configured and `DISCORD_NOTIFY_FAILURE=true`:
 

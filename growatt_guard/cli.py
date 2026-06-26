@@ -7,7 +7,7 @@ from typing import Any
 
 from growatt_guard.config import Config, load_config, validate_config
 from growatt_guard.dashboard import DASHBOARD_FILE, MIN_DASHBOARD_REFRESH_MINUTES
-from growatt_guard.diagnostics import command_diagnostic_bundle, command_service_status
+from growatt_guard.diagnostics import command_diagnostic_bundle, command_pv_metric_probe, command_service_status
 from growatt_guard.discord_control import command_serve_discord_bot
 from growatt_guard.notifications import notify_failure
 from growatt_guard.pvoutput import command_pvoutput_upload
@@ -55,8 +55,13 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--dry-plan", action="store_true", help="Print what would happen without running anything.")
     health_parser = subparsers.add_parser("health-check", help="Run read-only configuration and connectivity checks.")
     health_parser.add_argument("--notify", action="store_true", help="Post the health report to Discord.")
-    subparsers.add_parser("service-status", help="Show local cron, systemd, dashboard, pause, and topup status.")
-    subparsers.add_parser("diagnostic-bundle", help="Print a redacted local diagnostics bundle without calling Growatt.")
+    service_parser = subparsers.add_parser("service-status", help="Show local cron, systemd, dashboard, pause, and topup status.")
+    service_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    bundle_parser = subparsers.add_parser("diagnostic-bundle", help="Print a redacted local diagnostics bundle.")
+    bundle_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    bundle_parser.add_argument("--include-cloud", action="store_true", help="Include one read-only Growatt cloud summary.")
+    pv_probe_parser = subparsers.add_parser("pv-metric-probe", help="Print redacted PV metric paths and parsed dashboard values.")
+    pv_probe_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     dashboard_parser = subparsers.add_parser("dashboard", help="Generate a small local HTML dashboard.")
     dashboard_parser.add_argument("--output", default=str(DASHBOARD_FILE), help="Dashboard HTML output path.")
     refresh_parser = subparsers.add_parser("dashboard-refresh", help="Regenerate dashboard.html on a safe interval.")
@@ -104,6 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
         "schedule-preview", help="Print upcoming scheduled jobs for the next N days, including overrides."
     )
     preview_parser.add_argument("--days", type=int, default=7, help="Number of days to preview (default 7).")
+    preview_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
 
     override_parser = subparsers.add_parser(
         "schedule-override", help="Manage temporary date overrides in schedule_overrides.json."
@@ -227,9 +233,11 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
         if command == "health-check":
             return app.command_health_check(config, args.notify)
         if command == "service-status":
-            return command_service_status(config)
+            return command_service_status(config, args.json)
         if command == "diagnostic-bundle":
-            return command_diagnostic_bundle(config)
+            return command_diagnostic_bundle(config, args.json, args.include_cloud)
+        if command == "pv-metric-probe":
+            return command_pv_metric_probe(config, args.json)
         if command == "dashboard":
             return app.command_dashboard(config, args.output)
         if command == "dashboard-refresh":
@@ -255,7 +263,7 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
         if command == "clear-login-cooldown":
             return app.command_clear_login_cooldown(config)
         if command == "schedule-preview":
-            return app.command_schedule_preview(config, args.days)
+            return app.command_schedule_preview(config, args.days, json_output=args.json)
         if command == "schedule-override":
             return command_schedule_override(config, args)
         if command == "outage-profile":

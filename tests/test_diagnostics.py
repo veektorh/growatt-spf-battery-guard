@@ -1,3 +1,5 @@
+import datetime as dt
+import json
 import subprocess
 import unittest
 from contextlib import redirect_stdout
@@ -10,9 +12,13 @@ from helpers import make_config
 from growatt_guard.diagnostics import (
     DiagnosticItem,
     build_diagnostic_bundle,
+    build_diagnostic_bundle_payload,
+    build_pv_metric_probe_payload,
     build_service_status,
+    build_service_status_payload,
     command_service_status,
     format_diagnostic_items,
+    format_pv_metric_probe,
 )
 
 
@@ -62,6 +68,57 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertIn("Growatt service status", stdout.getvalue())
 
+    def test_command_service_status_can_print_json(self):
+        config = make_config()
+        with patch(
+            "growatt_guard.diagnostics.build_service_status",
+            return_value=[DiagnosticItem("Schedule", "OK", "15 jobs")],
+        ), redirect_stdout(StringIO()) as stdout:
+            result = command_service_status(config, json_output=True)
+
+        self.assertEqual(result, 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["result"], "OK")
+        self.assertEqual(payload["items"][0]["name"], "Schedule")
+
+    def test_build_service_status_includes_pvoutput_freshness(self):
+        config = make_config(pvoutput_enabled=True)
+        schedule = {"timezone": "Africa/Lagos", "jobs": [{"id": "health", "cron": "10 6 * * *", "command": "health-check"}]}
+        now = dt.datetime.now()
+
+        with patch("growatt_guard.diagnostics.validate_schedule", return_value=schedule), patch(
+            "growatt_guard.diagnostics.lint_schedule",
+            return_value=[DiagnosticItem("Schedule lint", "OK", "fine")],
+        ), patch(
+            "growatt_guard.diagnostics.check_cron_schedule",
+            return_value=[],
+        ), patch(
+            "growatt_guard.diagnostics.dashboard_freshness",
+            return_value={"stale": False, "reason": "dashboard file is fresh"},
+        ), patch(
+            "growatt_guard.diagnostics.read_pvoutput_state",
+            return_value={"uploaded_at": now.isoformat(timespec="seconds"), "fields": {"v1": 1000}},
+        ), patch("growatt_guard.diagnostics.read_pause_state", return_value=None), patch(
+            "growatt_guard.diagnostics.read_topup_state", return_value=None
+        ), patch("growatt_guard.diagnostics.read_command_lock_state", return_value=None), patch(
+            "growatt_guard.diagnostics.os.name", "nt"
+        ):
+            items = build_service_status(config)
+
+        self.assertTrue(any(item.name == "PVOutput freshness" and item.status == "OK" for item in items))
+
+    def test_build_service_status_payload_is_structured(self):
+        config = make_config()
+        with patch(
+            "growatt_guard.diagnostics.build_service_status",
+            return_value=[DiagnosticItem("Schedule", "OK", "15 jobs")],
+        ):
+            payload = build_service_status_payload(config)
+
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["result"], "OK")
+        self.assertEqual(payload["items"][0]["detail"], "15 jobs")
+
     def test_diagnostic_bundle_redacts_and_includes_sections(self):
         config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example")
         with TemporaryDirectory() as tmpdir, patch(
@@ -70,9 +127,50 @@ class DiagnosticsTests(unittest.TestCase):
             "growatt_guard.diagnostics.build_service_status",
             return_value=[DiagnosticItem("Schedule", "OK", "15 jobs")],
         ), patch("growatt_guard.diagnostics.read_mode_audit_rows", return_value=[]):
+            (Path(tmpdir) / "growatt_power_guard.log").write_text(
+                "2026-06-26 ERROR DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/123/token\n",
+                encoding="utf-8",
+            )
             bundle = build_diagnostic_bundle(config)
 
         self.assertIn("Growatt diagnostic bundle", bundle)
         self.assertIn("DISCORD_WEBHOOK_CONFIGURED=True", bundle)
-        self.assertNotIn("discord.com/api/webhooks", bundle)
+        self.assertNotIn("discord.com/api/webhooks/123/token", bundle)
         self.assertIn("This bundle is local/read-only", bundle)
+
+    def test_diagnostic_bundle_payload_can_include_cloud_summary(self):
+        config = make_config()
+        status = {
+            "device": {"capacity": "68%"},
+            "storage_params": {"storageBean": {"outputConfig": "0"}},
+        }
+        with patch(
+            "growatt_guard.diagnostics.build_service_status",
+            return_value=[DiagnosticItem("Schedule", "OK", "15 jobs")],
+        ), patch("growatt_guard.diagnostics.read_mode_audit_rows", return_value=[]), patch(
+            "growatt_guard.diagnostics.load_context",
+            return_value=(None, None, status),
+        ):
+            payload = build_diagnostic_bundle_payload(config, include_cloud=True)
+
+        self.assertEqual(payload["cloud_summary"]["status"], "OK")
+        self.assertEqual(payload["cloud_summary"]["soc"]["value"], 68.0)
+
+    def test_pv_metric_probe_payload_redacts_to_metric_paths(self):
+        status = {
+            "storage_params": {
+                "storageDetailBean": {
+                    "ppv": 156,
+                    "ppv2": 267,
+                    "epvToday": 14.9,
+                    "outputConfig": "0",
+                }
+            }
+        }
+
+        payload = build_pv_metric_probe_payload(status, now=dt.datetime(2026, 6, 26, 15, 0))
+        text = format_pv_metric_probe(payload)
+
+        self.assertEqual(payload["dashboard"]["pv_w"], 423)
+        self.assertIn("storage_params.storageDetailBean.ppv2", text)
+        self.assertIn("PV now: 423 W", text)

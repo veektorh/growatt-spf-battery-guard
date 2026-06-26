@@ -38,6 +38,14 @@ SCHEDULE_COMMANDS = {
 SCHEDULE_COMMAND_ARGS = {
     "health-check": {"--notify"},
 }
+GROWATT_READ_COMMANDS = {
+    "battery-alert",
+    "dashboard-stale-alert",
+    "observability-refresh",
+    "pvoutput-upload",
+    "runtime-alert",
+}
+MODE_CHANGING_COMMANDS = {"preserve-battery", "utility-check", "morning-check", "return-sbu", "watchdog-sbu"}
 
 
 @dataclass(frozen=True)
@@ -337,6 +345,8 @@ def command_validate_schedule(config: Any | None = None) -> int:
     overrides = validate_schedule_overrides(schedule)
     if overrides.get("dates"):
         print(f"Schedule overrides OK: {len(overrides['dates'])} date override(s).")
+    for item in lint_schedule(schedule):
+        print(f"{item.name} {item.status}: {item.detail}")
     return 0
 
 
@@ -354,13 +364,156 @@ def _cron_interval_label(cron: str) -> str | None:
     return None
 
 
-def command_schedule_preview(config: Any, days: int = 7, today: dt.date | None = None) -> int:
+def _cron_interval_minutes(cron: str) -> int | None:
+    parts = cron.strip().split()
+    if len(parts) != 5:
+        return None
+    minute_field = parts[0]
+    if not minute_field.startswith("*/"):
+        return None
+    try:
+        value = int(minute_field[2:])
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def lint_schedule(schedule: dict[str, Any]) -> list[HealthCheckItem]:
+    items: list[HealthCheckItem] = []
+    jobs = schedule.get("jobs", [])
+    commands = [str(job.get("command", "")).strip() for job in jobs if isinstance(job, dict)]
+
+    if "observability-refresh" in commands and "pvoutput-upload" in commands:
+        items.append(
+            HealthCheckItem(
+                "Schedule lint",
+                "WARN",
+                "observability-refresh and pvoutput-upload are both scheduled; observability-refresh already uploads PVOutput.",
+            )
+        )
+
+    for index, job in enumerate(jobs, start=1):
+        if not isinstance(job, dict):
+            continue
+        command = str(job.get("command", "")).strip()
+        interval = _cron_interval_minutes(str(job.get("cron", "")))
+        if command in GROWATT_READ_COMMANDS and interval is not None and interval < 5:
+            items.append(
+                HealthCheckItem(
+                    "Schedule lint",
+                    "WARN",
+                    f"{schedule_job_id(job, index)} polls Growatt every {interval} min; keep read loops at 5+ min.",
+                )
+            )
+
+    runs = next_scheduled_runs(schedule, now=dt.datetime.now().replace(second=0, microsecond=0), limit=64)
+    previous_mode_run: tuple[dt.datetime, str] | None = None
+    for run_at, job in runs:
+        command = str(job.get("command", "")).strip()
+        if command not in MODE_CHANGING_COMMANDS:
+            continue
+        job_id = str(job.get("id", command))
+        if previous_mode_run is not None:
+            previous_at, previous_id = previous_mode_run
+            gap_min = (run_at - previous_at).total_seconds() / 60.0
+            if 0 <= gap_min < 5:
+                items.append(
+                    HealthCheckItem(
+                        "Schedule lint",
+                        "WARN",
+                        f"{previous_id} and {job_id} are only {gap_min:g} min apart.",
+                    )
+                )
+                break
+        previous_mode_run = (run_at, job_id)
+
+    if not items:
+        items.append(HealthCheckItem("Schedule lint", "OK", "no duplicate pollers or close mode-changing jobs found."))
+    return items
+
+
+def build_schedule_preview_payload(
+    schedule: dict[str, Any],
+    overrides: dict[str, Any],
+    days: int,
+    today: dt.date,
+) -> dict[str, Any]:
+    timezone = schedule.get("timezone", "")
+    dates: list[dict[str, Any]] = []
+    for day_offset in range(days):
+        date = today + dt.timedelta(days=day_offset)
+        day_override = overrides.get("dates", {}).get(date.isoformat(), {})
+        skip_all = bool(day_override.get("skip_all", False))
+        skip_ids = set(day_override.get("skip", []))
+        replace_map = day_override.get("replace", {}) if isinstance(day_override.get("replace"), dict) else {}
+        note = str(day_override.get("note", "")).strip()
+
+        job_fires: dict[str, list[dt.datetime]] = {}
+        start = dt.datetime.combine(date, dt.time(0, 0))
+        cursor = start
+        while cursor < start + dt.timedelta(days=1):
+            for job in schedule["jobs"]:
+                if cron_matches(str(job["cron"]), cursor):
+                    job_id = job.get("id", "")
+                    job_fires.setdefault(job_id, []).append(cursor)
+            cursor += dt.timedelta(minutes=1)
+
+        jobs: list[dict[str, Any]] = []
+        for job in [job for job in schedule["jobs"] if job.get("id", "") in job_fires]:
+            job_id = str(job.get("id", ""))
+            fires = job_fires[job_id]
+            interval_label = _cron_interval_label(str(job["cron"]))
+            replacement = ""
+            if skip_all or job_id in skip_ids:
+                status = "skip"
+            elif job_id in replace_map:
+                status = "replace"
+                replacement = " ".join(schedule_job_tokens(replace_map[job_id], 0))
+            else:
+                status = "scheduled"
+            jobs.append({
+                "time": interval_label if interval_label else fires[0].strftime("%H:%M"),
+                "job_id": job_id,
+                "command": " ".join(schedule_job_tokens(job, 0)),
+                "status": status,
+                "count": len(fires) if interval_label else 1,
+                "replacement": replacement,
+            })
+
+        if jobs:
+            dates.append({
+                "date": date.isoformat(),
+                "weekday": date.strftime("%a"),
+                "skip_all": skip_all,
+                "note": note,
+                "jobs": jobs,
+            })
+
+    return {
+        "schema_version": 1,
+        "timezone": timezone,
+        "start_date": today.isoformat(),
+        "days": days,
+        "dates": dates,
+    }
+
+
+def command_schedule_preview(
+    config: Any,
+    days: int = 7,
+    today: dt.date | None = None,
+    json_output: bool = False,
+) -> int:
     _ = config
     schedule = validate_schedule()
     overrides = validate_schedule_overrides(schedule)
 
     today = today or dt.date.today()
     timezone = schedule.get("timezone", "")
+    if json_output:
+        print(json.dumps(build_schedule_preview_payload(schedule, overrides, days, today), indent=2, sort_keys=True))
+        return 0
+
     print(f"Schedule preview — {days} day(s) from {today} [{timezone}]")
 
     for day_offset in range(days):
