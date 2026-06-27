@@ -12,11 +12,14 @@ from growatt_guard.config import Config
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.state import (
     clear_topup_state,
+    clear_utility_hold_state,
     parse_utc_datetime,
     read_topup_state,
     topup_is_active,
     utc_now,
+    utility_hold_ownership,
     write_topup_state,
+    write_utility_hold_state,
 )
 
 
@@ -485,9 +488,9 @@ def command_serve_discord_bot(config: Config) -> int:
                 )
                 return
 
-            if topup_is_active():
+            if topup_is_active() or utility_hold_ownership() in ("owned", "adopted"):
                 active = read_topup_state()
-                active_reason = active.get("reason", "unknown") if active else "unknown"
+                active_reason = active.get("reason", "unknown") if active else "active Guard hold"
                 await interaction.response.send_message(
                     f"A top-up is already in progress: {active_reason}. Use /growatt_topup_cancel to cancel it.",
                     ephemeral=True,
@@ -525,12 +528,21 @@ def command_serve_discord_bot(config: Config) -> int:
                 clear_topup_state()
                 return
 
+            max_expiry = utc_now() + dt.timedelta(minutes=effective_minutes * 1.2 + 15)
+            write_utility_hold_state(
+                ownership="owned",
+                target_soc=float(target_soc) if target_soc > 0 else 0.0,
+                max_expiry=max_expiry,
+                start_soc=current_soc if target_soc > 0 else None,
+            )
+
             await asyncio.sleep(effective_minutes * 60)
 
             resume_rc, resume_out = await run_guard_command(["resume"])
             await interaction.channel.send(command_result_text("topup resume", resume_rc, resume_out))
             sbu_rc, sbu_out = await run_guard_command(["return-sbu"])
             await interaction.channel.send(command_result_text("topup return-sbu", sbu_rc, sbu_out))
+            clear_utility_hold_state()
             clear_topup_state()
 
         await _guarded(config, interaction, action)
@@ -538,7 +550,7 @@ def command_serve_discord_bot(config: Config) -> int:
     @tree.command(name="growatt_topup_cancel", description="Cancel an active top-up and return to SBU.", **command_scope)
     async def growatt_topup_cancel(interaction: discord.Interaction) -> None:
         async def action() -> None:
-            if not topup_is_active():
+            if not topup_is_active() and utility_hold_ownership() not in ("owned", "adopted"):
                 await interaction.response.send_message("No active top-up to cancel.", ephemeral=True)
                 return
             await interaction.response.send_message("Cancelling top-up — resuming automation and returning to SBU.")
@@ -546,6 +558,7 @@ def command_serve_discord_bot(config: Config) -> int:
             await interaction.channel.send(command_result_text("topup cancel resume", resume_rc, resume_out))
             sbu_rc, sbu_out = await run_guard_command(["return-sbu"])
             await interaction.channel.send(command_result_text("topup cancel return-sbu", sbu_rc, sbu_out))
+            clear_utility_hold_state()
             clear_topup_state()
 
         await _guarded(config, interaction, action)
