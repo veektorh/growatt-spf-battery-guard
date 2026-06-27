@@ -2123,9 +2123,10 @@ def build_dashboard_html(
     .section-head h2, .flow-head h2 {{ margin: 0; }}
     .flow-map {{
       display: grid;
-      grid-template-columns: repeat(5, minmax(120px, 1fr));
-      gap: 10px;
-      align-items: stretch;
+      grid-template-columns: minmax(110px, 1fr) 32px minmax(110px, 1fr) 32px minmax(110px, 1fr) 32px minmax(110px, 1fr) 32px minmax(110px, 1fr);
+      column-gap: 0;
+      row-gap: 10px;
+      align-items: center;
     }}
     .flow-tile {{
       min-height: 104px;
@@ -2150,7 +2151,17 @@ def build_dashboard_html(
     .flow-label {{ color: var(--muted); font-size: 12px; font-weight: 680; text-transform: uppercase; letter-spacing: 0.06em; }}
     .flow-value {{ font-size: 22px; font-weight: 740; line-height: 1.05; margin-top: 6px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }}
     .flow-detail {{ color: var(--muted); font-size: 13px; margin-top: 8px; }}
-    .connector {{ display: none; }}
+    .connector {{ display: flex; align-items: center; justify-content: center; position: relative; align-self: center; height: 20px; }}
+    .connector::before {{ content: ""; position: absolute; left: 2px; right: 11px; top: 50%; height: 2px; transform: translateY(-50%); background: var(--border-strong); }}
+    .connector::after {{ content: ""; position: absolute; right: 2px; top: 50%; transform: translateY(-50%); border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 9px solid var(--border-strong); }}
+    .connector.pv::before {{ background: var(--solar); }}
+    .connector.pv::after {{ border-left-color: var(--solar); }}
+    .connector.battery::before {{ background: var(--battery); }}
+    .connector.battery::after {{ border-left-color: var(--battery); }}
+    .connector.grid::before {{ background: var(--grid-c); }}
+    .connector.grid::after {{ border-left-color: var(--grid-c); }}
+    .connector.load::before {{ background: var(--load-c); }}
+    .connector.load::after {{ border-left-color: var(--load-c); }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 16px; }}
     .daily-grid {{ grid-template-columns: repeat(auto-fit, minmax(224px, 1fr)); }}
     .daily-mix {{ display: grid; gap: 16px; margin-top: 16px; }}
@@ -2289,7 +2300,9 @@ def build_dashboard_html(
       .sidebar-brand {{ margin-bottom: 18px; }}
       .sidebar-nav {{ grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }}
       .sidebar-status {{ margin-top: 18px; }}
-      .chart-grid, .planner-grid, .flow-map, .status-activity-grid, .mix-grid {{ grid-template-columns: 1fr; }}
+      .chart-grid, .planner-grid, .status-activity-grid, .mix-grid {{ grid-template-columns: 1fr; }}
+      .flow-map {{ grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); column-gap: 10px; }}
+      .connector {{ display: none; }}
     }}
     @media (max-width: 720px) {{
       .sidebar {{ padding: 18px 14px; }}
@@ -2301,7 +2314,6 @@ def build_dashboard_html(
       .soc-ring {{ width: 100%; max-width: none; height: auto; min-height: 136px; aspect-ratio: auto; }}
       .mode-stack {{ gap: 9px; }}
       .mode-value {{ font-size: 20px; }}
-      .flow-map {{ grid-template-rows: none; min-height: auto; }}
       table {{ min-width: 560px; }}
     }}
   </style>
@@ -2389,6 +2401,7 @@ def build_dashboard_html(
             </div>
             <div class="flow-detail">{esc(battery_flow_display)} {esc(battery_flow_dir)}</div>
           </div>
+          <div class="connector grid" aria-hidden="true"></div>
           <div class="flow-tile grid-source">
             <div>
               <div class="flow-label">Grid Import Now</div>
@@ -2396,7 +2409,6 @@ def build_dashboard_html(
             </div>
             <div class="flow-detail">{esc(grid_now_detail)}</div>
           </div>
-          <div class="connector grid" aria-hidden="true"></div>
           <div class="connector load" aria-hidden="true"></div>
           <div class="flow-tile load">
             <div>
