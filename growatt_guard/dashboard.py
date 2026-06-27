@@ -1432,7 +1432,7 @@ def build_dashboard_recommendations(
             meta = "Reserve review needed"
         projection_bits: list[str] = []
         if isinstance(projected_soc, (int, float)):
-            projection_bits.append(f"sunrise reserve stress estimate is {projected_soc:.0f}%")
+            projection_bits.append(f"Sunrise reserve stress estimate is {projected_soc:.0f}%")
         if isinstance(target_soc, (int, float)):
             projection_bits.append(f"target is {target_soc:g}%")
         if sunrise_basis:
@@ -2269,13 +2269,26 @@ def build_dashboard_html(
         )
         for r in recommendations
     )
+
+    def _hero_recommendation_title(item: dict[str, Any]) -> str:
+        title = str(item.get("title", "Recommendation"))
+        if "top-up" in title.lower() and str(item.get("level", "")).lower() in {"high", "watch"}:
+            return "Why tonight needs a top-up"
+        return title
+
+    def _hero_recommendation_meta(item: dict[str, Any]) -> str:
+        title = str(item.get("title", ""))
+        if "top-up" in title.lower() and str(item.get("level", "")).lower() in {"high", "watch"}:
+            return "Reserve impact"
+        return str(item.get("meta", ""))
+
     top_recommendations_html = "\n".join(
         (
             f'<div class="hero-rec rec-{esc(str(r.get("level", "good")))}">'
             f'<span>{esc(str(r.get("icon", "OK")))}</span>'
-            f'<strong>{esc(str(r.get("title", "Recommendation")))}</strong>'
+            f'<strong>{esc(_hero_recommendation_title(r))}</strong>'
             f'<p>{esc(str(r.get("text", "")))}</p>'
-            f'<em>{esc(str(r.get("meta", "")))}</em>'
+            f'<em>{esc(_hero_recommendation_meta(r))}</em>'
             '</div>'
         )
         for r in recommendations[:1]
@@ -2326,6 +2339,10 @@ def build_dashboard_html(
         if isinstance(_kwp, (int, float)) and _kwp > 0
         else "Configure PANEL_KWP and weather coordinates for PV generation forecasts"
     )
+    _forecast_short_str = "Open-Meteo forecast" if isinstance(_kwp, (int, float)) and _kwp > 0 else "Forecast not configured"
+    _weather_str = str(energy_outlook.get("weather", "not configured"))
+    _weather_short_str = _weather_str.split(" (", 1)[0]
+    _weather_reason_str = str(getattr(threshold_decision, "reason", "") or "Weather signal is unavailable.")
     pv_forecast_html = f"""
     <div class="section-head" id="forecast">
       <div>
@@ -2362,8 +2379,8 @@ def build_dashboard_html(
       </div>
       <div class="card">
         <div class="label">Weather Impact</div>
-        <div class="value">{esc(str(energy_outlook.get("weather", "not configured")))}</div>
-        <div class="muted small">{esc(getattr(threshold_decision, "reason", ""))}</div>
+        <div class="value">{esc(_weather_str)}</div>
+        <div class="muted small">{esc(_weather_reason_str)}</div>
       </div>
     </section>"""
     quality_badge_class = _status_badge_class(str(data_quality.get("level", "unknown")))
@@ -2396,10 +2413,10 @@ def build_dashboard_html(
     home_tonight_title = str(home_status.get("tonight_title") or tonight_title)
     home_tonight_badge_class = _status_badge_class(home_tonight_level)
     sunrise_basis_display = str(energy_outlook.get("sunrise_basis") or "Waiting for load history")
-    sunrise_note_display = str(energy_outlook.get("sunrise_note") or "Estimate improves with more history.")
     sunrise_reserve_detail_display = sunrise_basis_display
     if isinstance(tonight_projection, (int, float)) and tonight_projection <= 1:
-        sunrise_reserve_detail_display = f"{sunrise_note_display} Basis: {sunrise_basis_display}"
+        sunrise_reserve_detail_display = "Stress estimate"
+    reserve_target_display = _fmt_pct(energy_outlook.get("reserve_target_soc"))
     topup_needed_display = tonight_topup_display
     battery_charge_rate_display = _fmt_w(battery_charge_rate_w) if battery_charge_rate_w > 0 else "--"
     hero_next_relative = str(next_action.get("relative") or "none")
@@ -2431,9 +2448,6 @@ def build_dashboard_html(
     )
     flow_solar_class = "active" if (live_metrics.get("pv_w") or 0) > 0 else ""
     flow_load_class = "active" if (live_metrics.get("load_w") or 0) > 0 else ""
-    flow_battery_connector_class = "active reverse" if battery_flow_dir == "discharging" else ("active" if battery_flow_dir == "charging" else "")
-    grid_now_w = live_metrics.get("grid_w") or 0
-    flow_grid_connector_class = "active reverse" if grid_now_w >= 20 else ("active" if grid_now_w <= -20 else "")
 
     def _mix_number(key: str) -> float | None:
         value = daily_mix.get(key)
@@ -2900,9 +2914,9 @@ def build_dashboard_html(
       display: grid;
       gap: 4px;
     }}
-    .hero-metric span, .battery-stats span {{ color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }}
-    .hero-metric strong, .battery-stats strong {{ color: var(--ink); font-size: 18px; line-height: 1.1; font-weight: 740; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }}
-    .hero-metric em, .battery-stats em {{ color: var(--muted); font-size: 12px; font-style: normal; line-height: 1.35; overflow-wrap: anywhere; }}
+    .hero-metric span, .battery-stats span, .battery-outlook span {{ color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }}
+    .hero-metric strong, .battery-stats strong, .battery-outlook strong {{ color: var(--ink); font-size: 18px; line-height: 1.1; font-weight: 740; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }}
+    .hero-metric em, .battery-stats em, .battery-outlook em {{ color: var(--muted); font-size: 12px; font-style: normal; line-height: 1.35; overflow-wrap: anywhere; }}
     .hero-recs {{ display: grid; grid-template-columns: 1fr; gap: 10px; }}
     .hero-rec {{
       min-width: 0;
@@ -2935,6 +2949,21 @@ def build_dashboard_html(
       border-radius: 8px;
       background: var(--panel-2);
       border: 1px solid var(--border);
+    }}
+    .battery-outlook {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }}
+    .battery-outlook div {{
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+      padding: 11px 12px;
+      border-radius: 8px;
+      background: rgba(91, 141, 239, 0.08);
+      border: 1px solid rgba(91, 141, 239, 0.2);
     }}
     .soc-command {{
       display: grid;
@@ -2982,10 +3011,27 @@ def build_dashboard_html(
       align-items: center;
     }}
     .flow-chain {{
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
       padding: 16px;
       border: 1px solid var(--border);
       border-radius: 12px;
       background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0));
+    }}
+    .flow-main-row {{
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) 40px minmax(210px, 1.1fr) 40px minmax(180px, 1fr);
+      align-items: stretch;
+      gap: 0;
+    }}
+    .flow-support-row {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(180px, 1fr));
+      gap: 12px;
+      max-width: 620px;
+      width: 100%;
+      margin: 0 auto;
     }}
     .flow-tile {{
       min-height: 104px;
@@ -3010,6 +3056,7 @@ def build_dashboard_html(
     .flow-label {{ color: var(--muted); font-size: 12px; font-weight: 680; text-transform: uppercase; letter-spacing: 0.06em; }}
     .flow-value {{ font-size: 22px; font-weight: 740; line-height: 1.05; margin-top: 6px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }}
     .flow-detail {{ color: var(--muted); font-size: 13px; margin-top: 8px; }}
+    .flow-chip {{ min-height: 84px; }}
     @keyframes flow-stream {{
       from {{ background-position-x: 0px; }}
       to {{ background-position-x: 20px; }}
@@ -3215,6 +3262,7 @@ def build_dashboard_html(
     .planner-card.primary .muted, .planner-card.primary .label {{ color: var(--muted); }}
     .banner-warn {{ background: rgba(245, 168, 42, 0.08); color: var(--ink); border: 1px solid rgba(245, 168, 42, 0.3); border-radius: var(--radius); padding: 12px 16px; margin: 16px 0 24px; font-weight: 620; }}
     .chart-grid {{ display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, .9fr); gap: 12px; }}
+    .today-charts {{ margin-top: 16px; }}
     .chart-card canvas {{ width: 100%; height: 280px; display: block; }}
     .chart-card.compact canvas {{ height: 220px; }}
     .legend {{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; color: var(--muted); font-size: 13px; }}
@@ -3296,6 +3344,9 @@ def build_dashboard_html(
       .hero-metrics {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .chart-grid, .planner-grid, .status-activity-grid, .mix-grid {{ grid-template-columns: 1fr; }}
       .flow-map {{ grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); column-gap: 10px; }}
+      .flow-chain {{ grid-template-columns: 1fr; }}
+      .flow-main-row {{ grid-template-columns: repeat(3, minmax(160px, 1fr)); gap: 10px; }}
+      .flow-support-row {{ max-width: none; }}
       .connector {{ display: none; }}
       .energy-map {{ min-height: 420px; }}
       .energy-node {{ width: min(220px, 42%); }}
@@ -3308,7 +3359,7 @@ def build_dashboard_html(
       .topbar, .section-head, .flow-head {{ align-items: flex-start; flex-direction: column; }}
       .top-actions {{ justify-content: flex-start; }}
       .hero-panel, .flow-stage {{ padding: 16px; }}
-      .hero-metrics, .hero-recs, .battery-stats {{ grid-template-columns: 1fr; }}
+      .hero-metrics, .hero-recs, .battery-stats, .battery-outlook, .flow-main-row, .flow-support-row {{ grid-template-columns: 1fr; }}
       .energy-map {{ min-height: auto; display: grid; gap: 10px; padding: 0; border: 0; background: transparent; }}
       .energy-lines {{ display: none; }}
       .energy-node, .energy-node.solar, .energy-node.inverter, .energy-node.battery, .energy-node.grid-source, .energy-node.load {{
@@ -3419,11 +3470,16 @@ def build_dashboard_html(
             <div><span>Usable reserve</span><strong>{esc(usable_kwh_display)}</strong><em>Floor {esc(reserve_floor_display)}</em></div>
             <div><span>Sunrise reserve</span><strong>{esc(tonight_projection_display)}</strong><em>{esc(sunrise_reserve_detail_display)}</em></div>
             <div><span>Top-up needed</span><strong>{esc(topup_needed_display)}</strong><em>Expected grid {esc(_grid_forecast_str)}</em></div>
+            <div><span>Reserve target</span><strong>{esc(reserve_target_display)}</strong><em>{esc(sunrise_basis_display)}</em></div>
             <div><span>Runtime</span><strong>{esc(est_runtime)}</strong><em>Capacity {esc(battery_capacity_display)}</em></div>
             <div><span>Charge rate</span><strong>{esc(battery_charge_rate_display)}</strong><em>Configured grid charge</em></div>
             <div><span>Voltage</span><strong>{esc(vbat)}</strong><em>Battery bus reading</em></div>
             <div><span>Day throughput</span><strong>{esc(battery_throughput_display)}</strong><em>Charge plus discharge today</em></div>
           </div>
+        </div>
+        <div class="battery-outlook" aria-label="Tomorrow battery context">
+          <div><span>Tomorrow PV</span><strong>{esc(_tmr_str)}</strong><em>{esc(_forecast_short_str)}</em></div>
+          <div><span>Weather context</span><strong>{esc(_weather_short_str)}</strong><em>{esc(_weather_reason_str)}</em></div>
         </div>
       </article>
     </section>
@@ -3441,44 +3497,46 @@ def build_dashboard_html(
           </div>
         </div>
         <div class="flow-map flow-chain" aria-label="Live energy flow chain">
-          <div class="flow-tile solar">
-            <div>
-              <div class="flow-label">Solar Now</div>
-              <div class="flow-value">{esc(pv_power_display)}</div>
+          <div class="flow-main-row">
+            <div class="flow-tile solar">
+              <div>
+                <div class="flow-label">Solar Now</div>
+                <div class="flow-value">{esc(pv_power_display)}</div>
+              </div>
+              <div class="flow-detail">{esc(pv_today_display)} generated today</div>
             </div>
-            <div class="flow-detail">{esc(pv_today_display)} generated today</div>
+            <div class="connector pv {esc(flow_solar_class)}" aria-hidden="true"></div>
+            <div class="flow-tile inverter">
+              <div>
+                <div class="flow-label">Inverter</div>
+                <div class="flow-value">{esc(mode)}</div>
+              </div>
+              <div class="flow-detail">{esc(bat_status)}</div>
+            </div>
+            <div class="connector load {esc(flow_load_class)}" aria-hidden="true"></div>
+            <div class="flow-tile load">
+              <div>
+                <div class="flow-label">Load Now</div>
+                <div class="flow-value">{esc(load_power_display)}</div>
+              </div>
+              <div class="flow-detail">{esc(load_today_display)} consumed today</div>
+            </div>
           </div>
-          <div class="connector pv {esc(flow_solar_class)}" aria-hidden="true"></div>
-          <div class="flow-tile inverter">
-            <div>
-              <div class="flow-label">Inverter</div>
-              <div class="flow-value">{esc(mode)}</div>
+          <div class="flow-support-row">
+            <div class="flow-tile flow-chip battery">
+              <div>
+                <div class="flow-label">Battery</div>
+                <div class="flow-value">{esc(soc)}</div>
+              </div>
+              <div class="flow-detail">{esc(battery_context)} - {esc(battery_flow_display)}</div>
             </div>
-            <div class="flow-detail">{esc(bat_status)}</div>
-          </div>
-          <div class="connector battery {esc(flow_battery_connector_class)}" aria-hidden="true"></div>
-          <div class="flow-tile battery">
-            <div>
-              <div class="flow-label">Battery</div>
-              <div class="flow-value">{esc(soc)}</div>
+            <div class="flow-tile flow-chip grid-source">
+              <div>
+                <div class="flow-label">Grid Import Now</div>
+                <div class="flow-value">{esc(grid_power_display)}</div>
+              </div>
+              <div class="flow-detail">{esc(grid_status_text)}</div>
             </div>
-            <div class="flow-detail">{esc(battery_context)} - {esc(battery_flow_display)}</div>
-          </div>
-          <div class="connector load {esc(flow_load_class)}" aria-hidden="true"></div>
-          <div class="flow-tile load">
-            <div>
-              <div class="flow-label">Load Now</div>
-              <div class="flow-value">{esc(load_power_display)}</div>
-            </div>
-            <div class="flow-detail">{esc(load_today_display)} consumed today</div>
-          </div>
-          <div class="connector grid {esc(flow_grid_connector_class)}" aria-hidden="true"></div>
-          <div class="flow-tile grid-source">
-            <div>
-              <div class="flow-label">Grid Import Now</div>
-              <div class="flow-value">{esc(grid_power_display)}</div>
-            </div>
-            <div class="flow-detail">{esc(grid_status_text)}</div>
           </div>
         </div>
     </section>
