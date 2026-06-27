@@ -461,6 +461,8 @@ def build_dashboard_history_payload(
             "pv_w": [_series_value(row, "pv_w") for row in recent],
             "load_w": [_series_value(row, "load_w") for row in recent],
             "grid_w": [_series_value(row, "grid_w") for row in recent],
+            "battery_net_w": [_series_value(row, "battery_net_w") for row in recent],
+            "mode": [str(row.get("mode", "")) for row in recent],
         },
         "soc": {
             "labels": [label(row) for row in recent],
@@ -1051,7 +1053,203 @@ def build_dashboard_daily_mix(live_metrics: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_dashboard_recommendations(
+def _numeric_metric(value: Any) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _clamp_pct(value: float) -> float:
+    return max(0.0, min(100.0, value))
+
+
+def _dashboard_greeting(now: dt.datetime) -> str:
+    if now.hour < 12:
+        return "Good morning"
+    if now.hour < 17:
+        return "Good afternoon"
+    return "Good evening"
+
+
+def _active_grid_draw(grid_w: float | None) -> bool:
+    return grid_w is not None and grid_w >= 20
+
+
+def build_dashboard_home_status(
+    live_metrics: dict[str, Any],
+    mode: str,
+    battery_flow_dir: str,
+    tonight_risk: dict[str, Any],
+    next_action: dict[str, Any],
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    """Build the first-screen household status sentence."""
+    now = now or dt.datetime.now()
+    pv_w = _numeric_metric(live_metrics.get("pv_w"))
+    load_w = _numeric_metric(live_metrics.get("load_w"))
+    grid_w = _numeric_metric(live_metrics.get("grid_w"))
+    soc = _numeric_metric(live_metrics.get("soc"))
+    tonight_level = str(tonight_risk.get("level", "")).lower()
+
+    if pv_w and load_w and pv_w >= load_w and not _active_grid_draw(grid_w):
+        headline = "Solar is covering the house"
+        if battery_flow_dir == "charging":
+            headline += " and charging the battery"
+    elif pv_w and load_w and pv_w > 0 and _active_grid_draw(grid_w):
+        headline = "Solar is helping, but the grid is assisting"
+    elif _active_grid_draw(grid_w):
+        headline = "Grid power is supporting the house"
+    elif battery_flow_dir == "discharging":
+        headline = "Battery is carrying the house"
+    elif "utility" in mode.lower():
+        headline = "Utility mode is active"
+    else:
+        headline = "Home energy is stable"
+
+    if tonight_level in {"high", "danger"}:
+        level = "high"
+    elif tonight_level in {"watch", "unknown"} or _active_grid_draw(grid_w):
+        level = "watch"
+    else:
+        level = "comfortable"
+
+    battery_text = _fmt_pct(soc)
+    if battery_flow_dir == "charging":
+        battery_context = f"Battery {battery_text} and charging"
+    elif battery_flow_dir == "discharging":
+        battery_context = f"Battery {battery_text} and discharging"
+    else:
+        battery_context = f"Battery {battery_text}"
+
+    next_relative = str(next_action.get("relative") or "none")
+    next_title = str(next_action.get("title") or "No upcoming automation")
+    tonight_title = str(tonight_risk.get("title") or "Unknown")
+    detail = (
+        f"{battery_context}. Tonight: {tonight_title.lower()}. "
+        f"Next automation: {next_relative} - {next_title}."
+    )
+
+    return {
+        "greeting": _dashboard_greeting(now),
+        "headline": headline,
+        "detail": detail,
+        "level": level,
+    }
+
+
+def build_dashboard_energy_outlook(
+    live_metrics: dict[str, Any],
+    tonight_risk: dict[str, Any],
+    pv_forecast: dict[str, Any] | None,
+    threshold_decision: Any,
+    hours_to_sunset: float | None,
+    hours_to_sunrise: float | None,
+    battery_capacity_wh: float,
+    battery_charge_rate_w: float,
+) -> dict[str, Any]:
+    """Summarize predictive energy outcomes using available local signals."""
+    soc = _numeric_metric(live_metrics.get("soc"))
+    battery_net_w = _numeric_metric(live_metrics.get("battery_net_w"))
+    projected_sunset_soc: float | None = None
+    if (
+        soc is not None
+        and battery_net_w is not None
+        and battery_capacity_wh > 0
+        and hours_to_sunset is not None
+        and hours_to_sunset > 0
+    ):
+        projected_sunset_soc = _clamp_pct(soc - (battery_net_w * hours_to_sunset / battery_capacity_wh) * 100.0)
+
+    projected_sunrise_soc = tonight_risk.get("projected_sunrise_soc")
+    if not isinstance(projected_sunrise_soc, (int, float)):
+        projected_sunrise_soc = None
+
+    topup_minutes = tonight_risk.get("topup_minutes")
+    expected_grid_kwh: float | None = None
+    if isinstance(topup_minutes, (int, float)) and topup_minutes > 0 and battery_charge_rate_w > 0:
+        expected_grid_kwh = round((float(topup_minutes) / 60.0) * battery_charge_rate_w / 1000.0, 1)
+    elif topup_minutes == 0:
+        expected_grid_kwh = 0.0
+
+    tomorrow_kwh = pv_forecast.get("tomorrow_kwh") if pv_forecast else None
+    today_remaining_kwh = pv_forecast.get("today_remaining_kwh") if pv_forecast else None
+    weather_category = str(getattr(threshold_decision, "weather_category", "") or "not configured")
+    cloud = getattr(threshold_decision, "cloud_cover", None)
+    rain = getattr(threshold_decision, "precipitation_mm", None)
+    weather_detail = weather_category
+    detail_bits: list[str] = []
+    if isinstance(cloud, (int, float)):
+        detail_bits.append(f"cloud {cloud:g}%")
+    if isinstance(rain, (int, float)):
+        detail_bits.append(f"rain {rain:g}mm")
+    if detail_bits:
+        weather_detail += " (" + ", ".join(detail_bits) + ")"
+
+    signals = [
+        pv_forecast is not None,
+        projected_sunrise_soc is not None,
+        projected_sunset_soc is not None,
+        hours_to_sunrise is not None,
+    ]
+    signal_count = sum(1 for value in signals if value)
+    if signal_count >= 3:
+        confidence = "High"
+    elif signal_count >= 2:
+        confidence = "Medium"
+    else:
+        confidence = "Learning"
+
+    return {
+        "today_remaining_kwh": today_remaining_kwh if isinstance(today_remaining_kwh, (int, float)) else None,
+        "tomorrow_kwh": tomorrow_kwh if isinstance(tomorrow_kwh, (int, float)) else None,
+        "projected_sunset_soc": round(projected_sunset_soc, 1) if projected_sunset_soc is not None else None,
+        "projected_sunrise_soc": round(float(projected_sunrise_soc), 1) if projected_sunrise_soc is not None else None,
+        "expected_grid_kwh": expected_grid_kwh,
+        "weather": weather_detail,
+        "confidence": confidence,
+    }
+
+
+def build_dashboard_assistant_summary(
+    home_status: dict[str, Any],
+    daily_insights: dict[str, Any],
+    energy_outlook: dict[str, Any],
+    recommendations: list[dict[str, Any]],
+    data_quality: dict[str, Any],
+) -> dict[str, str]:
+    """Generate a concise natural-language dashboard summary."""
+    quality_level = str(data_quality.get("level", "")).lower()
+    if quality_level == "poor":
+        title = "Telemetry needs attention"
+        lead = "Some key Growatt values are missing, so the assistant is using a lower-confidence view."
+    else:
+        title = str(home_status.get("headline") or "Home energy is stable")
+        lead = str(home_status.get("detail") or "")
+
+    insight_title = str(daily_insights.get("title") or "Learning")
+    sunrise_soc = energy_outlook.get("projected_sunrise_soc")
+    if isinstance(sunrise_soc, (int, float)):
+        outlook_text = f"Projected sunrise battery is {sunrise_soc:.0f}%."
+    else:
+        outlook_text = "Sunrise battery projection is not available yet."
+
+    grid_kwh = energy_outlook.get("expected_grid_kwh")
+    if isinstance(grid_kwh, (int, float)):
+        grid_text = f"Expected overnight grid top-up is {_fmt_kwh(grid_kwh)}."
+    else:
+        grid_text = "Grid top-up estimate is still learning."
+
+    next_best = ""
+    if recommendations:
+        next_best = " Next best action: " + str(recommendations[0].get("text", "review recommendations"))
+
+    return {
+        "title": title,
+        "text": f"{lead} Today is {insight_title.lower()}. {outlook_text} {grid_text}{next_best}",
+    }
+
+
+def _build_dashboard_recommendations_legacy(
     live_metrics: dict,
     soc_health: str,
     battery_flow_dir: str,
@@ -1101,6 +1299,146 @@ def build_dashboard_recommendations(
         recs.append({"icon": "✓", "text": "System operating normally. No actions required."})
 
     return recs[:5]
+
+
+def build_dashboard_recommendations(
+    live_metrics: dict,
+    soc_health: str,
+    battery_flow_dir: str,
+    tonight_risk: dict,
+    daily_insights: dict,
+    pv_power_display: str,
+    grid_status_text: str,
+    energy_outlook: dict[str, Any] | None = None,
+    threshold_decision: Any | None = None,
+) -> list[dict]:
+    """Generate ranked recommendations with reason and impact context."""
+    _ = soc_health
+    recs: list[dict[str, Any]] = []
+    soc = _numeric_metric(live_metrics.get("soc")) or 0
+    grid_w = _numeric_metric(live_metrics.get("grid_w")) or 0
+    pv_w = _numeric_metric(live_metrics.get("pv_w")) or 0
+    load_w = _numeric_metric(live_metrics.get("load_w")) or 0
+    tonight_level = str(tonight_risk.get("level", "")).lower()
+    energy_outlook = energy_outlook or {}
+
+    if soc >= 95 and pv_w > 0:
+        recs.append({
+            "icon": "OK",
+            "level": "good",
+            "title": "Use solar while it is abundant",
+            "text": f"Battery is full, so the current {pv_power_display} solar is best used by flexible house loads.",
+            "meta": "Best window: now",
+        })
+    elif battery_flow_dir == "charging" and pv_w > load_w:
+        surplus = _fmt_w(pv_w - load_w)
+        recs.append({
+            "icon": "PV",
+            "level": "good",
+            "title": "Solar surplus available",
+            "text": f"PV surplus of {surplus} is charging the battery while covering load.",
+            "meta": "Good time for shiftable loads",
+        })
+
+    if grid_w < 20 and pv_w > 0:
+        recs.append({
+            "icon": "OK",
+            "level": "good",
+            "title": "No grid action needed",
+            "text": "Running entirely on solar right now with zero meaningful grid draw.",
+            "meta": grid_status_text,
+        })
+    elif grid_w > 500:
+        recs.append({
+            "icon": "LOAD",
+            "level": "watch",
+            "title": "Shift heavy loads if possible",
+            "text": f"Drawing {_fmt_w(grid_w)} from grid; move laundry, pumping, or charging to the next strong solar window.",
+            "meta": "Impact: lower grid import",
+        })
+
+    if tonight_level in {"comfortable", "ok"}:
+        recs.append({
+            "icon": "OK",
+            "level": "good",
+            "title": "Skip overnight top-up",
+            "text": "Battery is on track for sunrise, so no grid top-up is needed tonight.",
+            "meta": str(tonight_risk.get("detail", "")),
+        })
+    elif tonight_level in {"watch", "warn", "high"}:
+        topup = tonight_risk.get("topup_window_display") or tonight_risk.get("detail", "")
+        recs.append({
+            "icon": "RISK",
+            "level": "high" if tonight_level == "high" else "watch",
+            "title": "Plan the overnight reserve",
+            "text": f"Tonight risk is elevated; {str(topup)[:100] if topup else 'consider scheduling a top-up.'}",
+            "meta": "Protect sunrise reserve",
+        })
+
+    tomorrow_kwh = energy_outlook.get("tomorrow_kwh")
+    if isinstance(tomorrow_kwh, (int, float)):
+        if tomorrow_kwh >= 25:
+            recs.append({
+                "icon": "SUN",
+                "level": "good",
+                "title": "Tomorrow can run leaner",
+                "text": f"Tomorrow is forecast at {_fmt_kwh(tomorrow_kwh)}; reserve can stay conservative only if outages are expected.",
+                "meta": "Forecast-informed reserve",
+            })
+        elif tomorrow_kwh <= 12:
+            recs.append({
+                "icon": "WX",
+                "level": "watch",
+                "title": "Raise tomorrow's reserve",
+                "text": f"Tomorrow's PV forecast is only {_fmt_kwh(tomorrow_kwh)}; consider a higher reserve before long outages.",
+                "meta": "Cloudy-day protection",
+            })
+
+    if threshold_decision is not None and str(getattr(threshold_decision, "weather_category", "")) in {"rainy/cloudy", "unavailable"}:
+        recs.append({
+            "icon": "WX",
+            "level": "watch",
+            "title": "Weather is driving reserve decisions",
+            "text": str(getattr(threshold_decision, "reason", "Weather is increasing reserve caution."))[:120],
+            "meta": "Automation threshold context",
+        })
+
+    pv_pace = next(
+        (i for i in (daily_insights.get("items") or []) if isinstance(i, dict) and "PV" in str(i.get("label", "")).upper()),
+        None,
+    )
+    if pv_pace:
+        level = str(pv_pace.get("level", "")).lower()
+        detail = str(pv_pace.get("detail", ""))
+        if level == "ok" and detail:
+            recs.append({
+                "icon": "PV",
+                "level": "good",
+                "title": "Solar pace is normal",
+                "text": detail,
+                "meta": "Same-time comparison",
+            })
+        elif level == "warn" and detail:
+            recs.append({
+                "icon": "PV",
+                "level": "watch",
+                "title": "Solar pace is behind",
+                "text": detail,
+                "meta": "Same-time comparison",
+            })
+
+    if not recs:
+        recs.append({
+            "icon": "OK",
+            "level": "good",
+            "title": "No action required",
+            "text": "System is operating normally. Keep the current automation plan.",
+            "meta": "Assistant check",
+        })
+
+    priority = {"high": 0, "watch": 1, "good": 2}
+    recs.sort(key=lambda item: priority.get(str(item.get("level", "good")), 2))
+    return recs[:6]
 
 
 def build_dashboard_next_action(
@@ -1167,6 +1505,8 @@ def build_dashboard_data_payload(
     auto_topup_target_soc: float = 0.0,
     auto_topup_solar_skip_min_margin_minutes: float = 0.0,
     metrics_history: list[dict[str, Any]] | None = None,
+    hours_to_sunset: float | None = None,
+    pv_forecast: dict[str, Any] | None = None,
     now: dt.datetime | None = None,
 ) -> dict[str, Any]:
     now = now or dt.datetime.now().astimezone()
@@ -1195,6 +1535,51 @@ def build_dashboard_data_payload(
         auto_topup_target_soc,
         auto_topup_solar_skip_min_margin_minutes,
     )
+    battery_net_w = _numeric_metric(live_metrics.get("battery_net_w")) or 0.0
+    battery_flow_dir = "discharging" if battery_net_w > 0 else ("charging" if battery_net_w < 0 else "standby")
+    grid_w = _numeric_metric(live_metrics.get("grid_w")) or 0.0
+    if grid_w < 20:
+        grid_status_text = "Solar covering entire load" if (_numeric_metric(live_metrics.get("pv_w")) or 0) > 0 else "No meaningful grid draw"
+    elif grid_w > 0:
+        grid_status_text = f"Drawing {_fmt_w(grid_w)} from grid"
+    else:
+        grid_status_text = f"Exporting {_fmt_w(abs(grid_w))} to grid"
+    energy_outlook = build_dashboard_energy_outlook(
+        live_metrics,
+        risk,
+        pv_forecast,
+        threshold_decision,
+        hours_to_sunset,
+        hours_to_sunrise,
+        battery_capacity_wh,
+        battery_charge_rate_w,
+    )
+    home_status = build_dashboard_home_status(
+        live_metrics,
+        str(live_metrics.get("mode") or ""),
+        battery_flow_dir,
+        risk,
+        next_action,
+        now=now,
+    )
+    recommendations = build_dashboard_recommendations(
+        live_metrics,
+        "",
+        battery_flow_dir,
+        risk,
+        daily_insights,
+        _fmt_w(live_metrics.get("pv_w")),
+        grid_status_text,
+        energy_outlook=energy_outlook,
+        threshold_decision=threshold_decision,
+    )
+    assistant_summary = build_dashboard_assistant_summary(
+        home_status,
+        daily_insights,
+        energy_outlook,
+        recommendations,
+        data_quality,
+    )
 
     return {
         "schema_version": 1,
@@ -1204,7 +1589,12 @@ def build_dashboard_data_payload(
         "sources": sources,
         "quality": {"data": data_quality, "energy_balance": energy_balance},
         "insights": {"daily": daily_insights, "daily_mix": daily_mix},
-        "planner": {"tonight_risk": risk},
+        "planner": {"tonight_risk": risk, "outlook": energy_outlook},
+        "assistant": {
+            "status": home_status,
+            "summary": assistant_summary,
+            "recommendations": recommendations,
+        },
         "threshold": {
             "value": getattr(threshold_decision, "threshold", None),
             "reason": getattr(threshold_decision, "reason", ""),
@@ -1768,6 +2158,24 @@ def build_dashboard_html(
     energy_balance = build_dashboard_energy_balance(live_metrics)
     daily_mix = build_dashboard_daily_mix(live_metrics)
     daily_insights = build_dashboard_daily_insights(live_metrics, metric_history, now=now)
+    energy_outlook = build_dashboard_energy_outlook(
+        live_metrics,
+        tonight_risk,
+        pv_forecast,
+        threshold_decision,
+        hours_to_sunset,
+        hours_to_sunrise,
+        battery_capacity_wh,
+        battery_charge_rate_w,
+    )
+    home_status = build_dashboard_home_status(
+        live_metrics,
+        mode,
+        battery_flow_dir,
+        tonight_risk,
+        next_action,
+        now=now,
+    )
     recommendations = build_dashboard_recommendations(
         live_metrics=live_metrics,
         soc_health=soc_health,
@@ -1776,10 +2184,30 @@ def build_dashboard_html(
         daily_insights=daily_insights,
         pv_power_display=pv_power_display,
         grid_status_text=grid_status_text,
+        energy_outlook=energy_outlook,
+        threshold_decision=threshold_decision,
     )
     recommendations_html = "\n".join(
-        f'<div class="rec-item"><span class="rec-icon">{esc(r["icon"])}</span><span>{esc(r["text"])}</span></div>'
+        (
+            f'<div class="rec-item rec-{esc(str(r.get("level", "good")))}">'
+            f'<span class="rec-icon">{esc(str(r.get("icon", "OK")))}</span>'
+            '<span>'
+            f'<strong>{esc(str(r.get("title", "Recommendation")))}</strong>'
+            f'{esc(str(r.get("text", "")))}'
+            f'<em>{esc(str(r.get("meta", "")))}</em>'
+            '</span></div>'
+        )
         for r in recommendations
+    )
+    top_recommendations_html = "\n".join(
+        (
+            f'<div class="hero-rec rec-{esc(str(r.get("level", "good")))}">'
+            f'<span>{esc(str(r.get("icon", "OK")))}</span>'
+            f'<strong>{esc(str(r.get("title", "Recommendation")))}</strong>'
+            f'<em>{esc(str(r.get("meta", "")))}</em>'
+            '</div>'
+        )
+        for r in recommendations[:2]
     )
     if pv_forecast:
         _tmr = pv_forecast.get("tomorrow_kwh")
@@ -1808,6 +2236,57 @@ def build_dashboard_html(
     </section>"""
     else:
         pv_forecast_html = ""
+    _tmr_str = _fmt_kwh(energy_outlook.get("tomorrow_kwh"))
+    _rem_str = _fmt_kwh(energy_outlook.get("today_remaining_kwh"))
+    _sunset_str = _fmt_pct(energy_outlook.get("projected_sunset_soc"))
+    _sunrise_str = _fmt_pct(energy_outlook.get("projected_sunrise_soc"))
+    _grid_forecast_str = _fmt_kwh(energy_outlook.get("expected_grid_kwh"))
+    _kwp = pv_forecast.get("panel_kwp", 0) if pv_forecast else 0
+    _forecast_source = (
+        f"Open-Meteo irradiance forecast - {float(_kwp):g} kWp system"
+        if isinstance(_kwp, (int, float)) and _kwp > 0
+        else "Configure PANEL_KWP and weather coordinates for PV generation forecasts"
+    )
+    pv_forecast_html = f"""
+    <div class="section-head" id="forecast">
+      <div>
+        <h2>Energy Outlook</h2>
+        <div class="muted">Predictive view of generation, reserve, grid use, and weather impact.</div>
+      </div>
+      <span class="badge badge-neutral">Confidence: {esc(str(energy_outlook.get("confidence", "Learning")))}</span>
+    </div>
+    <section class="grid ops-grid" aria-label="Energy outlook">
+      <div class="card">
+        <div class="label">Tomorrow PV</div>
+        <div class="value">{esc(_tmr_str)}</div>
+        <div class="muted small">{esc(_forecast_source)}</div>
+      </div>
+      <div class="card">
+        <div class="label">Today Remaining</div>
+        <div class="value">{esc(_rem_str)}</div>
+        <div class="muted small">Expected generation from now until sunset.</div>
+      </div>
+      <div class="card">
+        <div class="label">Battery at Sunset</div>
+        <div class="value">{esc(_sunset_str)}</div>
+        <div class="muted small">Current-flow estimate; improves with more history.</div>
+      </div>
+      <div class="card">
+        <div class="label">Battery at Sunrise</div>
+        <div class="value">{esc(_sunrise_str)}</div>
+        <div class="muted small">{esc(tonight_detail)}</div>
+      </div>
+      <div class="card">
+        <div class="label">Expected Grid Top-up</div>
+        <div class="value">{esc(_grid_forecast_str)}</div>
+        <div class="muted small">Derived from top-up minutes and charge-rate config.</div>
+      </div>
+      <div class="card">
+        <div class="label">Weather Impact</div>
+        <div class="value">{esc(str(energy_outlook.get("weather", "not configured")))}</div>
+        <div class="muted small">{esc(getattr(threshold_decision, "reason", ""))}</div>
+      </div>
+    </section>"""
     quality_badge_class = _status_badge_class(str(data_quality.get("level", "unknown")))
     quality_title = str(data_quality.get("title", "Unknown"))
     quality_score = data_quality.get("score")
@@ -1825,6 +2304,37 @@ def build_dashboard_html(
     balance_badge_class = _status_badge_class(str(energy_balance.get("level", "unknown")))
     balance_title = str(energy_balance.get("title", "Unknown"))
     balance_detail = str(energy_balance.get("detail", "Energy balance could not be calculated."))
+    assistant_summary = build_dashboard_assistant_summary(
+        home_status,
+        daily_insights,
+        energy_outlook,
+        recommendations,
+        data_quality,
+    )
+    home_badge_class = _status_badge_class(str(home_status.get("level", "unknown")))
+    usable_kwh = None
+    if isinstance(soc_value, (int, float)) and battery_capacity_wh > 0:
+        usable_kwh = max(0.0, (float(soc_value) - battery_bms_cutoff_soc) / 100.0 * battery_capacity_wh / 1000.0)
+    usable_kwh_display = _fmt_kwh(usable_kwh)
+    battery_capacity_display = _fmt_kwh(battery_capacity_wh / 1000.0) if battery_capacity_wh > 0 else "--"
+    reserve_floor_display = _fmt_pct(battery_bms_cutoff_soc)
+    battery_power_label = battery_flow_dir.capitalize()
+    battery_throughput = None
+    if isinstance(live_metrics.get("charge_today_kwh"), (int, float)) and isinstance(live_metrics.get("discharge_today_kwh"), (int, float)):
+        battery_throughput = float(live_metrics["charge_today_kwh"]) + float(live_metrics["discharge_today_kwh"])
+    battery_throughput_display = _fmt_kwh(battery_throughput)
+    hero_metric_cards = "\n".join(
+        [
+            f'<div class="hero-metric"><span>Battery</span><strong>{esc(soc)}</strong><em>{esc(battery_context)}</em></div>',
+            f'<div class="hero-metric"><span>PV</span><strong>{esc(pv_power_display)}</strong><em>{esc(pv_today_display)} today</em></div>',
+            f'<div class="hero-metric"><span>House</span><strong>{esc(load_power_display)}</strong><em>{esc(load_today_display)} today</em></div>',
+            f'<div class="hero-metric"><span>Grid</span><strong>{esc(grid_power_display)}</strong><em>{esc(grid_status_text)}</em></div>',
+        ]
+    )
+    flow_solar_class = "active" if (live_metrics.get("pv_w") or 0) > 0 else ""
+    flow_load_class = "active" if (live_metrics.get("load_w") or 0) > 0 else ""
+    flow_grid_class = "active" if abs(live_metrics.get("grid_w") or 0) >= 20 else ""
+    flow_battery_class = "active reverse" if battery_flow_dir == "charging" else ("active" if battery_flow_dir == "discharging" else "")
 
     def _mix_number(key: str) -> float | None:
         value = daily_mix.get(key)
@@ -2262,9 +2772,54 @@ def build_dashboard_html(
       flex-direction: column;
       justify-content: center;
     }}
+    .status-hero {{ justify-content: space-between; gap: 22px; }}
     .hero-copy {{ display: grid; gap: 8px; }}
     .hero-kicker {{ color: var(--solar); font-size: 12px; font-weight: 720; text-transform: uppercase; letter-spacing: 0.07em; }}
     .hero-subtitle {{ max-width: 620px; font-size: 15px; color: var(--muted); line-height: 1.55; }}
+    .hero-metrics {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }}
+    .hero-metric {{
+      min-width: 0;
+      padding: 12px;
+      border-radius: 8px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      display: grid;
+      gap: 4px;
+    }}
+    .hero-metric span, .battery-stats span {{ color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }}
+    .hero-metric strong, .battery-stats strong {{ color: var(--ink); font-size: 18px; line-height: 1.1; font-weight: 740; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }}
+    .hero-metric em, .battery-stats em {{ color: var(--muted); font-size: 12px; font-style: normal; line-height: 1.35; overflow-wrap: anywhere; }}
+    .hero-recs {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }}
+    .hero-rec {{
+      min-width: 0;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      grid-template-areas: "icon title" "icon meta";
+      gap: 2px 10px;
+      padding: 12px;
+      border-radius: 8px;
+      background: rgba(106, 122, 153, 0.08);
+      border: 1px solid var(--border);
+    }}
+    .hero-rec span {{ grid-area: icon; display: grid; place-items: center; min-width: 36px; height: 36px; border-radius: 8px; background: var(--panel); color: var(--muted); font-size: 11px; font-weight: 780; }}
+    .hero-rec strong {{ grid-area: title; color: var(--ink); font-size: 13px; line-height: 1.25; overflow-wrap: anywhere; }}
+    .hero-rec em {{ grid-area: meta; color: var(--muted); font-size: 12px; font-style: normal; overflow-wrap: anywhere; }}
+    .rec-high, .hero-rec.rec-high {{ border-color: rgba(239, 94, 94, 0.34); }}
+    .rec-watch, .hero-rec.rec-watch {{ border-color: rgba(245, 168, 42, 0.34); }}
+    .rec-good, .hero-rec.rec-good {{ border-color: rgba(58, 200, 122, 0.28); }}
+    .battery-panel {{ justify-content: flex-start; gap: 18px; }}
+    .battery-panel-head {{ display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }}
+    .battery-command {{ grid-template-columns: 160px minmax(0, 1fr); gap: 18px; margin-top: 0; }}
+    .battery-stats {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }}
+    .battery-stats div {{
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+      padding: 11px 12px;
+      border-radius: 8px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+    }}
     .soc-command {{
       display: grid;
       grid-template-columns: 176px minmax(0, 1fr);
@@ -2278,8 +2833,15 @@ def build_dashboard_html(
       border-radius: 12px;
       display: grid;
       place-items: center;
-      background: var(--panel-2);
+      background:
+        radial-gradient(circle at center, var(--panel-2) 0 58%, transparent 59%),
+        conic-gradient(var(--battery) 0 var(--soc, 0%), var(--border) var(--soc, 0%) 100%);
       border: 1px solid var(--border);
+    }}
+    .theme-light .soc-ring {{
+      background:
+        radial-gradient(circle at center, var(--panel-2) 0 58%, transparent 59%),
+        conic-gradient(var(--battery) 0 var(--soc, 0%), var(--border) var(--soc, 0%) 100%);
     }}
     .soc-core {{ text-align: center; }}
     .soc-core strong {{ display: block; font-size: clamp(40px, 6vw, 56px); line-height: 0.95; letter-spacing: 0; font-weight: 760; font-variant-numeric: tabular-nums; color: var(--ink); }}
@@ -2363,6 +2925,68 @@ def build_dashboard_html(
     @media (prefers-reduced-motion: reduce) {{
       .connector::before {{ animation: none; }}
     }}
+    .energy-map {{
+      position: relative;
+      min-height: 380px;
+      display: block;
+      overflow: hidden;
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0));
+      border: 1px solid var(--border);
+    }}
+    .energy-lines {{
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }}
+    .energy-line {{
+      fill: none;
+      stroke: var(--border-strong);
+      stroke-width: 1.4;
+      stroke-linecap: round;
+      opacity: 0.3;
+      stroke-dasharray: 1 7;
+    }}
+    .energy-line.active {{
+      opacity: 0.95;
+      stroke-dasharray: 7 8;
+      animation: energy-flow 1.2s linear infinite;
+    }}
+    .energy-line.reverse {{ animation-direction: reverse; }}
+    .solar-line {{ stroke: var(--solar); }}
+    .battery-line {{ stroke: var(--battery); }}
+    .grid-line {{ stroke: var(--grid-c); }}
+    .load-line {{ stroke: var(--load-c); }}
+    @keyframes energy-flow {{
+      to {{ stroke-dashoffset: -30; }}
+    }}
+    .energy-node {{
+      position: absolute;
+      width: min(220px, 36%);
+      min-height: 112px;
+      transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+      z-index: 1;
+    }}
+    .energy-node:hover {{
+      transform: translate3d(0, -2px, 0);
+      border-color: var(--border-strong);
+      box-shadow: 0 8px 22px rgba(0,0,0,0.22), 0 0 0 1px rgba(255,255,255,0.07);
+    }}
+    .energy-node.solar {{ top: 18px; left: 50%; transform: translateX(-50%); }}
+    .energy-node.inverter {{ top: 50%; left: 50%; transform: translate(-50%, -50%); }}
+    .energy-node.battery {{ bottom: 18px; left: 50%; transform: translateX(-50%); }}
+    .energy-node.grid-source {{ top: 50%; left: 18px; transform: translateY(-50%); }}
+    .energy-node.load {{ top: 50%; right: 18px; transform: translateY(-50%); }}
+    .energy-node.solar:hover {{ transform: translate(-50%, -2px); }}
+    .energy-node.inverter:hover {{ transform: translate(-50%, calc(-50% - 2px)); }}
+    .energy-node.battery:hover {{ transform: translate(-50%, -2px); }}
+    .energy-node.grid-source:hover, .energy-node.load:hover {{ transform: translateY(calc(-50% - 2px)); }}
+    @media (prefers-reduced-motion: reduce) {{
+      .energy-line.active {{ animation: none; }}
+      .energy-node {{ transition: none; }}
+    }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 16px; }}
     .daily-grid {{ grid-template-columns: repeat(auto-fit, minmax(224px, 1fr)); }}
     .daily-mix {{ display: grid; gap: 16px; margin-top: 16px; }}
@@ -2419,17 +3043,43 @@ def build_dashboard_html(
     .badge-warn {{ background: rgba(245, 168, 42, 0.12); color: var(--warn); border-color: rgba(245, 168, 42, 0.3); }}
     .badge-fail {{ background: rgba(239, 94, 94, 0.12); color: #EF5E5E; border-color: rgba(239, 94, 94, 0.3); }}
     .badge-neutral {{ background: rgba(106, 122, 153, 0.12); color: var(--muted); border-color: rgba(106, 122, 153, 0.25); }}
-    .rec-section {{ padding: 20px 24px; display: grid; gap: 14px; }}
-    .rec-item {{ display: flex; align-items: flex-start; gap: 12px; font-size: 14px; line-height: 1.5; }}
-    .rec-icon {{ font-size: 16px; min-width: 22px; margin-top: 1px; }}
+    .rec-section {{ padding: 20px 24px; display: grid; gap: 12px; }}
+    .rec-item {{
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 12px;
+      align-items: flex-start;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      font-size: 14px;
+      line-height: 1.5;
+      transition: transform 160ms ease, border-color 160ms ease;
+    }}
+    .rec-item:hover {{ transform: translateY(-1px); border-color: var(--border-strong); }}
+    .rec-icon {{
+      display: grid;
+      place-items: center;
+      min-width: 42px;
+      height: 34px;
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 780;
+      margin-top: 1px;
+    }}
+    .rec-item strong {{ display: block; color: var(--ink); font-size: 14px; line-height: 1.25; margin-bottom: 2px; }}
+    .rec-item em {{ display: block; margin-top: 4px; color: var(--muted); font-size: 12px; font-style: normal; }}
     .planner-grid {{ display: grid; grid-template-columns: minmax(260px, 0.9fr) repeat(3, minmax(160px, 1fr)); gap: 12px; margin-top: 16px; }}
     .planner-card {{ padding: 16px; background: var(--panel); box-shadow: 0 1px 3px rgba(0,0,0,0.22), 0 0 0 1px rgba(255,255,255,0.04); border-radius: var(--radius); }}
     .planner-card.primary {{ background: var(--panel-2); color: var(--ink); border-color: var(--border-strong); }}
     .planner-card.primary .muted, .planner-card.primary .label {{ color: var(--muted); }}
     .banner-warn {{ background: rgba(245, 168, 42, 0.08); color: var(--ink); border: 1px solid rgba(245, 168, 42, 0.3); border-radius: var(--radius); padding: 12px 16px; margin: 16px 0 24px; font-weight: 620; }}
     .chart-grid {{ display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, .9fr); gap: 12px; }}
-    .chart-card canvas {{ width: 100%; height: 240px; display: block; }}
-    .chart-card.compact canvas {{ height: 200px; }}
+    .chart-card canvas {{ width: 100%; height: 280px; display: block; }}
+    .chart-card.compact canvas {{ height: 220px; }}
     .legend {{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; color: var(--muted); font-size: 13px; }}
     .legend span::before {{ content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; background: var(--c); }}
     .table-wrap {{ overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--border); background: var(--panel); margin-top: 12px; }}
@@ -2505,9 +3155,15 @@ def build_dashboard_html(
       .sidebar-brand {{ margin-bottom: 18px; }}
       .sidebar-nav {{ grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }}
       .sidebar-status {{ margin-top: 18px; }}
+      .hero-grid {{ grid-template-columns: 1fr; }}
+      .hero-metrics {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .chart-grid, .planner-grid, .status-activity-grid, .mix-grid {{ grid-template-columns: 1fr; }}
       .flow-map {{ grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); column-gap: 10px; }}
       .connector {{ display: none; }}
+      .energy-map {{ min-height: 520px; }}
+      .energy-node {{ width: min(240px, 44%); }}
+      .energy-node.grid-source {{ left: 12px; }}
+      .energy-node.load {{ right: 12px; }}
     }}
     @media (max-width: 720px) {{
       .sidebar {{ padding: 18px 14px; }}
@@ -2515,6 +3171,18 @@ def build_dashboard_html(
       .topbar, .section-head, .flow-head {{ align-items: flex-start; flex-direction: column; }}
       .top-actions {{ justify-content: flex-start; }}
       .hero-panel, .flow-stage {{ padding: 16px; }}
+      .hero-metrics, .hero-recs, .battery-stats {{ grid-template-columns: 1fr; }}
+      .energy-map {{ min-height: auto; display: grid; gap: 10px; padding: 0; border: 0; background: transparent; }}
+      .energy-lines {{ display: none; }}
+      .energy-node, .energy-node.solar, .energy-node.inverter, .energy-node.battery, .energy-node.grid-source, .energy-node.load {{
+        position: relative;
+        inset: auto;
+        width: 100%;
+        transform: none;
+      }}
+      .energy-node:hover, .energy-node.solar:hover, .energy-node.inverter:hover, .energy-node.battery:hover, .energy-node.grid-source:hover, .energy-node.load:hover {{
+        transform: none;
+      }}
       .soc-command {{ grid-template-columns: 1fr; gap: 16px; margin-top: 18px; }}
       .soc-ring {{ width: 100%; max-width: none; height: auto; min-height: 136px; aspect-ratio: auto; }}
       .mode-stack {{ gap: 9px; }}
@@ -2539,7 +3207,7 @@ def build_dashboard_html(
       <a href="#insights">Energy Insights</a>
       <a href="#daily">Daily Energy</a>
       <a href="#planner">Tonight Planner</a>
-      <a href="#forecast">Forecast</a>
+      <a href="#forecast">Outlook</a>
       <a href="#recommendations">Recommendations</a>
       <a href="#automation">Automation</a>
       <a href="#trends">Trends</a>
@@ -2559,8 +3227,8 @@ def build_dashboard_html(
   <main>
     <header class="topbar" id="overview">
       <div>
-        <div class="hero-kicker">Local solar dashboard</div>
-        <h1>Overview</h1>
+        <div class="hero-kicker">{esc(str(home_status.get("greeting", "Hello")))}</div>
+        <h1>{esc(str(home_status.get("headline", "Home energy is stable")))}</h1>
         <div class="muted">Generated {esc(generated_at.strftime('%Y-%m-%d %H:%M:%S %Z'))}</div>
       </div>
       <div class="top-actions">
@@ -2571,6 +3239,45 @@ def build_dashboard_html(
       </div>
     </header>
     {skip_all_banner}
+
+    <section class="hero-grid" aria-label="Home energy status">
+      <article class="hero-panel status-hero">
+        <div class="hero-copy">
+          <span class="badge {esc(home_badge_class)}">Home Status</span>
+          <h2>{esc(str(assistant_summary.get("title", "")))}</h2>
+          <p class="hero-subtitle">{esc(str(assistant_summary.get("text", "")))}</p>
+        </div>
+        <div class="hero-metrics">
+          {hero_metric_cards}
+        </div>
+        <div class="hero-recs" aria-label="Top recommendations">
+          {top_recommendations_html}
+        </div>
+      </article>
+      <article class="hero-panel battery-panel">
+        <div class="battery-panel-head">
+          <div>
+            <div class="label">Battery Experience</div>
+            <div class="mode-value">{esc(soc)}</div>
+          </div>
+          <span class="badge {esc(soc_health_class)}">{esc(soc_health)}</span>
+        </div>
+        <div class="soc-command battery-command">
+          <div class="soc-ring" style="--soc:{soc_gauge_value:.0f}%">
+            <div class="soc-core">
+              <strong>{esc(soc)}</strong>
+              <span>{esc(battery_power_label)}</span>
+            </div>
+          </div>
+          <div class="battery-stats">
+            <div><span>Current power</span><strong>{esc(battery_flow_display)}</strong><em>{esc(battery_context)}</em></div>
+            <div><span>Usable reserve</span><strong>{esc(usable_kwh_display)}</strong><em>Floor {esc(reserve_floor_display)}</em></div>
+            <div><span>Runtime</span><strong>{esc(est_runtime)}</strong><em>Capacity {esc(battery_capacity_display)}</em></div>
+            <div><span>Voltage</span><strong>{esc(vbat)}</strong><em>Throughput today {esc(battery_throughput_display)}</em></div>
+          </div>
+        </div>
+      </article>
+    </section>
 
     <section class="flow-stage" id="flow" aria-label="Live energy flow">
         <div class="flow-head">
@@ -2584,40 +3291,42 @@ def build_dashboard_html(
             <span class="badge badge-neutral" title="{esc(next_action_detail)}">Next: {esc(next_action_relative)} · {esc(next_action_title)}</span>
           </div>
         </div>
-        <div class="flow-map">
-          <div class="flow-tile solar">
+        <div class="flow-map energy-map" aria-label="Live energy map">
+          <svg class="energy-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <path class="energy-line solar-line {esc(flow_solar_class)}" d="M50 17 L50 44"></path>
+            <path class="energy-line battery-line {esc(flow_battery_class)}" d="M50 83 L50 56"></path>
+            <path class="energy-line grid-line {esc(flow_grid_class)}" d="M18 50 L42 50"></path>
+            <path class="energy-line load-line {esc(flow_load_class)}" d="M58 50 L82 50"></path>
+          </svg>
+          <div class="flow-tile energy-node solar">
             <div>
               <div class="flow-label">Solar Now</div>
               <div class="flow-value">{esc(pv_power_display)}</div>
             </div>
             <div class="flow-detail">{esc(pv_today_display)} generated today</div>
           </div>
-          <div class="connector pv" aria-hidden="true"></div>
-          <div class="flow-tile inverter">
+          <div class="flow-tile energy-node inverter">
             <div>
               <div class="flow-label">Inverter</div>
               <div class="flow-value">{esc(mode)}</div>
             </div>
             <div class="flow-detail">{esc(bat_status)}</div>
           </div>
-          <div class="connector battery" aria-hidden="true"></div>
-          <div class="flow-tile battery">
+          <div class="flow-tile energy-node battery">
             <div>
               <div class="flow-label">Battery</div>
               <div class="flow-value">{esc(soc)}</div>
             </div>
-            <div class="flow-detail">{esc(battery_context)}</div>
+            <div class="flow-detail">{esc(battery_context)} - {esc(battery_flow_display)}</div>
           </div>
-          <div class="connector grid" aria-hidden="true"></div>
-          <div class="flow-tile grid-source">
+          <div class="flow-tile energy-node grid-source">
             <div>
               <div class="flow-label">Grid Import Now</div>
               <div class="flow-value">{esc(grid_power_display)}</div>
             </div>
             <div class="flow-detail">{esc(grid_status_text)}</div>
           </div>
-          <div class="connector load" aria-hidden="true"></div>
-          <div class="flow-tile load">
+          <div class="flow-tile energy-node load">
             <div>
               <div class="flow-label">Load Now</div>
               <div class="flow-value">{esc(load_power_display)}</div>
@@ -2697,7 +3406,7 @@ def build_dashboard_html(
     <div class="section-head" id="recommendations">
       <div>
         <h2>Recommendations</h2>
-        <div class="muted">Rule-based suggestions from current system state.</div>
+        <div class="muted">Ranked assistant suggestions with reason and expected impact.</div>
       </div>
     </div>
     <section class="card rec-section" aria-label="Recommendations">
@@ -3020,6 +3729,14 @@ def build_dashboard_html(
               lines.push(s.label + ":  " + (suffix === "%" ? v.toFixed(0) + "%" : (v >= 1000 ? (v/1000).toFixed(1) + " k" + suffix : Math.round(v) + " " + suffix)));
             }}
           }});
+          if (options.modes && options.modes[idx]) {{
+            lines.push("Mode:  " + options.modes[idx]);
+          }}
+          if (options.batteryNet && typeof options.batteryNet[idx] === "number" && isFinite(options.batteryNet[idx])) {{
+            const bw = options.batteryNet[idx];
+            const dir = bw > 0 ? "discharging" : (bw < 0 ? "charging" : "standby");
+            lines.push("Battery:  " + Math.round(Math.abs(bw)) + " W " + dir);
+          }}
           ctx.font = "bold 11px system-ui, sans-serif";
           const lineH = 16;
           const tipW = Math.max(...lines.map(function(l) {{ return ctx.measureText(l).width; }})) + 20;
@@ -3102,7 +3819,7 @@ def build_dashboard_html(
           {{ color: "#35C4A0", label: "SOC", values: data.soc.soc || [] }}
         ];
         drawLineChart("power-trend-chart", data.power.labels || [], powerSeries, {{ suffix: "W", minMax: 1000 }});
-        setupLineTooltip("power-trend-chart", data.power.labels || [], powerSeries, {{ suffix: "W", minMax: 1000 }});
+        setupLineTooltip("power-trend-chart", data.power.labels || [], powerSeries, {{ suffix: "W", minMax: 1000, modes: data.power.mode || [], batteryNet: data.power.battery_net_w || [] }});
         drawLineChart("soc-trend-chart", data.soc.labels || [], socSeries, {{ suffix: "%", minMax: 100 }});
         setupLineTooltip("soc-trend-chart", data.soc.labels || [], socSeries, {{ suffix: "%", minMax: 100 }});
         drawBarChart("battery-energy-chart", data.daily.labels || [], [
@@ -3225,6 +3942,7 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
     output_path = resolve_dashboard_output(output)
     append_dashboard_metric_snapshot(status, now=dt.datetime.now().astimezone())
     metrics_history = read_dashboard_metrics_history()
+    pv_forecast = get_pv_forecast(config)
     json_payload = build_dashboard_data_payload(
         status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes,
         config.battery_capacity_wh, config.battery_bms_cutoff_soc,
@@ -3232,6 +3950,8 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
         config.auto_topup_target_soc,
         config.auto_topup_solar_skip_min_margin_minutes,
         metrics_history,
+        hours_to_sunset=hrs_to_sunset,
+        pv_forecast=pv_forecast,
     )
     html_content = build_dashboard_html(
         status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes,
@@ -3246,7 +3966,7 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
         tonight_floor_soc=getattr(config, "auto_topup_sunrise_floor_soc", 35.0),
         tonight_comfortable_soc=45.0,
         utility_hold_state=read_utility_hold_state(),
-        pv_forecast=get_pv_forecast(config),
+        pv_forecast=pv_forecast,
     )
     # Atomic write: temp file in same directory then rename to avoid serving
     # a partially written file when the browser auto-refreshes mid-write.
