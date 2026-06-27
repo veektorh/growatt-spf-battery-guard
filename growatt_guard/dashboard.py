@@ -1090,14 +1090,17 @@ def build_dashboard_home_status(
     grid_w = _numeric_metric(live_metrics.get("grid_w"))
     soc = _numeric_metric(live_metrics.get("soc"))
     tonight_level = str(tonight_risk.get("level", "")).lower()
+    grid_active = _active_grid_draw(grid_w)
+    solar_covering = pv_w is not None and load_w is not None and pv_w >= load_w and not grid_active
+    has_solar = pv_w is not None and pv_w > 0
 
-    if pv_w and load_w and pv_w >= load_w and not _active_grid_draw(grid_w):
+    if solar_covering:
         headline = "Solar is covering the house"
         if battery_flow_dir == "charging":
             headline += " and charging the battery"
-    elif pv_w and load_w and pv_w > 0 and _active_grid_draw(grid_w):
+    elif has_solar and load_w is not None and grid_active:
         headline = "Solar is helping, but the grid is assisting"
-    elif _active_grid_draw(grid_w):
+    elif grid_active:
         headline = "Grid power is supporting the house"
     elif battery_flow_dir == "discharging":
         headline = "Battery is carrying the house"
@@ -1106,9 +1109,13 @@ def build_dashboard_home_status(
     else:
         headline = "Home energy is stable"
 
-    if tonight_level in {"high", "danger"}:
+    if soc is None and pv_w is None and load_w is None and grid_w is None:
+        level = "unknown"
+    elif isinstance(soc, (int, float)) and soc < 25 and battery_flow_dir == "discharging" and not has_solar:
         level = "high"
-    elif tonight_level in {"watch", "unknown"} or _active_grid_draw(grid_w):
+    elif grid_active or "utility" in mode.lower() or (
+        isinstance(soc, (int, float)) and soc < 50 and battery_flow_dir == "discharging"
+    ):
         level = "watch"
     else:
         level = "comfortable"
@@ -1124,16 +1131,31 @@ def build_dashboard_home_status(
     next_relative = str(next_action.get("relative") or "none")
     next_title = str(next_action.get("title") or "No upcoming automation")
     tonight_title = str(tonight_risk.get("title") or "Unknown")
-    detail = (
-        f"{battery_context}. Tonight: {tonight_title.lower()}. "
-        f"Next automation: {next_relative} - {next_title}."
-    )
+    power_bits = []
+    if pv_w is not None:
+        power_bits.append(f"PV {_fmt_w(pv_w)}")
+    if load_w is not None:
+        power_bits.append(f"house {_fmt_w(load_w)}")
+    if grid_w is not None:
+        power_bits.append(f"grid {_fmt_w(grid_w)}")
+    power_context = ", ".join(power_bits) if power_bits else "Live power values are still loading"
+    detail = f"{battery_context}. {power_context}."
+    now_labels = {
+        "comfortable": "Healthy",
+        "watch": "Watch",
+        "high": "Urgent",
+        "unknown": "Learning",
+    }
 
     return {
         "greeting": _dashboard_greeting(now),
         "headline": headline,
         "detail": detail,
         "level": level,
+        "now_label": now_labels.get(level, "Learning"),
+        "tonight_level": tonight_level or "unknown",
+        "tonight_title": tonight_title,
+        "next_action": f"{next_relative} - {next_title}",
     }
 
 
@@ -1170,6 +1192,30 @@ def build_dashboard_energy_outlook(
         expected_grid_kwh = round((float(topup_minutes) / 60.0) * battery_charge_rate_w / 1000.0, 1)
     elif topup_minutes == 0:
         expected_grid_kwh = 0.0
+    load_w = tonight_risk.get("load_w")
+    load_source = str(tonight_risk.get("load_source") or "").strip()
+    if isinstance(load_w, (int, float)) and load_w > 0:
+        basis_source = f" ({load_source})" if load_source else ""
+        sunrise_basis = f"{_fmt_w(load_w)} overnight load{basis_source}"
+    elif hours_to_sunrise is None or hours_to_sunrise <= 0:
+        sunrise_basis = "Sunrise time unavailable"
+    else:
+        sunrise_basis = "Waiting for discharge or load history"
+    target_soc = tonight_risk.get("target_soc")
+    if not isinstance(target_soc, (int, float)):
+        target_soc = None
+    if projected_sunrise_soc is None:
+        sunrise_note = "Projection will appear after SOC, sunrise, capacity, and load signals are available."
+    elif projected_sunrise_soc <= 1:
+        sunrise_note = "Stress estimate based on carrying that load until sunrise."
+    elif target_soc is not None:
+        margin = float(projected_sunrise_soc) - float(target_soc)
+        if margin < 0:
+            sunrise_note = f"Below the {_fmt_pct(target_soc)} reserve target."
+        else:
+            sunrise_note = f"{_fmt_pct(margin)} above the reserve target."
+    else:
+        sunrise_note = "Projection improves as overnight load history accumulates."
 
     tomorrow_kwh = pv_forecast.get("tomorrow_kwh") if pv_forecast else None
     today_remaining_kwh = pv_forecast.get("today_remaining_kwh") if pv_forecast else None
@@ -1204,6 +1250,10 @@ def build_dashboard_energy_outlook(
         "tomorrow_kwh": tomorrow_kwh if isinstance(tomorrow_kwh, (int, float)) else None,
         "projected_sunset_soc": round(projected_sunset_soc, 1) if projected_sunset_soc is not None else None,
         "projected_sunrise_soc": round(float(projected_sunrise_soc), 1) if projected_sunrise_soc is not None else None,
+        "sunrise_basis": sunrise_basis,
+        "sunrise_note": sunrise_note,
+        "reserve_target_soc": round(float(target_soc), 1) if target_soc is not None else None,
+        "topup_minutes": round(float(topup_minutes), 1) if isinstance(topup_minutes, (int, float)) else None,
         "expected_grid_kwh": expected_grid_kwh,
         "weather": weather_detail,
         "confidence": confidence,
@@ -1221,31 +1271,29 @@ def build_dashboard_assistant_summary(
     quality_level = str(data_quality.get("level", "")).lower()
     if quality_level == "poor":
         title = "Telemetry needs attention"
-        lead = "Some key Growatt values are missing, so the assistant is using a lower-confidence view."
+        lead = "Some key Growatt values are missing, so this view is lower confidence."
     else:
         title = str(home_status.get("headline") or "Home energy is stable")
-        lead = str(home_status.get("detail") or "")
+        lead = str(home_status.get("detail") or "Live power values are stable.")
 
-    insight_title = str(daily_insights.get("title") or "Learning")
     sunrise_soc = energy_outlook.get("projected_sunrise_soc")
+    topup_minutes = energy_outlook.get("topup_minutes")
     if isinstance(sunrise_soc, (int, float)):
-        outlook_text = f"Projected sunrise battery is {sunrise_soc:.0f}%."
+        if isinstance(topup_minutes, (int, float)) and topup_minutes > 0:
+            outlook_text = (
+                f"Tonight needs attention: projected sunrise reserve is {sunrise_soc:.0f}%, "
+                f"with {format_duration_minutes(topup_minutes)} of top-up recommended."
+            )
+        else:
+            outlook_text = f"Tonight is on track: projected sunrise reserve is {sunrise_soc:.0f}%."
     else:
-        outlook_text = "Sunrise battery projection is not available yet."
+        outlook_text = "Tonight projection is still learning because one or more reserve signals are missing."
 
-    grid_kwh = energy_outlook.get("expected_grid_kwh")
-    if isinstance(grid_kwh, (int, float)):
-        grid_text = f"Expected overnight grid top-up is {_fmt_kwh(grid_kwh)}."
-    else:
-        grid_text = "Grid top-up estimate is still learning."
-
-    next_best = ""
-    if recommendations:
-        next_best = " Next best action: " + str(recommendations[0].get("text", "review recommendations"))
+    lead_text = lead.strip().rstrip(".")
 
     return {
         "title": title,
-        "text": f"{lead} Today is {insight_title.lower()}. {outlook_text} {grid_text}{next_best}",
+        "text": f"{lead_text}. {outlook_text}" if lead_text else outlook_text,
     }
 
 
@@ -2204,10 +2252,11 @@ def build_dashboard_html(
             f'<div class="hero-rec rec-{esc(str(r.get("level", "good")))}">'
             f'<span>{esc(str(r.get("icon", "OK")))}</span>'
             f'<strong>{esc(str(r.get("title", "Recommendation")))}</strong>'
+            f'<p>{esc(str(r.get("text", "")))}</p>'
             f'<em>{esc(str(r.get("meta", "")))}</em>'
             '</div>'
         )
-        for r in recommendations[:2]
+        for r in recommendations[:1]
     )
     if pv_forecast:
         _tmr = pv_forecast.get("tomorrow_kwh")
@@ -2241,6 +2290,14 @@ def build_dashboard_html(
     _sunset_str = _fmt_pct(energy_outlook.get("projected_sunset_soc"))
     _sunrise_str = _fmt_pct(energy_outlook.get("projected_sunrise_soc"))
     _grid_forecast_str = _fmt_kwh(energy_outlook.get("expected_grid_kwh"))
+    _sunrise_basis_str = str(energy_outlook.get("sunrise_basis") or "Waiting for load history")
+    _sunrise_note_str = str(energy_outlook.get("sunrise_note") or "Estimate improves with more history.")
+    _topup_minutes = energy_outlook.get("topup_minutes")
+    _topup_duration_str = (
+        format_duration_minutes(float(_topup_minutes))
+        if isinstance(_topup_minutes, (int, float)) and _topup_minutes > 0
+        else ("not needed" if _topup_minutes == 0 else "--")
+    )
     _kwp = pv_forecast.get("panel_kwp", 0) if pv_forecast else 0
     _forecast_source = (
         f"Open-Meteo irradiance forecast - {float(_kwp):g} kWp system"
@@ -2274,12 +2331,12 @@ def build_dashboard_html(
       <div class="card">
         <div class="label">Battery at Sunrise</div>
         <div class="value">{esc(_sunrise_str)}</div>
-        <div class="muted small">{esc(tonight_detail)}</div>
+        <div class="muted small">Estimate basis: {esc(_sunrise_basis_str)}. {esc(_sunrise_note_str)}</div>
       </div>
       <div class="card">
         <div class="label">Expected Grid Top-up</div>
         <div class="value">{esc(_grid_forecast_str)}</div>
-        <div class="muted small">Derived from top-up minutes and charge-rate config.</div>
+        <div class="muted small">Top-up duration: {esc(_topup_duration_str)} from charge-rate config.</div>
       </div>
       <div class="card">
         <div class="label">Weather Impact</div>
@@ -2312,6 +2369,13 @@ def build_dashboard_html(
         data_quality,
     )
     home_badge_class = _status_badge_class(str(home_status.get("level", "unknown")))
+    home_badge_label = str(home_status.get("now_label") or "Learning")
+    home_tonight_level = str(home_status.get("tonight_level") or tonight_risk.get("level") or "unknown")
+    home_tonight_title = str(home_status.get("tonight_title") or tonight_title)
+    home_tonight_badge_class = _status_badge_class(home_tonight_level)
+    sunrise_basis_display = str(energy_outlook.get("sunrise_basis") or "Waiting for load history")
+    topup_needed_display = tonight_topup_display
+    battery_charge_rate_display = _fmt_w(battery_charge_rate_w) if battery_charge_rate_w > 0 else "--"
     usable_kwh = None
     if isinstance(soc_value, (int, float)) and battery_capacity_wh > 0:
         usable_kwh = max(0.0, (float(soc_value) - battery_bms_cutoff_soc) / 100.0 * battery_capacity_wh / 1000.0)
@@ -2774,6 +2838,8 @@ def build_dashboard_html(
     }}
     .status-hero {{ justify-content: space-between; gap: 22px; }}
     .hero-copy {{ display: grid; gap: 8px; }}
+    .hero-status-line {{ display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }}
+    .hero-badges {{ display: flex; flex-wrap: wrap; gap: 8px; }}
     .hero-kicker {{ color: var(--solar); font-size: 12px; font-weight: 720; text-transform: uppercase; letter-spacing: 0.07em; }}
     .hero-subtitle {{ max-width: 620px; font-size: 15px; color: var(--muted); line-height: 1.55; }}
     .hero-metrics {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }}
@@ -2789,12 +2855,12 @@ def build_dashboard_html(
     .hero-metric span, .battery-stats span {{ color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }}
     .hero-metric strong, .battery-stats strong {{ color: var(--ink); font-size: 18px; line-height: 1.1; font-weight: 740; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }}
     .hero-metric em, .battery-stats em {{ color: var(--muted); font-size: 12px; font-style: normal; line-height: 1.35; overflow-wrap: anywhere; }}
-    .hero-recs {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }}
+    .hero-recs {{ display: grid; grid-template-columns: 1fr; gap: 10px; }}
     .hero-rec {{
       min-width: 0;
       display: grid;
       grid-template-columns: auto minmax(0, 1fr);
-      grid-template-areas: "icon title" "icon meta";
+      grid-template-areas: "icon title" "icon text" "icon meta";
       gap: 2px 10px;
       padding: 12px;
       border-radius: 8px;
@@ -2803,14 +2869,15 @@ def build_dashboard_html(
     }}
     .hero-rec span {{ grid-area: icon; display: grid; place-items: center; min-width: 36px; height: 36px; border-radius: 8px; background: var(--panel); color: var(--muted); font-size: 11px; font-weight: 780; }}
     .hero-rec strong {{ grid-area: title; color: var(--ink); font-size: 13px; line-height: 1.25; overflow-wrap: anywhere; }}
+    .hero-rec p {{ grid-area: text; margin: 2px 0 0; color: var(--ink); font-size: 13px; line-height: 1.38; overflow-wrap: anywhere; }}
     .hero-rec em {{ grid-area: meta; color: var(--muted); font-size: 12px; font-style: normal; overflow-wrap: anywhere; }}
     .rec-high, .hero-rec.rec-high {{ border-color: rgba(239, 94, 94, 0.34); }}
     .rec-watch, .hero-rec.rec-watch {{ border-color: rgba(245, 168, 42, 0.34); }}
     .rec-good, .hero-rec.rec-good {{ border-color: rgba(58, 200, 122, 0.28); }}
     .battery-panel {{ justify-content: flex-start; gap: 18px; }}
     .battery-panel-head {{ display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }}
-    .battery-command {{ grid-template-columns: 160px minmax(0, 1fr); gap: 18px; margin-top: 0; }}
-    .battery-stats {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }}
+    .battery-command {{ grid-template-columns: 168px minmax(0, 1fr); gap: 18px; margin-top: 0; align-items: stretch; }}
+    .battery-stats {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }}
     .battery-stats div {{
       min-width: 0;
       display: grid;
@@ -2826,6 +2893,12 @@ def build_dashboard_html(
       gap: 24px;
       align-items: center;
       margin-top: 24px;
+    }}
+    .soc-command.battery-command {{
+      grid-template-columns: 168px minmax(0, 1fr);
+      gap: 18px;
+      align-items: stretch;
+      margin-top: 0;
     }}
     .soc-ring {{
       width: min(176px, 52vw);
@@ -2927,7 +3000,7 @@ def build_dashboard_html(
     }}
     .energy-map {{
       position: relative;
-      min-height: 380px;
+      min-height: 320px;
       display: block;
       overflow: hidden;
       border-radius: 12px;
@@ -2964,8 +3037,8 @@ def build_dashboard_html(
     }}
     .energy-node {{
       position: absolute;
-      width: min(220px, 36%);
-      min-height: 112px;
+      width: min(205px, 34%);
+      min-height: 98px;
       transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
       z-index: 1;
     }}
@@ -2974,11 +3047,11 @@ def build_dashboard_html(
       border-color: var(--border-strong);
       box-shadow: 0 8px 22px rgba(0,0,0,0.22), 0 0 0 1px rgba(255,255,255,0.07);
     }}
-    .energy-node.solar {{ top: 18px; left: 50%; transform: translateX(-50%); }}
+    .energy-node.solar {{ top: 12px; left: 50%; transform: translateX(-50%); }}
     .energy-node.inverter {{ top: 50%; left: 50%; transform: translate(-50%, -50%); }}
-    .energy-node.battery {{ bottom: 18px; left: 50%; transform: translateX(-50%); }}
-    .energy-node.grid-source {{ top: 50%; left: 18px; transform: translateY(-50%); }}
-    .energy-node.load {{ top: 50%; right: 18px; transform: translateY(-50%); }}
+    .energy-node.battery {{ bottom: 12px; left: 50%; transform: translateX(-50%); }}
+    .energy-node.grid-source {{ top: 50%; left: 12px; transform: translateY(-50%); }}
+    .energy-node.load {{ top: 50%; right: 12px; transform: translateY(-50%); }}
     .energy-node.solar:hover {{ transform: translate(-50%, -2px); }}
     .energy-node.inverter:hover {{ transform: translate(-50%, calc(-50% - 2px)); }}
     .energy-node.battery:hover {{ transform: translate(-50%, -2px); }}
@@ -3160,8 +3233,8 @@ def build_dashboard_html(
       .chart-grid, .planner-grid, .status-activity-grid, .mix-grid {{ grid-template-columns: 1fr; }}
       .flow-map {{ grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); column-gap: 10px; }}
       .connector {{ display: none; }}
-      .energy-map {{ min-height: 520px; }}
-      .energy-node {{ width: min(240px, 44%); }}
+      .energy-map {{ min-height: 420px; }}
+      .energy-node {{ width: min(220px, 42%); }}
       .energy-node.grid-source {{ left: 12px; }}
       .energy-node.load {{ right: 12px; }}
     }}
@@ -3184,6 +3257,7 @@ def build_dashboard_html(
         transform: none;
       }}
       .soc-command {{ grid-template-columns: 1fr; gap: 16px; margin-top: 18px; }}
+      .soc-command.battery-command {{ grid-template-columns: 1fr; gap: 16px; margin-top: 0; }}
       .soc-ring {{ width: 100%; max-width: none; height: auto; min-height: 136px; aspect-ratio: auto; }}
       .mode-stack {{ gap: 9px; }}
       .mode-value {{ font-size: 20px; }}
@@ -3243,7 +3317,13 @@ def build_dashboard_html(
     <section class="hero-grid" aria-label="Home energy status">
       <article class="hero-panel status-hero">
         <div class="hero-copy">
-          <span class="badge {esc(home_badge_class)}">Home Status</span>
+          <div class="hero-status-line">
+            <span class="label">Home Status</span>
+            <div class="hero-badges">
+              <span class="badge {esc(home_badge_class)}">Now: {esc(home_badge_label)}</span>
+              <span class="badge {esc(home_tonight_badge_class)}">Tonight: {esc(home_tonight_title)}</span>
+            </div>
+          </div>
           <h2>{esc(str(assistant_summary.get("title", "")))}</h2>
           <p class="hero-subtitle">{esc(str(assistant_summary.get("text", "")))}</p>
         </div>
@@ -3272,8 +3352,12 @@ def build_dashboard_html(
           <div class="battery-stats">
             <div><span>Current power</span><strong>{esc(battery_flow_display)}</strong><em>{esc(battery_context)}</em></div>
             <div><span>Usable reserve</span><strong>{esc(usable_kwh_display)}</strong><em>Floor {esc(reserve_floor_display)}</em></div>
+            <div><span>Sunrise reserve</span><strong>{esc(tonight_projection_display)}</strong><em>{esc(sunrise_basis_display)}</em></div>
+            <div><span>Top-up needed</span><strong>{esc(topup_needed_display)}</strong><em>Expected grid {esc(_grid_forecast_str)}</em></div>
             <div><span>Runtime</span><strong>{esc(est_runtime)}</strong><em>Capacity {esc(battery_capacity_display)}</em></div>
-            <div><span>Voltage</span><strong>{esc(vbat)}</strong><em>Throughput today {esc(battery_throughput_display)}</em></div>
+            <div><span>Charge rate</span><strong>{esc(battery_charge_rate_display)}</strong><em>Configured grid charge</em></div>
+            <div><span>Voltage</span><strong>{esc(vbat)}</strong><em>Battery bus reading</em></div>
+            <div><span>Day throughput</span><strong>{esc(battery_throughput_display)}</strong><em>Charge plus discharge today</em></div>
           </div>
         </div>
       </article>
