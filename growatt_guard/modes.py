@@ -63,10 +63,13 @@ from growatt_guard.schedule import (
 from growatt_guard.state import (
     append_charge_rate_reading,
     append_discharge_rate_reading,
+    battery_alert_is_muted,
+    clear_battery_alert_mute,
     clear_battery_alert_state,
     clear_runtime_alert_state,
     clear_topup_state,
     clear_utility_hold_state,
+    clear_waste_alert_mute,
     clear_waste_alert_state,
     parse_utc_datetime,
     pause_message,
@@ -81,13 +84,16 @@ from growatt_guard.state import (
     utility_hold_ownership,
     utc_now,
     waste_alert_is_due,
+    waste_alert_is_muted,
     waste_alert_is_snoozed,
+    write_battery_alert_mute,
     write_battery_alert_state,
     write_runtime_alert_state,
     write_topup_skip_notification_state,
     write_topup_state,
     write_utility_hold_state,
     write_waste_alert_last_sent,
+    write_waste_alert_mute,
     write_waste_alert_snooze,
 )
 from growatt_guard.weather import apply_load_adjustment, choose_preserve_threshold, hours_until_next_sunrise
@@ -680,6 +686,9 @@ def command_weather_threshold(config: Config) -> int:
 
 
 def command_battery_alert(config: Config) -> int:
+    if battery_alert_is_muted():
+        print("Battery alert is muted.")
+        return 0
     _, _, status = load_context(config)
     soc_result = extract_soc(status)
     if not soc_result:
@@ -1338,6 +1347,34 @@ def command_snooze_waste(config: Config, duration: str) -> int:
     return 0
 
 
+def command_mute_battery_alert(config: Config) -> int:
+    """Permanently mute battery-alert notifications until unmuted."""
+    write_battery_alert_mute()
+    print("Battery alert muted. Re-enable with: unmute-battery-alert")
+    return 0
+
+
+def command_unmute_battery_alert(config: Config) -> int:
+    """Re-enable battery-alert notifications."""
+    clear_battery_alert_mute()
+    print("Battery alert re-enabled.")
+    return 0
+
+
+def command_mute_waste_alert(config: Config) -> int:
+    """Permanently mute waste-alert-check notifications until unmuted."""
+    write_waste_alert_mute()
+    print("Waste alert muted. Re-enable with: unmute-waste-alert")
+    return 0
+
+
+def command_unmute_waste_alert(config: Config) -> int:
+    """Re-enable waste-alert-check notifications."""
+    clear_waste_alert_mute()
+    print("Waste alert re-enabled.")
+    return 0
+
+
 def _pv_can_cover_load(status: dict) -> tuple[float, float, bool]:
     """Return (pv_w, load_w, can_cover) by reading PV and load power from status."""
     from growatt_guard.growatt_api import extract_channel_metric_sum, parse_number, extract_first_metric
@@ -1384,6 +1421,11 @@ def command_waste_alert_check(config: Config) -> int:
     if not can_cover:
         # PV can't cover load — not waste (or nighttime).
         clear_waste_alert_state()
+        return 0
+
+    # Muted (permanent until unmuted)?
+    if waste_alert_is_muted():
+        print("Waste alert is muted.")
         return 0
 
     # Snoozed?

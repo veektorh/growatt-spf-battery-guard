@@ -13,6 +13,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 STATE_DIR = BASE_DIR / "state"
 PAUSE_FILE = STATE_DIR / "automation_pause.json"
 BATTERY_ALERT_FILE = STATE_DIR / "battery_alert.json"
+BATTERY_ALERT_MUTED_FILE = STATE_DIR / "battery_alert_muted.json"
 COMMAND_LOCK_FILE = STATE_DIR / "mode_command.lock"
 DASHBOARD_STALE_ALERT_FILE = STATE_DIR / "dashboard_stale_alert.json"
 GROWATT_CLOUD_FAILURE_FILE = STATE_DIR / "growatt_cloud_failures.json"
@@ -178,6 +179,18 @@ def write_battery_alert_state(soc: float) -> None:
 
 def clear_battery_alert_state() -> None:
     clear_state_file(BATTERY_ALERT_FILE)
+
+
+def battery_alert_is_muted() -> bool:
+    return bool(read_json_state(BATTERY_ALERT_MUTED_FILE, "battery alert mute"))
+
+
+def write_battery_alert_mute() -> None:
+    write_json_state(BATTERY_ALERT_MUTED_FILE, {"muted": True, "muted_at": utc_now().isoformat()})
+
+
+def clear_battery_alert_mute() -> None:
+    clear_state_file(BATTERY_ALERT_MUTED_FILE)
 
 
 def read_dashboard_stale_alert_state() -> dict[str, Any] | None:
@@ -543,5 +556,27 @@ def waste_alert_is_due(cooldown_minutes: float = 30.0, now: dt.datetime | None =
 
 def clear_waste_alert_state() -> None:
     clear_state_file(WASTE_ALERT_FILE)
+
+
+def waste_alert_is_muted() -> bool:
+    state = read_waste_alert_state()
+    return bool(state and state.get("muted"))
+
+
+def write_waste_alert_mute() -> None:
+    state = read_waste_alert_state() or {}
+    state["muted"] = True
+    state["muted_at"] = utc_now().isoformat()
+    write_json_state(WASTE_ALERT_FILE, state)
+
+
+def clear_waste_alert_mute() -> None:
+    state = read_waste_alert_state() or {}
+    state.pop("muted", None)
+    state.pop("muted_at", None)
+    if state:
+        write_json_state(WASTE_ALERT_FILE, state)
+    else:
+        clear_state_file(WASTE_ALERT_FILE)
 
 

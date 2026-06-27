@@ -216,6 +216,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    subparsers.add_parser("mute-battery-alert", help="Permanently mute battery-alert notifications.")
+    subparsers.add_parser("unmute-battery-alert", help="Re-enable battery-alert notifications.")
+    subparsers.add_parser("mute-waste-alert", help="Permanently mute waste-alert-check notifications.")
+    subparsers.add_parser("unmute-waste-alert", help="Re-enable waste-alert-check notifications.")
+
     return parser
 
 
@@ -316,6 +321,14 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_snooze_waste(config, args.duration)
         if command == "waste-alert-check":
             return app.command_waste_alert_check(config)
+        if command == "mute-battery-alert":
+            return app.command_mute_battery_alert(config)
+        if command == "unmute-battery-alert":
+            return app.command_unmute_battery_alert(config)
+        if command == "mute-waste-alert":
+            return app.command_mute_waste_alert(config)
+        if command == "unmute-waste-alert":
+            return app.command_unmute_waste_alert(config)
         raise app.GrowattGuardError(f"Unknown command: {command}")
 
     if command in app.LOCKED_COMMANDS:

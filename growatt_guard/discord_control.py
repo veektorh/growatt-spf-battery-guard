@@ -11,15 +11,21 @@ from typing import Any
 from growatt_guard.config import Config
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.state import (
+    battery_alert_is_muted,
+    clear_battery_alert_mute,
     clear_topup_state,
     clear_utility_hold_state,
+    clear_waste_alert_mute,
     parse_utc_datetime,
     read_topup_state,
     topup_is_active,
     utc_now,
     utility_hold_ownership,
+    waste_alert_is_muted,
+    write_battery_alert_mute,
     write_topup_state,
     write_utility_hold_state,
+    write_waste_alert_mute,
 )
 
 
@@ -586,6 +592,54 @@ def command_serve_discord_bot(config: Config) -> int:
                 await interaction.response.send_message(f"✅ {msg}")
             else:
                 await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+
+        await _guarded(config, interaction, action)
+
+    @tree.command(name="growatt_mute_alert", description="Permanently mute battery or waste alert notifications.", **command_scope)
+    @app_commands.describe(target="Which alert to mute: battery, waste, or both.")
+    @app_commands.choices(target=[
+        app_commands.Choice(name="Battery alert", value="battery"),
+        app_commands.Choice(name="Waste alert", value="waste"),
+        app_commands.Choice(name="Both", value="both"),
+    ])
+    async def growatt_mute_alert(interaction: discord.Interaction, target: str) -> None:
+        async def action() -> None:
+            muted = []
+            if target in ("battery", "both"):
+                write_battery_alert_mute()
+                muted.append("battery-alert")
+            if target in ("waste", "both"):
+                write_waste_alert_mute()
+                muted.append("waste-alert")
+            if not muted:
+                await interaction.response.send_message("Unknown target. Choose battery, waste, or both.", ephemeral=True)
+                return
+            names = " and ".join(muted)
+            await interaction.response.send_message(f"🔕 {names} muted. Use /growatt_unmute_alert to re-enable.", ephemeral=True)
+
+        await _guarded(config, interaction, action)
+
+    @tree.command(name="growatt_unmute_alert", description="Re-enable battery or waste alert notifications.", **command_scope)
+    @app_commands.describe(target="Which alert to re-enable: battery, waste, or both.")
+    @app_commands.choices(target=[
+        app_commands.Choice(name="Battery alert", value="battery"),
+        app_commands.Choice(name="Waste alert", value="waste"),
+        app_commands.Choice(name="Both", value="both"),
+    ])
+    async def growatt_unmute_alert(interaction: discord.Interaction, target: str) -> None:
+        async def action() -> None:
+            unmuted = []
+            if target in ("battery", "both"):
+                clear_battery_alert_mute()
+                unmuted.append("battery-alert")
+            if target in ("waste", "both"):
+                clear_waste_alert_mute()
+                unmuted.append("waste-alert")
+            if not unmuted:
+                await interaction.response.send_message("Unknown target. Choose battery, waste, or both.", ephemeral=True)
+                return
+            names = " and ".join(unmuted)
+            await interaction.response.send_message(f"🔔 {names} re-enabled.", ephemeral=True)
 
         await _guarded(config, interaction, action)
 

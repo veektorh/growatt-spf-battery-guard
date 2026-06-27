@@ -100,7 +100,8 @@ from growatt_guard.modes import (
     command_force_utility,
     command_monthly_summary,
     command_morning_check,
-
+    command_mute_battery_alert,
+    command_mute_waste_alert,
     command_preserve_battery,
     command_probe,
     command_prune_audit,
@@ -112,7 +113,8 @@ from growatt_guard.modes import (
     command_status,
     command_test_discord,
     command_topup_complete_check,
-
+    command_unmute_battery_alert,
+    command_unmute_waste_alert,
     command_utility_check,
     command_waste_alert_check,
     command_watchdog_sbu,
@@ -163,9 +165,12 @@ from growatt_guard.schedule import (
 )
 from growatt_guard.state import (
     acquire_command_lock,
+    battery_alert_is_muted,
+    clear_battery_alert_mute,
     clear_battery_alert_state,
     clear_pause_state,
     clear_topup_state,
+    clear_waste_alert_mute,
     command_lock_is_stale,
     format_local_time,
     pause_message,
@@ -176,9 +181,12 @@ from growatt_guard.state import (
     release_command_lock,
     topup_is_active,
     utc_now,
+    waste_alert_is_muted,
+    write_battery_alert_mute,
     write_battery_alert_state,
     write_pause_state,
     write_topup_state,
+    write_waste_alert_mute,
 )
 from growatt_guard.weather import (
     DRY_SEASON_THRESHOLDS,
