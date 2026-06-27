@@ -563,5 +563,31 @@ def command_serve_discord_bot(config: Config) -> int:
 
         await _guarded(config, interaction, action)
 
+    @tree.command(name="growatt_snooze_waste", description="Snooze waste-alert notifications for a duration.", **command_scope)
+    @app_commands.describe(duration="How long to snooze: '2h', '30m', or 'today'.")
+    async def growatt_snooze_waste(interaction: discord.Interaction, duration: str = "today") -> None:
+        async def action() -> None:
+            rc, out = await run_guard_command(["snooze-waste", duration])
+            msg = out.strip() or ("Done." if rc == 0 else "Failed.")
+            if rc == 0:
+                await interaction.response.send_message(f"✅ {msg}")
+            else:
+                await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+
+        await _guarded(config, interaction, action)
+
+    @tree.command(name="growatt_adopt_utility", description="Claim Guard ownership of the current Utility state — auto-returns to SBU at target SOC.", **command_scope)
+    @app_commands.describe(target_soc="Target battery SOC % to reach before returning to SBU.")
+    async def growatt_adopt_utility(interaction: discord.Interaction, target_soc: int) -> None:
+        async def action() -> None:
+            rc, out = await run_guard_command(["adopt-utility", str(target_soc)])
+            msg = out.strip() or ("Done." if rc == 0 else "Failed.")
+            if rc == 0:
+                await interaction.response.send_message(f"✅ {msg}")
+            else:
+                await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+
+        await _guarded(config, interaction, action)
+
     client.run(config.discord_bot_token)
     return 0
