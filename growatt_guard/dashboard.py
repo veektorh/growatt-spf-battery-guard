@@ -1946,17 +1946,26 @@ def build_dashboard_html(
   <title>Growatt Dashboard</title>
   <style>
     :root {{
-      color-scheme: light;
+      color-scheme: dark;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-      --ink: #111827;
-      --muted: #6b7280;
-      --soft: #9ca3af;
-      --surface: #f8fafc;
-      --panel: #ffffff;
-      --line: #e5e7eb;
-      --line-strong: #d1d5db;
-      --accent: #2563eb;
-      --accent-soft: #eff6ff;
+      --bg: #0F1318;
+      --surface: #161B24;
+      --panel: #1D2330;
+      --panel-2: #242D3E;
+      --border: #2C3548;
+      --border-strong: #3D4D6B;
+      --ink: #CDD5E8;
+      --muted: #6A7A99;
+      --soft: #3D4D6B;
+      --solar: #F5A82A;
+      --battery: #35C4A0;
+      --grid-c: #5B8DEF;
+      --load-c: #EF6F6F;
+      --accent: #5B8DEF;
+      --accent-soft: #162040;
+      --good: #3AC87A;
+      --warn: #F5A82A;
+      --crit: #EF5E5E;
       --radius: 10px;
     }}
     * {{ box-sizing: border-box; }}
@@ -1980,11 +1989,11 @@ def build_dashboard_html(
       display: flex;
       flex-direction: column;
       padding: 24px 18px;
-      background: var(--panel);
-      border-right: 1px solid var(--line);
+      background: var(--bg);
+      border-right: 1px solid var(--border);
     }}
     .sidebar-brand {{ display: flex; align-items: center; gap: 12px; margin-bottom: 36px; }}
-    .sidebar-title {{ font-weight: 760; font-size: 16px; }}
+    .sidebar-title {{ font-weight: 760; font-size: 16px; color: var(--ink); }}
     .sidebar-nav {{ display: grid; gap: 4px; }}
     .sidebar-nav a {{
       display: flex;
@@ -1992,25 +2001,25 @@ def build_dashboard_html(
       min-height: 38px;
       padding: 8px 10px;
       border-radius: 8px;
-      color: #374151;
+      color: var(--muted);
       text-decoration: none;
       font-weight: 620;
       font-size: 14px;
     }}
-    .sidebar-nav a:hover, .sidebar-nav a.active {{ background: var(--accent-soft); color: #1d4ed8; }}
+    .sidebar-nav a:hover, .sidebar-nav a.active {{ background: var(--panel); color: var(--ink); }}
     .sidebar-status {{
       margin-top: auto;
       display: grid;
       gap: 12px;
       padding: 14px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--border);
       border-radius: var(--radius);
-      background: var(--surface);
+      background: var(--panel);
     }}
     main {{ max-width: 1360px; width: 100%; margin: 0 auto; padding: 32px 32px 48px; }}
-    h1 {{ font-size: clamp(28px, 4vw, 40px); line-height: 1.05; margin: 0; letter-spacing: 0; font-weight: 760; }}
-    h2 {{ font-size: 18px; line-height: 1.3; margin: 40px 0 0; letter-spacing: 0; font-weight: 720; }}
-    code {{ color: #374151; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }}
+    h1 {{ font-size: clamp(28px, 4vw, 40px); line-height: 1.05; margin: 0; letter-spacing: 0; font-weight: 760; color: var(--ink); }}
+    h2 {{ font-size: 18px; line-height: 1.3; margin: 40px 0 0; letter-spacing: 0; font-weight: 720; color: var(--ink); }}
+    code {{ color: var(--muted); font-size: 12px; white-space: normal; overflow-wrap: anywhere; }}
     .muted {{ color: var(--muted); font-size: 14px; }}
     .small {{ font-size: 13px; margin-top: 8px; }}
     .topbar {{
@@ -2025,7 +2034,7 @@ def build_dashboard_html(
       width: 32px;
       height: 32px;
       border-radius: 8px;
-      border: 1px solid var(--line-strong);
+      border: 1px solid var(--border);
       background: var(--panel);
       position: relative;
       flex: 0 0 auto;
@@ -2035,9 +2044,9 @@ def build_dashboard_html(
       position: absolute;
       inset: 10px;
       border-radius: 999px;
-      background: var(--accent);
+      background: var(--solar);
     }}
-    .brand-title {{ font-weight: 720; font-size: 16px; }}
+    .brand-title {{ font-weight: 720; font-size: 16px; color: var(--ink); }}
     .top-actions {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }}
     .pill {{
       display: inline-flex;
@@ -2045,10 +2054,10 @@ def build_dashboard_html(
       gap: 8px;
       min-height: 32px;
       padding: 6px 10px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--border);
       border-radius: 999px;
       background: var(--panel);
-      color: #374151;
+      color: var(--ink);
       font-size: 13px;
       font-weight: 620;
       white-space: nowrap;
@@ -2061,7 +2070,7 @@ def build_dashboard_html(
     }}
     .hero-panel, .flow-stage, .card, table, .detail-panel {{
       background: var(--panel);
-      border: 1px solid var(--line);
+      border: 1px solid var(--border);
       border-radius: var(--radius);
     }}
     .hero-panel {{
@@ -2072,7 +2081,7 @@ def build_dashboard_html(
       justify-content: space-between;
     }}
     .hero-copy {{ display: grid; gap: 8px; }}
-    .hero-kicker {{ color: var(--accent); font-size: 12px; font-weight: 720; text-transform: uppercase; letter-spacing: 0; }}
+    .hero-kicker {{ color: var(--solar); font-size: 12px; font-weight: 720; text-transform: uppercase; letter-spacing: 0.07em; }}
     .hero-subtitle {{ max-width: 620px; font-size: 15px; color: var(--muted); line-height: 1.55; }}
     .soc-command {{
       display: grid;
@@ -2087,24 +2096,24 @@ def build_dashboard_html(
       border-radius: 12px;
       display: grid;
       place-items: center;
-      background: var(--surface);
-      border: 1px solid var(--line);
+      background: var(--panel-2);
+      border: 1px solid var(--border);
     }}
     .soc-core {{ text-align: center; }}
-    .soc-core strong {{ display: block; font-size: clamp(40px, 6vw, 56px); line-height: 0.95; letter-spacing: 0; font-weight: 760; }}
-    .soc-core span {{ color: var(--muted); font-size: 12px; text-transform: uppercase; font-weight: 680; }}
+    .soc-core strong {{ display: block; font-size: clamp(40px, 6vw, 56px); line-height: 0.95; letter-spacing: 0; font-weight: 760; font-variant-numeric: tabular-nums; color: var(--ink); }}
+    .soc-core span {{ color: var(--muted); font-size: 12px; text-transform: uppercase; font-weight: 680; letter-spacing: 0.06em; }}
     .mode-stack {{ display: grid; gap: 12px; min-width: 0; }}
     .mode-line {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }}
-    .mode-value {{ font-size: 24px; line-height: 1.15; font-weight: 720; overflow-wrap: anywhere; }}
+    .mode-value {{ font-size: 24px; line-height: 1.15; font-weight: 720; overflow-wrap: anywhere; color: var(--ink); }}
     .quick-stats {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 24px; }}
     .quick-stat {{
-      border: 1px solid var(--line);
+      border: 1px solid var(--border);
       border-radius: 10px;
       padding: 12px;
-      background: var(--surface);
+      background: var(--panel-2);
       min-width: 0;
     }}
-    .quick-stat b {{ display: block; font-size: 20px; line-height: 1.1; overflow-wrap: anywhere; font-weight: 720; }}
+    .quick-stat b {{ display: block; font-size: 20px; line-height: 1.1; overflow-wrap: anywhere; font-weight: 720; font-variant-numeric: tabular-nums; color: var(--ink); }}
     .quick-stat span {{ display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }}
     .flow-stage {{ padding: 24px; min-height: 360px; }}
     .section-head, .flow-head {{ display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin: 40px 0 16px; }}
@@ -2118,18 +2127,26 @@ def build_dashboard_html(
     }}
     .flow-tile {{
       min-height: 144px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--border);
       border-radius: 10px;
       padding: 16px;
-      background: var(--panel);
+      background: var(--panel-2);
       display: grid;
       align-content: space-between;
       position: relative;
     }}
     .flow-tile::before {{ content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--accent); border-radius: 10px 0 0 10px; }}
+    .flow-tile.solar::before {{ background: var(--solar); }}
+    .flow-tile.battery::before {{ background: var(--battery); }}
+    .flow-tile.grid-source::before {{ background: var(--grid-c); }}
+    .flow-tile.load::before {{ background: var(--load-c); }}
+    .flow-tile.solar .flow-value {{ color: var(--solar); }}
+    .flow-tile.battery .flow-value {{ color: var(--battery); }}
+    .flow-tile.grid-source .flow-value {{ color: var(--grid-c); }}
+    .flow-tile.load .flow-value {{ color: var(--load-c); }}
     .flow-tile.solar, .flow-tile.grid-source, .flow-tile.inverter, .flow-tile.battery, .flow-tile.load {{ grid-column: auto; grid-row: auto; }}
-    .flow-label {{ color: var(--muted); font-size: 12px; font-weight: 680; text-transform: uppercase; letter-spacing: 0; }}
-    .flow-value {{ font-size: 26px; font-weight: 740; line-height: 1.05; margin-top: 8px; overflow-wrap: anywhere; }}
+    .flow-label {{ color: var(--muted); font-size: 12px; font-weight: 680; text-transform: uppercase; letter-spacing: 0.06em; }}
+    .flow-value {{ font-size: 26px; font-weight: 740; line-height: 1.05; margin-top: 8px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }}
     .flow-detail {{ color: var(--muted); font-size: 13px; margin-top: 8px; }}
     .connector {{ display: none; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 16px; }}
@@ -2141,20 +2158,20 @@ def build_dashboard_html(
     .mix-panel {{
       min-width: 0;
       padding: 14px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--border);
       border-radius: 10px;
-      background: var(--surface);
+      background: var(--panel-2);
     }}
     .mix-row-head {{ display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }}
-    .mix-row-head strong {{ font-size: 15px; font-weight: 720; }}
-    .mix-row-head span {{ color: var(--muted); font-size: 13px; font-weight: 640; white-space: nowrap; }}
-    .mix-bar {{ display: flex; height: 10px; margin: 14px 0 12px; overflow: hidden; border-radius: 999px; background: #eef2f7; }}
+    .mix-row-head strong {{ font-size: 15px; font-weight: 720; color: var(--ink); }}
+    .mix-row-head span {{ color: var(--muted); font-size: 13px; font-weight: 640; white-space: nowrap; font-variant-numeric: tabular-nums; }}
+    .mix-bar {{ display: flex; height: 8px; margin: 14px 0 12px; overflow: hidden; border-radius: 999px; background: var(--border); }}
     .mix-segment {{ display: block; height: 100%; }}
-    .mix-segment.primary {{ background: var(--accent); }}
-    .mix-segment.neutral {{ background: #cbd5e1; }}
+    .mix-segment.primary {{ background: var(--solar); }}
+    .mix-segment.neutral {{ background: var(--grid-c); opacity: 0.7; }}
     .mix-legend {{ display: grid; gap: 8px; }}
     .mix-legend div {{ display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; }}
-    .mix-legend strong {{ color: var(--ink); font-weight: 680; text-align: right; }}
+    .mix-legend strong {{ color: var(--ink); font-weight: 680; text-align: right; font-variant-numeric: tabular-nums; }}
     .ops-grid {{ grid-template-columns: repeat(auto-fit, minmax(216px, 1fr)); }}
     .insight-grid {{ grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)); }}
     .status-activity-grid {{ display: grid; grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr); gap: 12px; margin-top: 12px; }}
@@ -2163,12 +2180,18 @@ def build_dashboard_html(
     .metric-card {{ min-height: 148px; display: grid; align-content: space-between; gap: 12px; }}
     .insight-card {{ min-height: 132px; display: grid; align-content: space-between; gap: 8px; }}
     .metric-head {{ display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }}
-    .metric-meter {{ height: 6px; border-radius: 999px; background: #eef2f7; overflow: hidden; }}
+    .metric-meter {{ height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }}
     .metric-meter span {{ display: block; height: 100%; max-width: 100%; background: var(--accent); border-radius: inherit; }}
-    .grid-meter span, .load-meter span, .battery-meter span {{ background: var(--accent); }}
-    .accent-pv, .accent-grid, .accent-load, .accent-battery {{ border-top: 1px solid var(--line); }}
-    .label {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0; font-weight: 680; }}
-    .value {{ font-size: 24px; font-weight: 740; margin-top: 8px; line-height: 1.08; overflow-wrap: anywhere; }}
+    .accent-pv {{ border-top: 2px solid var(--solar); }}
+    .accent-grid {{ border-top: 2px solid var(--grid-c); }}
+    .accent-load {{ border-top: 2px solid var(--load-c); }}
+    .accent-battery {{ border-top: 2px solid var(--battery); }}
+    .accent-pv .metric-meter span {{ background: var(--solar); }}
+    .accent-grid .metric-meter span {{ background: var(--grid-c); }}
+    .accent-load .metric-meter span {{ background: var(--load-c); }}
+    .accent-battery .metric-meter span {{ background: var(--battery); }}
+    .label {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 680; }}
+    .value {{ font-size: 24px; font-weight: 740; margin-top: 8px; line-height: 1.08; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; color: var(--ink); }}
     .badge {{
       display: inline-flex;
       align-items: center;
@@ -2179,27 +2202,27 @@ def build_dashboard_html(
       line-height: 1;
       border: 1px solid transparent;
     }}
-    .badge-ok {{ background: var(--accent-soft); color: #1d4ed8; border-color: #bfdbfe; }}
-    .badge-warn {{ background: #f9fafb; color: #374151; border-color: var(--line-strong); }}
-    .badge-fail {{ background: #111827; color: #ffffff; border-color: #111827; }}
+    .badge-ok {{ background: rgba(58, 200, 122, 0.12); color: #3AC87A; border-color: rgba(58, 200, 122, 0.3); }}
+    .badge-warn {{ background: rgba(245, 168, 42, 0.12); color: var(--warn); border-color: rgba(245, 168, 42, 0.3); }}
+    .badge-fail {{ background: rgba(239, 94, 94, 0.12); color: #EF5E5E; border-color: rgba(239, 94, 94, 0.3); }}
     .planner-grid {{ display: grid; grid-template-columns: minmax(260px, 0.9fr) repeat(3, minmax(160px, 1fr)); gap: 12px; margin-top: 16px; }}
-    .planner-card {{ padding: 16px; background: #fff; border: 1px solid var(--line); border-radius: var(--radius); }}
-    .planner-card.primary {{ background: var(--panel); color: var(--ink); border-color: var(--line-strong); }}
+    .planner-card {{ padding: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }}
+    .planner-card.primary {{ background: var(--panel-2); color: var(--ink); border-color: var(--border-strong); }}
     .planner-card.primary .muted, .planner-card.primary .label {{ color: var(--muted); }}
-    .banner-warn {{ background: #fff; color: #374151; border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 12px 16px; margin: 16px 0 24px; font-weight: 620; }}
+    .banner-warn {{ background: rgba(245, 168, 42, 0.08); color: var(--ink); border: 1px solid rgba(245, 168, 42, 0.3); border-radius: var(--radius); padding: 12px 16px; margin: 16px 0 24px; font-weight: 620; }}
     .chart-grid {{ display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, .9fr); gap: 12px; }}
     .chart-card canvas {{ width: 100%; height: 240px; display: block; }}
     .chart-card.compact canvas {{ height: 200px; }}
     .legend {{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; color: var(--muted); font-size: 13px; }}
     .legend span::before {{ content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; background: var(--c); }}
-    .table-wrap {{ overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--line); background: #fff; margin-top: 12px; }}
+    .table-wrap {{ overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--border); background: var(--panel); margin-top: 12px; }}
     table {{ width: 100%; border-collapse: collapse; box-shadow: none; border: 0; min-width: 640px; }}
-    th, td {{ padding: 12px 14px; border-bottom: 1px solid var(--line); text-align: left; font-size: 14px; vertical-align: top; }}
-    th {{ background: #f9fafb; color: #4b5563; font-size: 12px; text-transform: uppercase; letter-spacing: 0; font-weight: 680; }}
+    th, td {{ padding: 12px 14px; border-bottom: 1px solid var(--border); text-align: left; font-size: 14px; vertical-align: top; color: var(--ink); }}
+    th {{ background: var(--panel-2); color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 680; }}
     tr:last-child td {{ border-bottom: 0; }}
-    .status-ok {{ color: #111827; font-weight: 680; }}
-    .status-skip {{ color: #111827; font-weight: 680; }}
-    .status-replace {{ color: #111827; font-weight: 680; }}
+    .status-ok {{ color: var(--ink); font-weight: 680; }}
+    .status-skip {{ color: var(--ink); font-weight: 680; }}
+    .status-replace {{ color: var(--ink); font-weight: 680; }}
     .details-stack {{ display: grid; gap: 10px; margin-top: 16px; }}
     .detail-panel {{ padding: 0; overflow: hidden; }}
     .detail-panel summary {{
@@ -2210,23 +2233,23 @@ def build_dashboard_html(
       gap: 16px;
       padding: 14px 16px;
       font-weight: 680;
-      color: #374151;
+      color: var(--ink);
       list-style: none;
     }}
     .detail-panel summary::-webkit-details-marker {{ display: none; }}
     .detail-panel summary::after {{ content: "+"; color: var(--soft); font-weight: 720; }}
-    .detail-panel[open] summary {{ border-bottom: 1px solid var(--line); }}
+    .detail-panel[open] summary {{ border-bottom: 1px solid var(--border); }}
     .detail-panel[open] summary::after {{ content: "-"; }}
     .detail-panel .table-wrap {{ border: 0; border-radius: 0; margin-top: 0; }}
     .detail-panel .card {{ border: 0; border-radius: 0; }}
     .summary-meta {{ color: var(--muted); font-size: 12px; font-weight: 560; white-space: nowrap; }}
     .status-list {{ display: grid; gap: 10px; margin-top: 14px; }}
-    .status-row {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }}
+    .status-row {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border); }}
     .status-row:last-child {{ border-bottom: 0; padding-bottom: 0; }}
     .activity-list {{ list-style: none; padding: 0; margin: 14px 0 0; display: grid; gap: 10px; }}
-    .activity-item {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }}
+    .activity-item {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border); }}
     .activity-item:last-child {{ border-bottom: 0; padding-bottom: 0; }}
-    .activity-item strong {{ display: block; font-size: 14px; font-weight: 680; }}
+    .activity-item strong {{ display: block; font-size: 14px; font-weight: 680; color: var(--ink); }}
     .activity-item span {{ display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }}
     .timeline-card {{ margin-top: 12px; }}
     .timeline-list {{ list-style: none; padding: 0; margin: 14px 0 0; display: grid; gap: 0; }}
@@ -2245,14 +2268,14 @@ def build_dashboard_html(
       top: 16px;
       bottom: 0;
       width: 1px;
-      background: var(--line);
+      background: var(--border);
     }}
     .timeline-item:last-child {{ padding-bottom: 0; }}
     .timeline-item:last-child::before {{ display: none; }}
     .timeline-marker {{ width: 11px; height: 11px; margin-top: 4px; border-radius: 999px; border: 2px solid var(--accent); background: var(--panel); }}
-    .timeline-passed .timeline-marker, .timeline-skipped .timeline-marker, .timeline-replaced .timeline-marker {{ border-color: var(--line-strong); }}
+    .timeline-passed .timeline-marker, .timeline-skipped .timeline-marker, .timeline-replaced .timeline-marker {{ border-color: var(--border-strong); }}
     .timeline-main {{ min-width: 0; }}
-    .timeline-main strong {{ display: block; font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }}
+    .timeline-main strong {{ display: block; font-size: 14px; font-weight: 700; overflow-wrap: anywhere; color: var(--ink); }}
     .timeline-main span {{ display: block; margin-top: 3px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }}
     @media (max-width: 1040px) {{
       .app-shell {{ grid-template-columns: 1fr; }}
@@ -2260,7 +2283,7 @@ def build_dashboard_html(
         position: static;
         height: auto;
         border-right: 0;
-        border-bottom: 1px solid var(--line);
+        border-bottom: 1px solid var(--border);
       }}
       .sidebar-brand {{ margin-bottom: 18px; }}
       .sidebar-nav {{ grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }}
@@ -2301,6 +2324,7 @@ def build_dashboard_html(
     <nav class="sidebar-nav">
       <a class="active" href="#overview">Overview</a>
       <a href="#flow">Power Flow</a>
+      <a href="#insights">Energy Insights</a>
       <a href="#daily">Daily Energy</a>
       <a href="#planner">Tonight Planner</a>
       <a href="#automation">Automation</a>
@@ -2373,7 +2397,10 @@ def build_dashboard_html(
             <h2>Live energy flow</h2>
             <div class="muted">Solar, grid, inverter, battery, and load right now.</div>
           </div>
-          <span class="badge {esc(tonight_badge_class)}">Tonight: {esc(tonight_title)}</span>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <a href="#insights" class="badge {esc(_status_badge_class(str(daily_insights.get("status", "unknown"))))}" style="text-decoration:none">Today: {esc(str(daily_insights.get("title", "Learning")))}</a>
+            <span class="badge {esc(tonight_badge_class)}">Tonight: {esc(tonight_title)}</span>
+          </div>
         </div>
         <div class="flow-map">
           <div class="flow-tile solar">
@@ -2418,6 +2445,17 @@ def build_dashboard_html(
         </div>
       </section>
     </section>
+    <div class="section-head" id="insights">
+      <div>
+        <h2>Energy Insights</h2>
+        <div class="muted">Same-time comparison against recent local history, without extra Growatt calls.</div>
+      </div>
+      <span class="badge {esc(_status_badge_class(str(daily_insights.get("status", "unknown"))))}">{esc(str(daily_insights.get("title", "Learning")))}</span>
+    </div>
+    <section class="grid insight-grid">
+      {insight_cards}
+    </section>
+
     <div class="section-head" id="daily">
       <div>
         <h2>Daily Energy</h2>
@@ -2427,17 +2465,6 @@ def build_dashboard_html(
     {daily_mix_html}
     <section class="grid daily-grid">
       {energy_cards}
-    </section>
-
-    <div class="section-head">
-      <div>
-        <h2>Energy Insights</h2>
-        <div class="muted">Same-time comparison against recent local history, without extra Growatt calls.</div>
-      </div>
-      <span class="badge {esc(_status_badge_class(str(daily_insights.get("status", "unknown"))))}">{esc(str(daily_insights.get("title", "Learning")))}</span>
-    </div>
-    <section class="grid insight-grid">
-      {insight_cards}
     </section>
 
     <h2 id="planner">Tonight Planner</h2>
@@ -2547,40 +2574,40 @@ def build_dashboard_html(
         <div class="label">Power Today</div>
         <canvas id="power-trend-chart"></canvas>
         <div class="legend">
-          <span style="--c:#2563eb">PV</span>
-          <span style="--c:#6b7280">Load</span>
-          <span style="--c:#111827">Grid</span>
+          <span style="--c:#F5A82A">PV</span>
+          <span style="--c:#EF6F6F">Load</span>
+          <span style="--c:#5B8DEF">Grid</span>
         </div>
       </div>
       <div class="card chart-card compact">
         <div class="label">Battery SOC</div>
         <canvas id="soc-trend-chart"></canvas>
-        <div class="legend"><span style="--c:#2563eb">SOC</span></div>
+        <div class="legend"><span style="--c:#35C4A0">SOC</span></div>
       </div>
       <div class="card chart-card compact">
         <div class="label">7-Day Battery Energy</div>
         <canvas id="battery-energy-chart"></canvas>
         <div class="legend">
-          <span style="--c:#2563eb">Charge</span>
-          <span style="--c:#6b7280">Discharge</span>
+          <span style="--c:#35C4A0">Charge</span>
+          <span style="--c:#6A7A99">Discharge</span>
         </div>
       </div>
       <div class="card chart-card compact">
         <div class="label">7-Day Supply Mix</div>
         <canvas id="supply-energy-chart"></canvas>
         <div class="legend">
-          <span style="--c:#2563eb">PV</span>
-          <span style="--c:#111827">Grid</span>
-          <span style="--c:#6b7280">Load</span>
+          <span style="--c:#F5A82A">PV</span>
+          <span style="--c:#5B8DEF">Grid</span>
+          <span style="--c:#EF6F6F">Load</span>
         </div>
       </div>
       <div class="card chart-card compact">
         <div class="label">7-Day History</div>
         <canvas id="history-chart"></canvas>
         <div class="legend">
-          <span style="--c:#2563eb">Preserve</span>
-          <span style="--c:#6b7280">Utility</span>
-          <span style="--c:#111827">Watchdog</span>
+          <span style="--c:#3AC87A">Preserve</span>
+          <span style="--c:#F5A82A">Utility</span>
+          <span style="--c:#5B8DEF">Watchdog</span>
         </div>
       </div>
     </section>
@@ -2637,16 +2664,16 @@ def build_dashboard_html(
           const maxVal = Math.max(1, ...data.preserve_checks, ...data.utility_switches, ...data.watchdog_repairs);
           const yStep = Math.ceil(maxVal / 4);
           ctx.font = "11px system-ui, sans-serif";
-          ctx.fillStyle = "#64727d";
+          ctx.fillStyle = "#6A7A99";
           for (let y = 0; y <= maxVal; y += yStep) {{
             const px = PAD.top + chartH - (y / maxVal) * chartH;
             ctx.fillText(y, 0, px + 4);
-            ctx.strokeStyle = "#e8eef2"; ctx.lineWidth = 1;
+            ctx.strokeStyle = "#2C3548"; ctx.lineWidth = 1;
             ctx.beginPath(); ctx.moveTo(PAD.left, px); ctx.lineTo(PAD.left + chartW, px); ctx.stroke();
           }}
           const groupW = chartW / n;
           const barW = Math.max(4, groupW / 4 - 2);
-          const COLORS = ["#2563eb", "#6b7280", "#111827"];
+          const COLORS = ["#3AC87A", "#F5A82A", "#5B8DEF"];
           const SERIES = ["preserve_checks", "utility_switches", "watchdog_repairs"];
           SERIES.forEach(function (key, si) {{
             ctx.fillStyle = COLORS[si];
@@ -2657,17 +2684,17 @@ def build_dashboard_html(
             }});
           }});
           data.labels.forEach(function (label, i) {{
-            ctx.fillStyle = "#64727d";
+            ctx.fillStyle = "#6A7A99";
             const x = PAD.left + i * groupW + groupW / 2;
             ctx.textAlign = "center";
             ctx.fillText(label, x, H - 6);
           }});
           ctx.textAlign = "left";
           const legendY = PAD.top; const legendX = PAD.left + chartW - 200;
-          [["Preserve checks", "#2563eb"], ["Utility switches", "#6b7280"], ["Watchdog repairs", "#111827"]].forEach(function (item, i) {{
+          [["Preserve checks", "#3AC87A"], ["Utility switches", "#F5A82A"], ["Watchdog repairs", "#5B8DEF"]].forEach(function (item, i) {{
             ctx.fillStyle = item[1];
             ctx.fillRect(legendX + i * 70, legendY, 8, 8);
-            ctx.fillStyle = "#64727d";
+            ctx.fillStyle = "#6A7A99";
             ctx.fillText(item[0].split(" ")[0], legendX + i * 70 + 11, legendY + 8);
           }});
         }} catch (e) {{ /* chart render failed */ }}
@@ -2696,15 +2723,15 @@ def build_dashboard_html(
       }}
 
       function noData(ctx, width, height) {{
-        ctx.fillStyle = "#64727d";
+        ctx.fillStyle = "#6A7A99";
         ctx.font = "13px system-ui, sans-serif";
         ctx.fillText("No local history yet", 18, height / 2);
       }}
 
       function drawGrid(ctx, width, height, pad, maxVal, suffix) {{
         ctx.font = "11px system-ui, sans-serif";
-        ctx.fillStyle = "#64727d";
-        ctx.strokeStyle = "#e8eef2";
+        ctx.fillStyle = "#6A7A99";
+        ctx.strokeStyle = "#2C3548";
         ctx.lineWidth = 1;
         for (let i = 0; i <= 4; i++) {{
           const y = pad.top + ((height - pad.top - pad.bottom) / 4) * i;
@@ -2750,7 +2777,7 @@ def build_dashboard_html(
           }});
           ctx.stroke();
         }});
-        ctx.fillStyle = "#64727d";
+        ctx.fillStyle = "#6A7A99";
         ctx.font = "11px system-ui, sans-serif";
         ctx.textAlign = "left";
         ctx.fillText(labels[0] || "", pad.left, height - 8);
@@ -2784,7 +2811,7 @@ def build_dashboard_html(
             ctx.fillRect(x, pad.top + chartH - barH, barW, Math.max(1, barH));
           }});
         }});
-        ctx.fillStyle = "#64727d";
+        ctx.fillStyle = "#6A7A99";
         ctx.font = "11px system-ui, sans-serif";
         ctx.textAlign = "center";
         labels.forEach(function (label, i) {{
@@ -2796,21 +2823,21 @@ def build_dashboard_html(
       try {{
         const data = JSON.parse(dataEl.textContent);
         drawLineChart("power-trend-chart", data.power.labels || [], [
-          {{ color: "#2563eb", values: data.power.pv_w || [] }},
-          {{ color: "#6b7280", values: data.power.load_w || [] }},
-          {{ color: "#111827", values: data.power.grid_w || [] }}
+          {{ color: "#F5A82A", values: data.power.pv_w || [] }},
+          {{ color: "#EF6F6F", values: data.power.load_w || [] }},
+          {{ color: "#5B8DEF", values: data.power.grid_w || [] }}
         ], {{ suffix: "W", minMax: 1000 }});
         drawLineChart("soc-trend-chart", data.soc.labels || [], [
-          {{ color: "#2563eb", values: data.soc.soc || [] }}
+          {{ color: "#35C4A0", values: data.soc.soc || [] }}
         ], {{ suffix: "%", minMax: 100 }});
         drawBarChart("battery-energy-chart", data.daily.labels || [], [
-          {{ color: "#2563eb", values: data.daily.charge_kwh || [] }},
-          {{ color: "#6b7280", values: data.daily.discharge_kwh || [] }}
+          {{ color: "#35C4A0", values: data.daily.charge_kwh || [] }},
+          {{ color: "#6A7A99", values: data.daily.discharge_kwh || [] }}
         ], "kWh");
         drawBarChart("supply-energy-chart", data.daily.labels || [], [
-          {{ color: "#2563eb", values: data.daily.pv_kwh || [] }},
-          {{ color: "#111827", values: data.daily.grid_kwh || [] }},
-          {{ color: "#6b7280", values: data.daily.load_kwh || [] }}
+          {{ color: "#F5A82A", values: data.daily.pv_kwh || [] }},
+          {{ color: "#5B8DEF", values: data.daily.grid_kwh || [] }},
+          {{ color: "#EF6F6F", values: data.daily.load_kwh || [] }}
         ], "kWh");
       }} catch (e) {{ /* metric chart render failed */ }}
     }})();
