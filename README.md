@@ -102,6 +102,14 @@ LOW_BATTERY_SOC_NORMAL=45
 LOW_BATTERY_SOC_SUNNY=40
 ```
 
+The dashboard's `Tomorrow PV` kWh estimate uses the same Open-Meteo forecast,
+but it also needs your array size so it can convert irradiance into generation:
+
+```text
+PANEL_KWP=your_array_kwp
+PANEL_PERFORMANCE_RATIO=0.75
+```
+
 ### Season Profiles
 
 Enable season profiles to automatically lower thresholds during the dry season (November–March for Lagos), when solar irradiance is higher and the battery tops up faster:

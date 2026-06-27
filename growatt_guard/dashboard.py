@@ -2310,16 +2310,21 @@ def build_dashboard_html(
         if isinstance(_topup_minutes, (int, float)) and _topup_minutes > 0
         else ("not needed" if _topup_minutes == 0 else "--")
     )
-    _kwp = pv_forecast.get("panel_kwp", 0) if pv_forecast else 0
-    _forecast_source = (
-        f"Open-Meteo irradiance forecast - {float(_kwp):g} kWp system"
-        if isinstance(_kwp, (int, float)) and _kwp > 0
-        else "Configure PANEL_KWP and weather coordinates for PV generation forecasts"
-    )
-    _forecast_short_str = "Open-Meteo forecast" if isinstance(_kwp, (int, float)) and _kwp > 0 else "Forecast not configured"
     _weather_str = str(energy_outlook.get("weather", "not configured"))
     _weather_short_str = _weather_str.split(" (", 1)[0]
     _weather_reason_str = str(getattr(threshold_decision, "reason", "") or "Weather signal is unavailable.")
+    _kwp = pv_forecast.get("panel_kwp", 0) if pv_forecast else 0
+    _weather_category = str(getattr(threshold_decision, "weather_category", "") or "").strip().lower()
+    _has_weather_signal = _weather_category not in {"", "disabled", "unavailable", "not configured", "unknown"}
+    if isinstance(_kwp, (int, float)) and _kwp > 0:
+        _forecast_source = f"Open-Meteo irradiance forecast - {float(_kwp):g} kWp system"
+        _forecast_short_str = "Open-Meteo forecast"
+    elif _has_weather_signal:
+        _forecast_source = "Set PANEL_KWP to convert Open-Meteo irradiance into PV kWh."
+        _forecast_short_str = "Needs PANEL_KWP"
+    else:
+        _forecast_source = "Set PANEL_KWP plus WEATHER_LAT/WEATHER_LON to enable PV kWh forecasts."
+        _forecast_short_str = "Needs forecast setup"
     pv_forecast_html = f"""
     <div class="section-head" id="forecast">
       <div>

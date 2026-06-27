@@ -324,6 +324,53 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Topup to Sunrise", html)
         self.assertIn("skip (&lt;20min)", html)
 
+    def test_dashboard_pv_forecast_explains_missing_panel_size(self):
+        status = {
+            "device": {"capacity": "85%"},
+            "storage_params": {
+                "outputConfig": "0",
+                "storageBean": {
+                    "ppv": 2900,
+                    "epvToday": 25.1,
+                },
+            },
+        }
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+
+        with patch("growatt_guard.dashboard.read_pause_state", return_value=None), patch(
+            "growatt_guard.dashboard.read_battery_alert_state", return_value=None
+        ), patch(
+            "growatt_guard.dashboard.read_growatt_cloud_failure_state", return_value={}
+        ), patch(
+            "growatt_guard.dashboard.read_mode_audit_rows", return_value=[]
+        ), patch(
+            "growatt_guard.dashboard.read_pvoutput_state", return_value=None
+        ), patch(
+            "growatt_guard.dashboard.build_chart_data",
+            return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
+        ):
+            html = build_dashboard_html(
+                status,
+                schedule,
+                {"dates": {}},
+                ThresholdDecision(
+                    50,
+                    "rainy/cloudy forecast: max cloud 90%, rain 2mm",
+                    weather_category="rainy/cloudy",
+                    cloud_cover=90,
+                    precipitation_mm=2,
+                ),
+                battery_capacity_wh=30000,
+                battery_bms_cutoff_soc=25,
+                hours_to_sunrise=8,
+                battery_charge_rate_w=2400,
+                auto_topup_solar_skip_min_margin_minutes=60,
+                auto_topup_min_minutes=20,
+            )
+
+        self.assertIn("Needs PANEL_KWP", html)
+        self.assertIn("Set PANEL_KWP to convert Open-Meteo irradiance into PV kWh.", html)
+
     def test_dashboard_asset_for_path_handles_missing_json(self):
         with TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "dashboard.html"
