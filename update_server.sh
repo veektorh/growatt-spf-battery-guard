@@ -77,7 +77,6 @@ if command -v systemctl >/dev/null 2>&1 && systemctl cat growatt-discord-control
 fi
 
 echo "Running post-deploy smoke checks..."
-"${PYTHON_BIN}" growatt_power_guard.py observability-refresh || echo "  (smoke check non-fatal - see log above)"
 "${PYTHON_BIN}" growatt_power_guard.py service-status --json
 if [[ "${RUN_PV_METRIC_PROBE:-false}" == "true" ]]; then
   "${PYTHON_BIN}" growatt_power_guard.py pv-metric-probe --json || echo "  (PV metric probe non-fatal - see log above)"
