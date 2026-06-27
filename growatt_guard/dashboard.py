@@ -2438,12 +2438,23 @@ def build_dashboard_html(
     if isinstance(live_metrics.get("charge_today_kwh"), (int, float)) and isinstance(live_metrics.get("discharge_today_kwh"), (int, float)):
         battery_throughput = float(live_metrics["charge_today_kwh"]) + float(live_metrics["discharge_today_kwh"])
     battery_throughput_display = _fmt_kwh(battery_throughput)
-    hero_metric_cards = "\n".join(
+    quick_metric_cards = "\n".join(
         [
-            f'<div class="hero-metric"><span>Battery</span><strong>{esc(soc)}</strong><em>{esc(battery_context)}</em></div>',
-            f'<div class="hero-metric"><span>PV</span><strong>{esc(pv_power_display)}</strong><em>{esc(pv_today_display)} today</em></div>',
-            f'<div class="hero-metric"><span>House</span><strong>{esc(load_power_display)}</strong><em>{esc(load_today_display)} today</em></div>',
-            f'<div class="hero-metric"><span>Grid</span><strong>{esc(grid_power_display)}</strong><em>{esc(grid_status_text)}</em></div>',
+            (
+                '<div class="quick-metric quick-pv">'
+                f'<span>Current PV Power</span><strong>{esc(pv_power_display)}</strong>'
+                f'<em>{esc(pv_today_display)} generated today</em></div>'
+            ),
+            (
+                '<div class="quick-metric quick-soc">'
+                f'<span>Battery SOC</span><strong>{esc(soc)}</strong>'
+                f'<em>{esc(battery_context)}</em></div>'
+            ),
+            (
+                '<div class="quick-metric quick-total">'
+                f'<span>Total PV Today</span><strong>{esc(pv_today_display)}</strong>'
+                f'<em>Current output {esc(pv_power_display)}</em></div>'
+            ),
         ]
     )
     flow_solar_class = "active" if (live_metrics.get("pv_w") or 0) > 0 else ""
@@ -2749,7 +2760,6 @@ def build_dashboard_html(
     .theme-light .badge-fail {{ background: #fef2f2; color: #991b1b; border-color: #fca5a5; }}
     .theme-light .flow-tile {{ background: var(--panel-2); }}
     .theme-light .mix-panel {{ background: var(--panel-2); }}
-    .theme-light .soc-ring {{ background: var(--panel-2); }}
     .theme-light th {{ background: var(--panel-2); }}
     .theme-light .hero-panel, .theme-light .flow-stage, .theme-light .card, .theme-light .detail-panel,
     .theme-light .flow-tile, .theme-light .mix-panel, .theme-light .planner-card {{
@@ -2869,6 +2879,50 @@ def build_dashboard_html(
       gap: 16px;
       align-items: stretch;
     }}
+    .quick-metrics {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin: 0 0 16px;
+    }}
+    .quick-metric {{
+      min-width: 0;
+      display: grid;
+      gap: 6px;
+      padding: 16px 18px;
+      border-radius: var(--radius);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.26), 0 0 0 1px rgba(255,255,255,0.04);
+      position: relative;
+      overflow: hidden;
+    }}
+    .quick-metric::before {{
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 3px;
+      background: var(--accent);
+    }}
+    .quick-pv::before, .quick-pv strong {{ color: var(--solar); background: var(--solar); }}
+    .quick-soc::before, .quick-soc strong {{ color: var(--battery); background: var(--battery); }}
+    .quick-total::before, .quick-total strong {{ color: var(--solar); background: var(--solar); }}
+    .quick-metric span {{
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 740;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }}
+    .quick-metric strong {{
+      background: transparent !important;
+      font-size: clamp(26px, 3vw, 36px);
+      line-height: 1;
+      font-weight: 780;
+      font-variant-numeric: tabular-nums;
+      overflow-wrap: anywhere;
+    }}
+    .quick-metric em {{ color: var(--muted); font-size: 13px; font-style: normal; line-height: 1.35; overflow-wrap: anywhere; }}
     .hero-panel, .flow-stage, .card, .detail-panel {{
       background: var(--panel);
       box-shadow: 0 1px 3px rgba(0,0,0,0.28), 0 0 0 1px rgba(255,255,255,0.05);
@@ -2903,7 +2957,6 @@ def build_dashboard_html(
       overflow-wrap: anywhere;
     }}
     .hero-kicker {{ color: var(--solar); font-size: 12px; font-weight: 720; text-transform: uppercase; letter-spacing: 0.07em; }}
-    .hero-subtitle {{ max-width: 620px; font-size: 15px; color: var(--muted); line-height: 1.55; }}
     .hero-metrics {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }}
     .hero-metric {{
       min-width: 0;
@@ -2981,18 +3034,19 @@ def build_dashboard_html(
     .soc-ring {{
       width: min(176px, 52vw);
       aspect-ratio: 1;
-      border-radius: 12px;
+      border-radius: 999px;
       display: grid;
       place-items: center;
       background:
-        radial-gradient(circle at center, var(--panel-2) 0 58%, transparent 59%),
-        conic-gradient(var(--battery) 0 var(--soc, 0%), var(--border) var(--soc, 0%) 100%);
+        radial-gradient(circle at center, var(--panel) 0 57%, transparent 58%),
+        conic-gradient(var(--battery) 0 var(--soc, 0%), rgba(53, 196, 160, 0.12) var(--soc, 0%) 100%);
       border: 1px solid var(--border);
+      box-shadow: inset 0 0 0 10px rgba(53, 196, 160, 0.08), 0 10px 24px rgba(0,0,0,0.18);
     }}
     .theme-light .soc-ring {{
       background:
-        radial-gradient(circle at center, var(--panel-2) 0 58%, transparent 59%),
-        conic-gradient(var(--battery) 0 var(--soc, 0%), var(--border) var(--soc, 0%) 100%);
+        radial-gradient(circle at center, var(--panel) 0 57%, transparent 58%),
+        conic-gradient(var(--battery) 0 var(--soc, 0%), rgba(53, 196, 160, 0.16) var(--soc, 0%) 100%);
     }}
     .soc-core {{ text-align: center; }}
     .soc-core strong {{ display: block; font-size: clamp(40px, 6vw, 56px); line-height: 0.95; letter-spacing: 0; font-weight: 760; font-variant-numeric: tabular-nums; color: var(--ink); }}
@@ -3341,6 +3395,7 @@ def build_dashboard_html(
       .sidebar-nav {{ grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }}
       .sidebar-status {{ margin-top: 18px; }}
       .hero-grid {{ grid-template-columns: 1fr; }}
+      .quick-metrics {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
       .hero-metrics {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .chart-grid, .planner-grid, .status-activity-grid, .mix-grid {{ grid-template-columns: 1fr; }}
       .flow-map {{ grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); column-gap: 10px; }}
@@ -3359,7 +3414,7 @@ def build_dashboard_html(
       .topbar, .section-head, .flow-head {{ align-items: flex-start; flex-direction: column; }}
       .top-actions {{ justify-content: flex-start; }}
       .hero-panel, .flow-stage {{ padding: 16px; }}
-      .hero-metrics, .hero-recs, .battery-stats, .battery-outlook, .flow-main-row, .flow-support-row {{ grid-template-columns: 1fr; }}
+      .quick-metrics, .hero-metrics, .hero-recs, .battery-stats, .battery-outlook, .flow-main-row, .flow-support-row {{ grid-template-columns: 1fr; }}
       .energy-map {{ min-height: auto; display: grid; gap: 10px; padding: 0; border: 0; background: transparent; }}
       .energy-lines {{ display: none; }}
       .energy-node, .energy-node.solar, .energy-node.inverter, .energy-node.battery, .energy-node.grid-source, .energy-node.load {{
@@ -3373,7 +3428,7 @@ def build_dashboard_html(
       }}
       .soc-command {{ grid-template-columns: 1fr; gap: 16px; margin-top: 18px; }}
       .soc-command.battery-command {{ grid-template-columns: 1fr; gap: 16px; margin-top: 0; }}
-      .soc-ring {{ width: 100%; max-width: none; height: auto; min-height: 136px; aspect-ratio: auto; }}
+      .soc-ring {{ width: min(220px, 100%); max-width: 220px; height: auto; min-height: 0; aspect-ratio: 1; justify-self: center; }}
       .mode-stack {{ gap: 9px; }}
       .mode-value {{ font-size: 20px; }}
       table {{ min-width: 560px; }}
@@ -3429,6 +3484,10 @@ def build_dashboard_html(
     </header>
     {skip_all_banner}
 
+    <section class="quick-metrics" aria-label="Immediate energy snapshot">
+      {quick_metric_cards}
+    </section>
+
     <section class="hero-grid" aria-label="Home energy status">
       <article class="hero-panel status-hero">
         <div class="hero-copy">
@@ -3440,11 +3499,7 @@ def build_dashboard_html(
             </div>
           </div>
           <h2>{esc(str(assistant_summary.get("title", "")))}</h2>
-          <p class="hero-subtitle">{esc(str(assistant_summary.get("text", "")))}</p>
           <div class="hero-next">{esc(hero_next_action)}</div>
-        </div>
-        <div class="hero-metrics">
-          {hero_metric_cards}
         </div>
         <div class="hero-recs" aria-label="Top recommendations">
           {top_recommendations_html}
