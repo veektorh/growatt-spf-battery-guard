@@ -61,7 +61,7 @@ fi
 if pkill -f "growatt_power_guard.py dashboard-refresh" 2>/dev/null; then
   echo "Stopped legacy dashboard-refresh process."
 fi
-if [[ "${DASHBOARD_SERVICE}" == "0" ]] && pkill -f "growatt_power_guard.py observability-refresh" 2>/dev/null; then
+if pkill -f "growatt_power_guard.py observability-refresh" 2>/dev/null; then
   echo "Stopped observability-refresh."
 fi
 if [[ "${DASHBOARD_SERVICE}" == "1" ]]; then
