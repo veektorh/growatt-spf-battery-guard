@@ -10,6 +10,7 @@ import requests
 
 from growatt_guard.growatt_api import (
     PV_POWER_CHANNELS,
+    PV_TODAY_CHANNELS,
     extract_channel_metric_sum,
     extract_first_metric,
     extract_soc,
@@ -93,12 +94,22 @@ def extract_pvoutput_fields(
         fields["v2"] = int(pv_power)
 
     # v1: energy generated today (Wh) — Growatt stores kWh, convert to Wh
+    # Prefer channel sum (epv1Today + epv2Today) over single-string key, same
+    # as v2 power. Devices with two PV strings report each string separately.
     v1_result = _extract_float_with_key(status, _V1_KEYS)
-    if v1_result is not None:
-        kwh, v1_key = v1_result
-        if kwh >= 0:
-            fields["v1"] = int(kwh * 1000)
-            fields["_v1_key"] = v1_key
+    v1_channel_result = extract_channel_metric_sum(status, PV_TODAY_CHANNELS)
+    if v1_channel_result is not None:
+        channel_kwh = v1_channel_result[0]
+        single_kwh = v1_result[0] if v1_result is not None else 0.0
+        if channel_kwh >= 0 and channel_kwh > single_kwh:
+            fields["v1"] = int(channel_kwh * 1000)
+            fields["_v1_key"] = v1_channel_result[1]
+        elif v1_result is not None and v1_result[0] >= 0:
+            fields["v1"] = int(v1_result[0] * 1000)
+            fields["_v1_key"] = v1_result[1]
+    elif v1_result is not None and v1_result[0] >= 0:
+        fields["v1"] = int(v1_result[0] * 1000)
+        fields["_v1_key"] = v1_result[1]
 
     # v4: current output / consumption power (W)
     output_power = _extract_float(status, _V4_KEYS)
