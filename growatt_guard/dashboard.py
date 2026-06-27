@@ -2158,15 +2158,14 @@ def build_dashboard_html(
     }}
     .quick-stat b {{ display: block; font-size: 20px; line-height: 1.1; overflow-wrap: anywhere; font-weight: 720; font-variant-numeric: tabular-nums; color: var(--ink); }}
     .quick-stat span {{ display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }}
-    .flow-stage {{ padding: 24px; min-height: 240px; }}
+    .flow-stage {{ padding: 20px 24px; }}
     .section-head, .flow-head {{ display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin: 40px 0 16px; }}
     .section-head h2, .flow-head h2 {{ margin: 0; }}
     .flow-map {{
       display: grid;
-      grid-template-columns: repeat(5, minmax(112px, 1fr));
-      gap: 12px;
-      align-items: center;
-      min-height: 260px;
+      grid-template-columns: repeat(5, minmax(120px, 1fr));
+      gap: 10px;
+      align-items: stretch;
     }}
     .flow-tile {{
       min-height: 104px;
@@ -2332,8 +2331,7 @@ def build_dashboard_html(
       .sidebar-nav {{ grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }}
       .sidebar-status {{ margin-top: 18px; }}
       .overview-grid {{ grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }}
-      .hero-grid, .chart-grid, .planner-grid, .flow-map, .status-activity-grid, .mix-grid {{ grid-template-columns: 1fr; }}
-      .hero-panel, .flow-stage {{ min-height: auto; }}
+      .chart-grid, .planner-grid, .flow-map, .status-activity-grid, .mix-grid {{ grid-template-columns: 1fr; }}
     }}
     @media (max-width: 720px) {{
       .sidebar {{ padding: 18px 14px; }}
@@ -2405,31 +2403,11 @@ def build_dashboard_html(
       {overview_cards}
     </section>
 
-    <section class="hero-grid" id="flow">
-      <section class="hero-panel" aria-label="Battery command status">
-        <div class="soc-command">
-          <div class="soc-ring">
-            <div class="soc-core">
-              <strong>{esc(soc)}</strong>
-              <span>Battery SOC</span>
-            </div>
-          </div>
-          <div class="mode-stack">
-            <div class="mode-line">
-              <span class="badge {esc(soc_health_class)}">{esc(soc_health)}</span>
-              <span class="badge {esc(mode_badge_class)}">{esc(mode)}</span>
-            </div>
-            <div class="mode-value">{esc(bat_status)}</div>
-            <div class="muted small">Battery: {esc(battery_flow_display)} {esc(battery_flow_dir)} &middot; Load: {esc(load_power_display)} ({esc(load_pct)} inverter load) &middot; PV covering load: {esc(pv_cover_display)}</div>
-          </div>
-        </div>
-      </section>
-
-      <section class="flow-stage" aria-label="Live energy flow">
+    <section class="flow-stage" id="flow" aria-label="Live energy flow">
         <div class="flow-head">
           <div>
             <h2>Live energy flow</h2>
-            <div class="muted">Solar, grid, inverter, battery, and load right now.</div>
+            <div class="muted">{esc(bat_status)} &middot; Battery: {esc(battery_flow_display)} {esc(battery_flow_dir)} &middot; Load: {esc(load_power_display)} at {esc(load_pct)}</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <a href="#insights" class="badge {esc(_status_badge_class(str(daily_insights.get("status", "unknown"))))}" style="text-decoration:none">Today: {esc(str(daily_insights.get("title", "Learning")))}</a>
@@ -2477,7 +2455,6 @@ def build_dashboard_html(
             <div class="flow-detail">{esc(load_today_display)} consumed today</div>
           </div>
         </div>
-      </section>
     </section>
 
     <section class="chart-grid today-charts" aria-label="Today trends">
