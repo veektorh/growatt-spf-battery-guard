@@ -1731,35 +1731,6 @@ def build_dashboard_html(
     next_action_relative = str(next_action.get("relative") or "none")
     next_action_title = str(next_action.get("title") or "No upcoming jobs")
     next_action_detail = str(next_action.get("detail") or "No scheduled jobs found.")
-    overview_cards = "\n".join(
-        [
-            (
-                f'<article class="card kpi-card"><div><div class="label">Battery SOC</div>'
-                f'<div class="value">{esc(soc)}</div></div>'
-                f'<div class="muted small">{esc(soc_health)} - {esc(mode)}</div></article>'
-            ),
-            (
-                f'<article class="card kpi-card"><div><div class="label">PV Now</div>'
-                f'<div class="value">{esc(pv_power_display)}</div></div>'
-                f'<div class="muted small">{esc(pv_today_display)} generated today</div></article>'
-            ),
-            (
-                f'<article class="card kpi-card"><div><div class="label">Load Now</div>'
-                f'<div class="value">{esc(load_power_display)}</div></div>'
-                f'<div class="muted small">{esc(load_today_display)} consumed today</div></article>'
-            ),
-            (
-                f'<article class="card kpi-card"><div><div class="label">Grid Import Now</div>'
-                f'<div class="value">{esc(grid_power_display)}</div></div>'
-                f'<div class="muted small">{esc(grid_now_detail)}</div></article>'
-            ),
-            (
-                f'<article class="card kpi-card"><div><div class="label">Next Automation</div>'
-                f'<div class="value">{esc(next_action_relative)}</div></div>'
-                f'<div class="muted small">{esc(next_action_title)}</div></article>'
-            ),
-        ]
-    )
     insight_cards = "\n".join(
         (
             '<article class="card insight-card">'
@@ -1993,7 +1964,6 @@ def build_dashboard_html(
     .theme-light .badge-warn {{ background: #fffbeb; color: #92400e; border-color: #fcd34d; }}
     .theme-light .badge-fail {{ background: #fef2f2; color: #991b1b; border-color: #fca5a5; }}
     .theme-light .flow-tile {{ background: var(--panel-2); }}
-    .theme-light .quick-stat {{ background: var(--panel-2); }}
     .theme-light .mix-panel {{ background: var(--panel-2); }}
     .theme-light .soc-ring {{ background: var(--panel-2); }}
     .theme-light th {{ background: var(--panel-2); }}
@@ -2148,16 +2118,6 @@ def build_dashboard_html(
     .mode-stack {{ display: grid; gap: 12px; min-width: 0; }}
     .mode-line {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }}
     .mode-value {{ font-size: 24px; line-height: 1.15; font-weight: 720; overflow-wrap: anywhere; color: var(--ink); }}
-    .quick-stats {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 24px; }}
-    .quick-stat {{
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 12px;
-      background: var(--panel-2);
-      min-width: 0;
-    }}
-    .quick-stat b {{ display: block; font-size: 20px; line-height: 1.1; overflow-wrap: anywhere; font-weight: 720; font-variant-numeric: tabular-nums; color: var(--ink); }}
-    .quick-stat span {{ display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }}
     .flow-stage {{ padding: 20px 24px; }}
     .section-head, .flow-head {{ display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin: 40px 0 16px; }}
     .section-head h2, .flow-head h2 {{ margin: 0; }}
@@ -2192,7 +2152,6 @@ def build_dashboard_html(
     .flow-detail {{ color: var(--muted); font-size: 13px; margin-top: 8px; }}
     .connector {{ display: none; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 16px; }}
-    .overview-grid {{ display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }}
     .daily-grid {{ grid-template-columns: repeat(auto-fit, minmax(224px, 1fr)); }}
     .daily-mix {{ display: grid; gap: 16px; margin-top: 16px; }}
     .mix-header {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }}
@@ -2218,7 +2177,6 @@ def build_dashboard_html(
     .insight-grid {{ grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)); }}
     .status-activity-grid {{ display: grid; grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr); gap: 12px; margin-top: 12px; }}
     .card {{ padding: 16px; }}
-    .kpi-card {{ min-height: 132px; display: grid; align-content: space-between; gap: 10px; }}
     .metric-card {{ min-height: 148px; display: grid; align-content: space-between; gap: 12px; }}
     .insight-card {{ min-height: 132px; display: grid; align-content: space-between; gap: 8px; }}
     .metric-head {{ display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }}
@@ -2247,6 +2205,7 @@ def build_dashboard_html(
     .badge-ok {{ background: rgba(58, 200, 122, 0.12); color: #3AC87A; border-color: rgba(58, 200, 122, 0.3); }}
     .badge-warn {{ background: rgba(245, 168, 42, 0.12); color: var(--warn); border-color: rgba(245, 168, 42, 0.3); }}
     .badge-fail {{ background: rgba(239, 94, 94, 0.12); color: #EF5E5E; border-color: rgba(239, 94, 94, 0.3); }}
+    .badge-neutral {{ background: rgba(106, 122, 153, 0.12); color: var(--muted); border-color: rgba(106, 122, 153, 0.25); }}
     .planner-grid {{ display: grid; grid-template-columns: minmax(260px, 0.9fr) repeat(3, minmax(160px, 1fr)); gap: 12px; margin-top: 16px; }}
     .planner-card {{ padding: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }}
     .planner-card.primary {{ background: var(--panel-2); color: var(--ink); border-color: var(--border-strong); }}
@@ -2330,7 +2289,6 @@ def build_dashboard_html(
       .sidebar-brand {{ margin-bottom: 18px; }}
       .sidebar-nav {{ grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }}
       .sidebar-status {{ margin-top: 18px; }}
-      .overview-grid {{ grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }}
       .chart-grid, .planner-grid, .flow-map, .status-activity-grid, .mix-grid {{ grid-template-columns: 1fr; }}
     }}
     @media (max-width: 720px) {{
@@ -2343,10 +2301,6 @@ def build_dashboard_html(
       .soc-ring {{ width: 100%; max-width: none; height: auto; min-height: 136px; aspect-ratio: auto; }}
       .mode-stack {{ gap: 9px; }}
       .mode-value {{ font-size: 20px; }}
-      .quick-stats {{ grid-template-columns: 1fr; gap: 8px; margin-top: 16px; }}
-      .quick-stat {{ padding: 10px; }}
-      .quick-stat b {{ font-size: 18px; }}
-      .quick-stat span {{ font-size: 11px; }}
       .flow-map {{ grid-template-rows: none; min-height: auto; }}
       table {{ min-width: 560px; }}
     }}
@@ -2399,10 +2353,6 @@ def build_dashboard_html(
     </header>
     {skip_all_banner}
 
-    <section class="overview-grid" aria-label="Overview metrics">
-      {overview_cards}
-    </section>
-
     <section class="flow-stage" id="flow" aria-label="Live energy flow">
         <div class="flow-head">
           <div>
@@ -2412,6 +2362,7 @@ def build_dashboard_html(
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <a href="#insights" class="badge {esc(_status_badge_class(str(daily_insights.get("status", "unknown"))))}" style="text-decoration:none">Today: {esc(str(daily_insights.get("title", "Learning")))}</a>
             <span class="badge {esc(tonight_badge_class)}">Tonight: {esc(tonight_title)}</span>
+            <span class="badge badge-neutral" title="{esc(next_action_detail)}">Next: {esc(next_action_relative)} · {esc(next_action_title)}</span>
           </div>
         </div>
         <div class="flow-map">

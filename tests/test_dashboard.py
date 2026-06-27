@@ -90,7 +90,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Solar Inverter", html)
         self.assertIn("app-shell", html)
         self.assertIn("sidebar-nav", html)
-        self.assertIn("overview-grid", html)
+        self.assertIn("flow-stage", html)
         self.assertIn("Dashboard Health", html)
         self.assertIn("Tonight Risk", html)
         self.assertIn("Live energy flow", html)
