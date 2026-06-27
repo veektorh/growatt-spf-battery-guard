@@ -997,6 +997,58 @@ def build_dashboard_daily_mix(live_metrics: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_dashboard_recommendations(
+    live_metrics: dict,
+    soc_health: str,
+    battery_flow_dir: str,
+    tonight_risk: dict,
+    daily_insights: dict,
+    pv_power_display: str,
+    grid_status_text: str,
+) -> list[dict]:
+    """Generate rule-based recommendations for the dashboard."""
+    recs: list[dict] = []
+    soc = live_metrics.get("soc_pct") or 0
+    grid_w = live_metrics.get("grid_w") or 0
+    pv_w = live_metrics.get("pv_w") or 0
+    load_w = live_metrics.get("load_w") or 0
+    tonight_level = str(tonight_risk.get("level", "")).lower()
+
+    if soc >= 95 and pv_w > 0:
+        recs.append({"icon": "✓", "text": f"Battery full — all {pv_power_display} solar going directly to load."})
+    elif battery_flow_dir == "charging" and pv_w > load_w:
+        surplus = _fmt_w(pv_w - load_w)
+        recs.append({"icon": "↑", "text": f"PV surplus of {surplus} charging battery while covering load."})
+
+    if grid_w < 20 and pv_w > 0:
+        recs.append({"icon": "✓", "text": "Running entirely on solar right now. Zero grid draw."})
+    elif grid_w > 500:
+        recs.append({"icon": "↗", "text": f"Drawing {_fmt_w(grid_w)} from grid — consider shifting heavy loads to solar peak hours."})
+
+    if tonight_level == "ok":
+        recs.append({"icon": "✓", "text": "Battery on track for sunrise. No top-up needed tonight."})
+    elif tonight_level in ("warn", "high"):
+        topup = tonight_risk.get("topup_window_display") or tonight_risk.get("detail", "")
+        recs.append({"icon": "⚠", "text": f"Tonight risk elevated — {str(topup)[:80] if topup else 'consider scheduling a top-up.'}"})
+
+    pv_pace = next(
+        (i for i in (daily_insights.get("items") or []) if isinstance(i, dict) and "PV" in str(i.get("label", "")).upper()),
+        None,
+    )
+    if pv_pace:
+        level = str(pv_pace.get("level", "")).lower()
+        detail = str(pv_pace.get("detail", ""))
+        if level == "ok" and detail:
+            recs.append({"icon": "☀", "text": detail})
+        elif level == "warn" and detail:
+            recs.append({"icon": "↓", "text": detail})
+
+    if not recs:
+        recs.append({"icon": "✓", "text": "System operating normally. No actions required."})
+
+    return recs[:5]
+
+
 def build_dashboard_next_action(
     schedule: dict[str, Any],
     now: dt.datetime | None = None,
@@ -1642,11 +1694,38 @@ def build_dashboard_html(
     battery_charge_share_width = min(100.0, battery_charge_share) if battery_charge_share is not None else 0.0
     mode_badge_class = "badge-warn" if "utility" in mode.lower() else ("badge-ok" if "sbu" in mode.lower() else "badge-warn")
     grid_now_detail = "estimated from load + charge - PV" if grid_source == "estimated" else (grid_detail or "reported by Growatt")
+    _grid_w = live_metrics.get("grid_w") or 0
+    if _grid_w < 20:
+        grid_status_text = "Solar covering entire load"
+    elif _grid_w > 0:
+        grid_status_text = f"Drawing {grid_power_display} from grid"
+    else:
+        grid_status_text = f"Exporting {_fmt_w(abs(int(_grid_w)))} to grid"
+
+    if battery_flow_dir == "charging":
+        battery_context = f"Charging · {soc_health}"
+    elif battery_flow_dir == "discharging":
+        battery_context = f"Discharging · {soc_health}"
+    else:
+        battery_context = f"Idle · {soc_health}"
     metric_sources = extract_dashboard_metric_sources(status)
     data_quality = build_dashboard_data_quality(live_metrics, metric_sources)
     energy_balance = build_dashboard_energy_balance(live_metrics)
     daily_mix = build_dashboard_daily_mix(live_metrics)
     daily_insights = build_dashboard_daily_insights(live_metrics, metric_history, now=now)
+    recommendations = build_dashboard_recommendations(
+        live_metrics=live_metrics,
+        soc_health=soc_health,
+        battery_flow_dir=battery_flow_dir,
+        tonight_risk=tonight_risk,
+        daily_insights=daily_insights,
+        pv_power_display=pv_power_display,
+        grid_status_text=grid_status_text,
+    )
+    recommendations_html = "\n".join(
+        f'<div class="rec-item"><span class="rec-icon">{esc(r["icon"])}</span><span>{esc(r["text"])}</span></div>'
+        for r in recommendations
+    )
     quality_badge_class = _status_badge_class(str(data_quality.get("level", "unknown")))
     quality_title = str(data_quality.get("title", "Unknown"))
     quality_score = data_quality.get("score")
@@ -1967,6 +2046,10 @@ def build_dashboard_html(
     .theme-light .mix-panel {{ background: var(--panel-2); }}
     .theme-light .soc-ring {{ background: var(--panel-2); }}
     .theme-light th {{ background: var(--panel-2); }}
+    .theme-light .hero-panel, .theme-light .flow-stage, .theme-light .card, .theme-light .detail-panel,
+    .theme-light .flow-tile, .theme-light .mix-panel, .theme-light .planner-card {{
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.06);
+    }}
     .theme-toggle {{
       cursor: pointer;
       border: 1px solid var(--border);
@@ -2081,9 +2164,13 @@ def build_dashboard_html(
       gap: 16px;
       align-items: stretch;
     }}
-    .hero-panel, .flow-stage, .card, table, .detail-panel {{
+    .hero-panel, .flow-stage, .card, .detail-panel {{
       background: var(--panel);
-      border: 1px solid var(--border);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.28), 0 0 0 1px rgba(255,255,255,0.05);
+      border-radius: var(--radius);
+    }}
+    table {{
+      background: var(--panel);
       border-radius: var(--radius);
     }}
     .hero-panel {{
@@ -2130,7 +2217,7 @@ def build_dashboard_html(
     }}
     .flow-tile {{
       min-height: 104px;
-      border: 1px solid var(--border);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.28), 0 0 0 1px rgba(255,255,255,0.05);
       border-radius: 10px;
       padding: 14px 16px;
       background: var(--panel-2);
@@ -2151,17 +2238,49 @@ def build_dashboard_html(
     .flow-label {{ color: var(--muted); font-size: 12px; font-weight: 680; text-transform: uppercase; letter-spacing: 0.06em; }}
     .flow-value {{ font-size: 22px; font-weight: 740; line-height: 1.05; margin-top: 6px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }}
     .flow-detail {{ color: var(--muted); font-size: 13px; margin-top: 8px; }}
-    .connector {{ display: flex; align-items: center; justify-content: center; position: relative; align-self: center; height: 20px; }}
-    .connector::before {{ content: ""; position: absolute; left: 2px; right: 11px; top: 50%; height: 2px; transform: translateY(-50%); background: var(--border-strong); }}
-    .connector::after {{ content: ""; position: absolute; right: 2px; top: 50%; transform: translateY(-50%); border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 9px solid var(--border-strong); }}
-    .connector.pv::before {{ background: var(--solar); }}
-    .connector.pv::after {{ border-left-color: var(--solar); }}
-    .connector.battery::before {{ background: var(--battery); }}
-    .connector.battery::after {{ border-left-color: var(--battery); }}
-    .connector.grid::before {{ background: var(--grid-c); }}
-    .connector.grid::after {{ border-left-color: var(--grid-c); }}
-    .connector.load::before {{ background: var(--load-c); }}
-    .connector.load::after {{ border-left-color: var(--load-c); }}
+    @keyframes flow-stream {{
+      from {{ background-position-x: 0px; }}
+      to {{ background-position-x: 20px; }}
+    }}
+    .connector {{
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      align-self: center;
+      height: 20px;
+      color: var(--border-strong);
+      opacity: 0.5;
+    }}
+    .connector.pv {{ color: var(--solar); opacity: 1; }}
+    .connector.battery {{ color: var(--battery); opacity: 1; }}
+    .connector.grid {{ color: var(--grid-c); opacity: 1; }}
+    .connector.load {{ color: var(--load-c); opacity: 1; }}
+    .connector::before {{
+      content: "";
+      position: absolute;
+      left: 2px; right: 12px; top: 50%;
+      height: 2px;
+      transform: translateY(-50%);
+      background: repeating-linear-gradient(
+        90deg,
+        currentColor 0px, currentColor 10px,
+        transparent 10px, transparent 18px
+      );
+      animation: flow-stream 0.6s linear infinite;
+    }}
+    .connector::after {{
+      content: "";
+      position: absolute;
+      right: 2px; top: 50%;
+      transform: translateY(-50%);
+      border-top: 5px solid transparent;
+      border-bottom: 5px solid transparent;
+      border-left: 10px solid currentColor;
+    }}
+    @media (prefers-reduced-motion: reduce) {{
+      .connector::before {{ animation: none; }}
+    }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 16px; }}
     .daily-grid {{ grid-template-columns: repeat(auto-fit, minmax(224px, 1fr)); }}
     .daily-mix {{ display: grid; gap: 16px; margin-top: 16px; }}
@@ -2170,7 +2289,7 @@ def build_dashboard_html(
     .mix-panel {{
       min-width: 0;
       padding: 14px;
-      border: 1px solid var(--border);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.22), 0 0 0 1px rgba(255,255,255,0.04);
       border-radius: 10px;
       background: var(--panel-2);
     }}
@@ -2217,8 +2336,11 @@ def build_dashboard_html(
     .badge-warn {{ background: rgba(245, 168, 42, 0.12); color: var(--warn); border-color: rgba(245, 168, 42, 0.3); }}
     .badge-fail {{ background: rgba(239, 94, 94, 0.12); color: #EF5E5E; border-color: rgba(239, 94, 94, 0.3); }}
     .badge-neutral {{ background: rgba(106, 122, 153, 0.12); color: var(--muted); border-color: rgba(106, 122, 153, 0.25); }}
+    .rec-section {{ padding: 20px 24px; display: grid; gap: 14px; }}
+    .rec-item {{ display: flex; align-items: flex-start; gap: 12px; font-size: 14px; line-height: 1.5; }}
+    .rec-icon {{ font-size: 16px; min-width: 22px; margin-top: 1px; }}
     .planner-grid {{ display: grid; grid-template-columns: minmax(260px, 0.9fr) repeat(3, minmax(160px, 1fr)); gap: 12px; margin-top: 16px; }}
-    .planner-card {{ padding: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }}
+    .planner-card {{ padding: 16px; background: var(--panel); box-shadow: 0 1px 3px rgba(0,0,0,0.22), 0 0 0 1px rgba(255,255,255,0.04); border-radius: var(--radius); }}
     .planner-card.primary {{ background: var(--panel-2); color: var(--ink); border-color: var(--border-strong); }}
     .planner-card.primary .muted, .planner-card.primary .label {{ color: var(--muted); }}
     .banner-warn {{ background: rgba(245, 168, 42, 0.08); color: var(--ink); border: 1px solid rgba(245, 168, 42, 0.3); border-radius: var(--radius); padding: 12px 16px; margin: 16px 0 24px; font-weight: 620; }}
@@ -2334,6 +2456,7 @@ def build_dashboard_html(
       <a href="#insights">Energy Insights</a>
       <a href="#daily">Daily Energy</a>
       <a href="#planner">Tonight Planner</a>
+      <a href="#recommendations">Recommendations</a>
       <a href="#automation">Automation</a>
       <a href="#trends">Trends</a>
       <a href="#operations">Operations</a>
@@ -2369,7 +2492,7 @@ def build_dashboard_html(
         <div class="flow-head">
           <div>
             <h2>Live energy flow</h2>
-            <div class="muted">{esc(bat_status)} &middot; Battery: {esc(battery_flow_display)} {esc(battery_flow_dir)} &middot; Load: {esc(load_power_display)} at {esc(load_pct)}</div>
+            <div class="muted">{esc(bat_status)} &middot; {esc(battery_context)} &middot; Load: {esc(load_power_display)} at {esc(load_pct)}</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <a href="#insights" class="badge {esc(_status_badge_class(str(daily_insights.get("status", "unknown"))))}" style="text-decoration:none">Today: {esc(str(daily_insights.get("title", "Learning")))}</a>
@@ -2399,7 +2522,7 @@ def build_dashboard_html(
               <div class="flow-label">Battery</div>
               <div class="flow-value">{esc(soc)}</div>
             </div>
-            <div class="flow-detail">{esc(battery_flow_display)} {esc(battery_flow_dir)}</div>
+            <div class="flow-detail">{esc(battery_context)}</div>
           </div>
           <div class="connector grid" aria-hidden="true"></div>
           <div class="flow-tile grid-source">
@@ -2407,7 +2530,7 @@ def build_dashboard_html(
               <div class="flow-label">Grid Import Now</div>
               <div class="flow-value">{esc(grid_power_display)}</div>
             </div>
-            <div class="flow-detail">{esc(grid_now_detail)}</div>
+            <div class="flow-detail">{esc(grid_status_text)}</div>
           </div>
           <div class="connector load" aria-hidden="true"></div>
           <div class="flow-tile load">
@@ -2483,6 +2606,16 @@ def build_dashboard_html(
         <div class="value">{esc(f'{threshold_decision.threshold:g}%')}</div>
         <div class="muted small">{esc(threshold_decision.reason)}</div>
       </div>
+    </section>
+
+    <div class="section-head" id="recommendations">
+      <div>
+        <h2>Recommendations</h2>
+        <div class="muted">Rule-based suggestions from current system state.</div>
+      </div>
+    </div>
+    <section class="card rec-section" aria-label="Recommendations">
+      {recommendations_html}
     </section>
 
     <div class="section-head" id="automation">
@@ -2764,6 +2897,80 @@ def build_dashboard_html(
         ctx.textAlign = "left";
       }}
 
+      function setupLineTooltip(id, labels, series, options) {{
+        const canvas = document.getElementById(id);
+        if (!canvas) return;
+        const pad = {{ top: 14, right: 16, bottom: 28, left: 48 }};
+        const suffix = options.suffix || "";
+        let tipVisible = false;
+
+        function redrawWithTip(mx) {{
+          const dpr = window.devicePixelRatio || 1;
+          const rect = canvas.getBoundingClientRect();
+          const width = rect.width || 600;
+          const height = rect.height || 220;
+          const chartW = width - pad.left - pad.right;
+          const chartH = height - pad.top - pad.bottom;
+          const vals = series.flatMap(function(s) {{ return s.values.filter(function(v) {{ return typeof v === "number" && isFinite(v); }}); }});
+          if (vals.length === 0) return;
+          const maxVal = Math.max(options.minMax || 1, ...vals);
+          const idx = Math.round(((mx - pad.left) / chartW) * (labels.length - 1));
+          if (idx < 0 || idx >= labels.length) return;
+          const x = pad.left + (chartW * idx) / Math.max(1, labels.length - 1);
+          const ctx = canvas.getContext("2d");
+          ctx.save();
+          ctx.strokeStyle = "rgba(255,255,255,0.15)";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.moveTo(x, pad.top);
+          ctx.lineTo(x, height - pad.bottom);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          const lines = [labels[idx]];
+          series.forEach(function(s) {{
+            const v = s.values[idx];
+            if (typeof v === "number" && isFinite(v)) {{
+              lines.push(s.label + ":  " + (suffix === "%" ? v.toFixed(0) + "%" : (v >= 1000 ? (v/1000).toFixed(1) + " k" + suffix : Math.round(v) + " " + suffix)));
+            }}
+          }});
+          ctx.font = "bold 11px system-ui, sans-serif";
+          const lineH = 16;
+          const tipW = Math.max(...lines.map(function(l) {{ return ctx.measureText(l).width; }})) + 20;
+          const tipH = lines.length * lineH + 12;
+          let tx = x + 10;
+          if (tx + tipW > width - pad.right) tx = x - tipW - 10;
+          const ty = pad.top + 4;
+          ctx.fillStyle = "rgba(22,27,36,0.92)";
+          ctx.beginPath();
+          ctx.roundRect(tx, ty, tipW, tipH, 6);
+          ctx.fill();
+          ctx.strokeStyle = "rgba(255,255,255,0.1)";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          lines.forEach(function(line, i) {{
+            ctx.fillStyle = i === 0 ? "#6A7A99" : "#E2E8F0";
+            ctx.font = i === 0 ? "11px system-ui, sans-serif" : "bold 11px system-ui, sans-serif";
+            ctx.fillText(line, tx + 10, ty + 14 + i * lineH);
+          }});
+          ctx.restore();
+        }}
+
+        canvas.addEventListener("mousemove", function(e) {{
+          const rect = canvas.getBoundingClientRect();
+          const mx = (e.clientX - rect.left);
+          tipVisible = true;
+          const setup = setupCanvas(id);
+          if (!setup) return;
+          drawLineChart(id, labels, series, options);
+          redrawWithTip(mx);
+        }});
+        canvas.addEventListener("mouseleave", function() {{
+          tipVisible = false;
+          drawLineChart(id, labels, series, options);
+        }});
+      }}
+
       function drawBarChart(id, labels, series, suffix) {{
         const setup = setupCanvas(id);
         if (!setup) return;
@@ -2800,14 +3007,18 @@ def build_dashboard_html(
 
       try {{
         const data = JSON.parse(dataEl.textContent);
-        drawLineChart("power-trend-chart", data.power.labels || [], [
-          {{ color: "#F5A82A", values: data.power.pv_w || [] }},
-          {{ color: "#EF6F6F", values: data.power.load_w || [] }},
-          {{ color: "#5B8DEF", values: data.power.grid_w || [] }}
-        ], {{ suffix: "W", minMax: 1000 }});
-        drawLineChart("soc-trend-chart", data.soc.labels || [], [
-          {{ color: "#35C4A0", values: data.soc.soc || [] }}
-        ], {{ suffix: "%", minMax: 100 }});
+        const powerSeries = [
+          {{ color: "#F5A82A", label: "PV", values: data.power.pv_w || [] }},
+          {{ color: "#EF6F6F", label: "Load", values: data.power.load_w || [] }},
+          {{ color: "#5B8DEF", label: "Grid", values: data.power.grid_w || [] }}
+        ];
+        const socSeries = [
+          {{ color: "#35C4A0", label: "SOC", values: data.soc.soc || [] }}
+        ];
+        drawLineChart("power-trend-chart", data.power.labels || [], powerSeries, {{ suffix: "W", minMax: 1000 }});
+        setupLineTooltip("power-trend-chart", data.power.labels || [], powerSeries, {{ suffix: "W", minMax: 1000 }});
+        drawLineChart("soc-trend-chart", data.soc.labels || [], socSeries, {{ suffix: "%", minMax: 100 }});
+        setupLineTooltip("soc-trend-chart", data.soc.labels || [], socSeries, {{ suffix: "%", minMax: 100 }});
         drawBarChart("battery-energy-chart", data.daily.labels || [], [
           {{ color: "#35C4A0", values: data.daily.charge_kwh || [] }},
           {{ color: "#6A7A99", values: data.daily.discharge_kwh || [] }}
