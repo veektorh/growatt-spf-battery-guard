@@ -112,7 +112,7 @@ from growatt_guard.modes import (
     command_status,
     command_test_discord,
     command_topup_complete_check,
-    command_topup_soc,
+
     command_utility_check,
     command_waste_alert_check,
     command_watchdog_sbu,
@@ -196,7 +196,7 @@ LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "growatt_power_guard.log"
 
 PAUSABLE_COMMANDS = {"preserve-battery", "utility-check", "morning-check", "return-sbu", "watchdog-sbu"}
-LOCKED_COMMANDS = PAUSABLE_COMMANDS | {"force-utility", "topup", "adopt-utility"}
+LOCKED_COMMANDS = PAUSABLE_COMMANDS | {"force-utility", "adopt-utility"}
 
 
 def setup_logging(verbose: bool) -> None:

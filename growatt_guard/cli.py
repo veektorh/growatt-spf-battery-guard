@@ -194,14 +194,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Send a Discord alert if estimated battery runtime is below RUNTIME_ALERT_MINUTES.",
     )
 
-    topup_parser = subparsers.add_parser(
-        "topup",
-        help="Charge battery to a target SOC%% and return to SBU when done.",
-    )
-    topup_parser.add_argument(
-        "target_soc", type=float, help="Target battery SOC percentage (e.g. 40)."
-    )
-
     adopt_parser = subparsers.add_parser(
         "adopt-utility",
         help="Adopt the current Utility state and auto-return to SBU at target SOC%%.",
@@ -318,8 +310,6 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_topup_complete_check(config)
         if command == "runtime-alert":
             return app.command_runtime_alert(config)
-        if command == "topup":
-            return app.command_topup_soc(config, args.target_soc)
         if command == "adopt-utility":
             return app.command_adopt_utility(config, args.target_soc)
         if command == "snooze-waste":
