@@ -2270,29 +2270,6 @@ def build_dashboard_html(
         for r in recommendations
     )
 
-    def _hero_recommendation_title(item: dict[str, Any]) -> str:
-        title = str(item.get("title", "Recommendation"))
-        if "top-up" in title.lower() and str(item.get("level", "")).lower() in {"high", "watch"}:
-            return "Why tonight needs a top-up"
-        return title
-
-    def _hero_recommendation_meta(item: dict[str, Any]) -> str:
-        title = str(item.get("title", ""))
-        if "top-up" in title.lower() and str(item.get("level", "")).lower() in {"high", "watch"}:
-            return "Reserve impact"
-        return str(item.get("meta", ""))
-
-    top_recommendations_html = "\n".join(
-        (
-            f'<div class="hero-rec rec-{esc(str(r.get("level", "good")))}">'
-            f'<span>{esc(str(r.get("icon", "OK")))}</span>'
-            f'<strong>{esc(_hero_recommendation_title(r))}</strong>'
-            f'<p>{esc(str(r.get("text", "")))}</p>'
-            f'<em>{esc(_hero_recommendation_meta(r))}</em>'
-            '</div>'
-        )
-        for r in recommendations[:1]
-    )
     if pv_forecast:
         _tmr = pv_forecast.get("tomorrow_kwh")
         _rem = pv_forecast.get("today_remaining_kwh")
@@ -2400,13 +2377,6 @@ def build_dashboard_html(
     balance_badge_class = _status_badge_class(str(energy_balance.get("level", "unknown")))
     balance_title = str(energy_balance.get("title", "Unknown"))
     balance_detail = str(energy_balance.get("detail", "Energy balance could not be calculated."))
-    assistant_summary = build_dashboard_assistant_summary(
-        home_status,
-        daily_insights,
-        energy_outlook,
-        recommendations,
-        data_quality,
-    )
     home_badge_class = _status_badge_class(str(home_status.get("level", "unknown")))
     home_badge_label = str(home_status.get("now_label") or "Learning")
     home_tonight_level = str(home_status.get("tonight_level") or tonight_risk.get("level") or "unknown")
@@ -2419,14 +2389,6 @@ def build_dashboard_html(
     reserve_target_display = _fmt_pct(energy_outlook.get("reserve_target_soc"))
     topup_needed_display = tonight_topup_display
     battery_charge_rate_display = _fmt_w(battery_charge_rate_w) if battery_charge_rate_w > 0 else "--"
-    hero_next_relative = str(next_action.get("relative") or "none")
-    hero_next_title = str(next_action.get("title") or "No upcoming jobs")
-    if isinstance(tonight_topup, (int, float)) and tonight_topup > 0:
-        hero_next_action = f"Top-up window: {tonight_topup_display} tonight"
-    elif str(next_action.get("status")) == "scheduled":
-        hero_next_action = f"Next automation: {hero_next_relative} - {hero_next_title}"
-    else:
-        hero_next_action = "Next automation: none scheduled"
     usable_kwh = None
     if isinstance(soc_value, (int, float)) and battery_capacity_wh > 0:
         usable_kwh = max(0.0, (float(soc_value) - battery_bms_cutoff_soc) / 100.0 * battery_capacity_wh / 1000.0)
@@ -2443,7 +2405,7 @@ def build_dashboard_html(
             (
                 '<div class="quick-metric quick-pv">'
                 f'<span>Current PV Power</span><strong>{esc(pv_power_display)}</strong>'
-                f'<em>{esc(pv_today_display)} generated today</em></div>'
+                f'<em>House load {esc(load_power_display)}</em></div>'
             ),
             (
                 '<div class="quick-metric quick-soc">'
@@ -2453,7 +2415,7 @@ def build_dashboard_html(
             (
                 '<div class="quick-metric quick-total">'
                 f'<span>Total PV Today</span><strong>{esc(pv_today_display)}</strong>'
-                f'<em>Current output {esc(pv_power_display)}</em></div>'
+                '<em>Generated since midnight</em></div>'
             ),
         ]
     )
@@ -2761,7 +2723,7 @@ def build_dashboard_html(
     .theme-light .flow-tile {{ background: var(--panel-2); }}
     .theme-light .mix-panel {{ background: var(--panel-2); }}
     .theme-light th {{ background: var(--panel-2); }}
-    .theme-light .hero-panel, .theme-light .flow-stage, .theme-light .card, .theme-light .detail-panel,
+    .theme-light .flow-stage, .theme-light .card, .theme-light .detail-panel,
     .theme-light .flow-tile, .theme-light .mix-panel, .theme-light .planner-card {{
       box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.06);
     }}
@@ -2873,12 +2835,6 @@ def build_dashboard_html(
       font-weight: 620;
       white-space: nowrap;
     }}
-    .hero-grid {{
-      display: grid;
-      grid-template-columns: minmax(340px, 0.9fr) minmax(520px, 1.35fr);
-      gap: 16px;
-      align-items: stretch;
-    }}
     .quick-metrics {{
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2923,7 +2879,7 @@ def build_dashboard_html(
       overflow-wrap: anywhere;
     }}
     .quick-metric em {{ color: var(--muted); font-size: 13px; font-style: normal; line-height: 1.35; overflow-wrap: anywhere; }}
-    .hero-panel, .flow-stage, .card, .detail-panel {{
+    .flow-stage, .card, .detail-panel {{
       background: var(--panel);
       box-shadow: 0 1px 3px rgba(0,0,0,0.28), 0 0 0 1px rgba(255,255,255,0.05);
       border-radius: var(--radius);
@@ -2932,65 +2888,19 @@ def build_dashboard_html(
       background: var(--panel);
       border-radius: var(--radius);
     }}
-    .hero-panel {{
-      padding: 24px;
-      min-height: 240px;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-    }}
-    .status-hero {{ justify-content: space-between; gap: 22px; }}
-    .hero-copy {{ display: grid; gap: 8px; }}
-    .hero-status-line {{ display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }}
-    .hero-badges {{ display: flex; flex-wrap: wrap; gap: 8px; }}
-    .hero-next {{
-      display: inline-flex;
-      width: fit-content;
-      max-width: 100%;
-      padding: 8px 10px;
-      border-radius: 8px;
-      background: rgba(91, 141, 239, 0.1);
-      border: 1px solid rgba(91, 141, 239, 0.22);
-      color: var(--ink);
-      font-size: 13px;
-      font-weight: 650;
-      overflow-wrap: anywhere;
-    }}
     .hero-kicker {{ color: var(--solar); font-size: 12px; font-weight: 720; text-transform: uppercase; letter-spacing: 0.07em; }}
-    .hero-metrics {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }}
-    .hero-metric {{
-      min-width: 0;
-      padding: 12px;
-      border-radius: 8px;
-      background: var(--panel-2);
-      border: 1px solid var(--border);
+    .battery-overview {{
+      padding: 24px;
       display: grid;
-      gap: 4px;
+      gap: 18px;
     }}
-    .hero-metric span, .battery-stats span, .battery-outlook span {{ color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }}
-    .hero-metric strong, .battery-stats strong, .battery-outlook strong {{ color: var(--ink); font-size: 18px; line-height: 1.1; font-weight: 740; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }}
-    .hero-metric em, .battery-stats em, .battery-outlook em {{ color: var(--muted); font-size: 12px; font-style: normal; line-height: 1.35; overflow-wrap: anywhere; }}
-    .hero-recs {{ display: grid; grid-template-columns: 1fr; gap: 10px; }}
-    .hero-rec {{
-      min-width: 0;
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr);
-      grid-template-areas: "icon title" "icon text" "icon meta";
-      gap: 2px 10px;
-      padding: 12px;
-      border-radius: 8px;
-      background: rgba(106, 122, 153, 0.08);
-      border: 1px solid var(--border);
-    }}
-    .hero-rec span {{ grid-area: icon; display: grid; place-items: center; min-width: 36px; height: 36px; border-radius: 8px; background: var(--panel); color: var(--muted); font-size: 11px; font-weight: 780; }}
-    .hero-rec strong {{ grid-area: title; color: var(--ink); font-size: 13px; line-height: 1.25; overflow-wrap: anywhere; }}
-    .hero-rec p {{ grid-area: text; margin: 2px 0 0; color: var(--ink); font-size: 13px; line-height: 1.38; overflow-wrap: anywhere; }}
-    .hero-rec em {{ grid-area: meta; color: var(--muted); font-size: 12px; font-style: normal; overflow-wrap: anywhere; }}
+    .reserve-badges {{ display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }}
+    .battery-stats span, .battery-outlook span {{ color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }}
+    .battery-stats strong, .battery-outlook strong {{ color: var(--ink); font-size: 18px; line-height: 1.1; font-weight: 740; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }}
+    .battery-stats em, .battery-outlook em {{ color: var(--muted); font-size: 12px; font-style: normal; line-height: 1.35; overflow-wrap: anywhere; }}
     .rec-high {{ border-color: rgba(239, 94, 94, 0.34); }}
-    .hero-rec.rec-high {{ border-color: rgba(245, 168, 42, 0.24); background: rgba(245, 168, 42, 0.055); }}
-    .rec-watch, .hero-rec.rec-watch {{ border-color: rgba(245, 168, 42, 0.34); }}
-    .rec-good, .hero-rec.rec-good {{ border-color: rgba(58, 200, 122, 0.28); }}
-    .battery-panel {{ justify-content: flex-start; gap: 18px; }}
+    .rec-watch {{ border-color: rgba(245, 168, 42, 0.34); }}
+    .rec-good {{ border-color: rgba(58, 200, 122, 0.28); }}
     .battery-panel-head {{ display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }}
     .battery-command {{ grid-template-columns: 168px minmax(0, 1fr); gap: 18px; margin-top: 0; align-items: stretch; }}
     .battery-stats {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }}
@@ -3394,9 +3304,7 @@ def build_dashboard_html(
       .sidebar-brand {{ margin-bottom: 18px; }}
       .sidebar-nav {{ grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }}
       .sidebar-status {{ margin-top: 18px; }}
-      .hero-grid {{ grid-template-columns: 1fr; }}
       .quick-metrics {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
-      .hero-metrics {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .chart-grid, .planner-grid, .status-activity-grid, .mix-grid {{ grid-template-columns: 1fr; }}
       .flow-map {{ grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); column-gap: 10px; }}
       .flow-chain {{ grid-template-columns: 1fr; }}
@@ -3413,8 +3321,10 @@ def build_dashboard_html(
       main {{ padding: 20px 14px 36px; }}
       .topbar, .section-head, .flow-head {{ align-items: flex-start; flex-direction: column; }}
       .top-actions {{ justify-content: flex-start; }}
-      .hero-panel, .flow-stage {{ padding: 16px; }}
-      .quick-metrics, .hero-metrics, .hero-recs, .battery-stats, .battery-outlook, .flow-main-row, .flow-support-row {{ grid-template-columns: 1fr; }}
+      .battery-overview, .flow-stage {{ padding: 16px; }}
+      .battery-panel-head {{ flex-direction: column; }}
+      .reserve-badges {{ justify-content: flex-start; }}
+      .quick-metrics, .battery-stats, .battery-outlook, .flow-main-row, .flow-support-row {{ grid-template-columns: 1fr; }}
       .energy-map {{ min-height: auto; display: grid; gap: 10px; padding: 0; border: 0; background: transparent; }}
       .energy-lines {{ display: none; }}
       .energy-node, .energy-node.solar, .energy-node.inverter, .energy-node.battery, .energy-node.grid-source, .energy-node.load {{
@@ -3488,30 +3398,17 @@ def build_dashboard_html(
       {quick_metric_cards}
     </section>
 
-    <section class="hero-grid" aria-label="Home energy status">
-      <article class="hero-panel status-hero">
-        <div class="hero-copy">
-          <div class="hero-status-line">
-            <span class="label">Home Status</span>
-            <div class="hero-badges">
-              <span class="badge {esc(home_badge_class)}">Now: {esc(home_badge_label)}</span>
-              <span class="badge {esc(home_tonight_badge_class)}">Tonight: {esc(home_tonight_title)}</span>
-            </div>
-          </div>
-          <h2>{esc(str(assistant_summary.get("title", "")))}</h2>
-          <div class="hero-next">{esc(hero_next_action)}</div>
-        </div>
-        <div class="hero-recs" aria-label="Top recommendations">
-          {top_recommendations_html}
-        </div>
-      </article>
-      <article class="hero-panel battery-panel">
+    <section class="battery-overview card" aria-label="Battery reserve and overnight plan">
         <div class="battery-panel-head">
           <div>
             <div class="label">Battery Reserve</div>
             <div class="mode-value">{esc(soc)}</div>
           </div>
-          <span class="badge {esc(soc_health_class)}">{esc(soc_health)}</span>
+          <div class="reserve-badges">
+            <span class="badge {esc(home_badge_class)}">Now: {esc(home_badge_label)}</span>
+            <span class="badge {esc(home_tonight_badge_class)}">Tonight: {esc(home_tonight_title)}</span>
+            <span class="badge {esc(soc_health_class)}">{esc(soc_health)}</span>
+          </div>
         </div>
         <div class="soc-command battery-command">
           <div class="soc-ring" style="--soc:{soc_gauge_value:.0f}%">
@@ -3536,7 +3433,6 @@ def build_dashboard_html(
           <div><span>Tomorrow PV</span><strong>{esc(_tmr_str)}</strong><em>{esc(_forecast_short_str)}</em></div>
           <div><span>Weather context</span><strong>{esc(_weather_short_str)}</strong><em>{esc(_weather_reason_str)}</em></div>
         </div>
-      </article>
     </section>
 
     <section class="flow-stage" id="flow" aria-label="Live energy flow">
