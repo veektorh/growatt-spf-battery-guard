@@ -1968,6 +1968,49 @@ def build_dashboard_html(
       --crit: #EF5E5E;
       --radius: 10px;
     }}
+    .theme-light {{
+      color-scheme: light;
+      --bg: #f1f5f9;
+      --surface: #f8fafc;
+      --panel: #ffffff;
+      --panel-2: #f1f5f9;
+      --border: #e2e8f0;
+      --border-strong: #cbd5e1;
+      --ink: #111827;
+      --muted: #6b7280;
+      --soft: #9ca3af;
+      --solar: #b45309;
+      --battery: #047857;
+      --grid-c: #1d4ed8;
+      --load-c: #b91c1c;
+      --accent: #2563eb;
+      --accent-soft: #eff6ff;
+      --good: #047857;
+      --warn: #b45309;
+      --crit: #b91c1c;
+    }}
+    .theme-light .badge-ok {{ background: #ecfdf5; color: #065f46; border-color: #6ee7b7; }}
+    .theme-light .badge-warn {{ background: #fffbeb; color: #92400e; border-color: #fcd34d; }}
+    .theme-light .badge-fail {{ background: #fef2f2; color: #991b1b; border-color: #fca5a5; }}
+    .theme-light .flow-tile {{ background: var(--panel-2); }}
+    .theme-light .quick-stat {{ background: var(--panel-2); }}
+    .theme-light .mix-panel {{ background: var(--panel-2); }}
+    .theme-light .soc-ring {{ background: var(--panel-2); }}
+    .theme-light th {{ background: var(--panel-2); }}
+    .theme-toggle {{
+      cursor: pointer;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--panel);
+      color: var(--muted);
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 680;
+      font-family: inherit;
+      min-height: 32px;
+      white-space: nowrap;
+    }}
+    .theme-toggle:hover {{ color: var(--ink); border-color: var(--border-strong); }}
     * {{ box-sizing: border-box; }}
     html {{ scroll-behavior: smooth; }}
     body {{
@@ -2075,10 +2118,10 @@ def build_dashboard_html(
     }}
     .hero-panel {{
       padding: 24px;
-      min-height: 360px;
+      min-height: 240px;
       display: flex;
       flex-direction: column;
-      justify-content: space-between;
+      justify-content: center;
     }}
     .hero-copy {{ display: grid; gap: 8px; }}
     .hero-kicker {{ color: var(--solar); font-size: 12px; font-weight: 720; text-transform: uppercase; letter-spacing: 0.07em; }}
@@ -2115,7 +2158,7 @@ def build_dashboard_html(
     }}
     .quick-stat b {{ display: block; font-size: 20px; line-height: 1.1; overflow-wrap: anywhere; font-weight: 720; font-variant-numeric: tabular-nums; color: var(--ink); }}
     .quick-stat span {{ display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }}
-    .flow-stage {{ padding: 24px; min-height: 360px; }}
+    .flow-stage {{ padding: 24px; min-height: 240px; }}
     .section-head, .flow-head {{ display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin: 40px 0 16px; }}
     .section-head h2, .flow-head h2 {{ margin: 0; }}
     .flow-map {{
@@ -2126,10 +2169,10 @@ def build_dashboard_html(
       min-height: 260px;
     }}
     .flow-tile {{
-      min-height: 144px;
+      min-height: 104px;
       border: 1px solid var(--border);
       border-radius: 10px;
-      padding: 16px;
+      padding: 14px 16px;
       background: var(--panel-2);
       display: grid;
       align-content: space-between;
@@ -2146,7 +2189,7 @@ def build_dashboard_html(
     .flow-tile.load .flow-value {{ color: var(--load-c); }}
     .flow-tile.solar, .flow-tile.grid-source, .flow-tile.inverter, .flow-tile.battery, .flow-tile.load {{ grid-column: auto; grid-row: auto; }}
     .flow-label {{ color: var(--muted); font-size: 12px; font-weight: 680; text-transform: uppercase; letter-spacing: 0.06em; }}
-    .flow-value {{ font-size: 26px; font-weight: 740; line-height: 1.05; margin-top: 8px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }}
+    .flow-value {{ font-size: 22px; font-weight: 740; line-height: 1.05; margin-top: 6px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }}
     .flow-detail {{ color: var(--muted); font-size: 13px; margin-top: 8px; }}
     .connector {{ display: none; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 16px; }}
@@ -2353,6 +2396,7 @@ def build_dashboard_html(
         <span class="pill">Mode: {esc(mode)}</span>
         <span class="pill">SOC: {esc(soc)}</span>
         <span class="pill">Refresh: 5min</span>
+        <button class="theme-toggle" id="theme-toggle-btn" onclick="toggleDashTheme()">Light</button>
       </div>
     </header>
     {skip_all_banner}
@@ -2363,11 +2407,6 @@ def build_dashboard_html(
 
     <section class="hero-grid" id="flow">
       <section class="hero-panel" aria-label="Battery command status">
-        <div class="hero-copy">
-          <div class="hero-kicker">Command status</div>
-          <h2>Battery and mode</h2>
-          <div class="hero-subtitle">SOC, inverter mode, load pressure, and sunrise survival in one glance.</div>
-        </div>
         <div class="soc-command">
           <div class="soc-ring">
             <div class="soc-core">
@@ -2381,13 +2420,8 @@ def build_dashboard_html(
               <span class="badge {esc(mode_badge_class)}">{esc(mode)}</span>
             </div>
             <div class="mode-value">{esc(bat_status)}</div>
-            <div class="muted">Battery flow is {esc(battery_flow_display)} {esc(battery_flow_dir)}. Load is {esc(load_power_display)} at {esc(load_pct)} inverter load.</div>
+            <div class="muted small">Battery: {esc(battery_flow_display)} {esc(battery_flow_dir)} &middot; Load: {esc(load_power_display)} ({esc(load_pct)} inverter load) &middot; PV covering load: {esc(pv_cover_display)}</div>
           </div>
-        </div>
-        <div class="quick-stats">
-          <div class="quick-stat"><b>{esc(pv_cover_display)}</b><span>solar covering live load</span></div>
-          <div class="quick-stat"><b>{esc(grid_reliance_display)}</b><span>grid reliance today</span></div>
-          <div class="quick-stat"><b>{esc(tonight_projection_display)}</b><span>projected sunrise SOC</span></div>
         </div>
       </section>
 
@@ -2445,6 +2479,24 @@ def build_dashboard_html(
         </div>
       </section>
     </section>
+
+    <section class="chart-grid today-charts" aria-label="Today trends">
+      <div class="card chart-card">
+        <div class="label">Power Today</div>
+        <canvas id="power-trend-chart"></canvas>
+        <div class="legend">
+          <span style="--c:#F5A82A">PV</span>
+          <span style="--c:#EF6F6F">Load</span>
+          <span style="--c:#5B8DEF">Grid</span>
+        </div>
+      </div>
+      <div class="card chart-card compact">
+        <div class="label">Battery SOC Today</div>
+        <canvas id="soc-trend-chart"></canvas>
+        <div class="legend"><span style="--c:#35C4A0">SOC</span></div>
+      </div>
+    </section>
+
     <div class="section-head" id="insights">
       <div>
         <h2>Energy Insights</h2>
@@ -2570,20 +2622,6 @@ def build_dashboard_html(
 
     <h2 id="trends">Energy Trends</h2>
     <section class="chart-grid">
-      <div class="card chart-card">
-        <div class="label">Power Today</div>
-        <canvas id="power-trend-chart"></canvas>
-        <div class="legend">
-          <span style="--c:#F5A82A">PV</span>
-          <span style="--c:#EF6F6F">Load</span>
-          <span style="--c:#5B8DEF">Grid</span>
-        </div>
-      </div>
-      <div class="card chart-card compact">
-        <div class="label">Battery SOC</div>
-        <canvas id="soc-trend-chart"></canvas>
-        <div class="legend"><span style="--c:#35C4A0">SOC</span></div>
-      </div>
       <div class="card chart-card compact">
         <div class="label">7-Day Battery Energy</div>
         <canvas id="battery-energy-chart"></canvas>
@@ -2881,6 +2919,22 @@ def build_dashboard_html(
 
       updateRefreshHealth();
       window.setInterval(updateRefreshHealth, 30000);
+    }})();
+    function toggleDashTheme() {{
+      const html = document.documentElement;
+      const btn = document.getElementById('theme-toggle-btn');
+      const isLight = html.classList.toggle('theme-light');
+      try {{ localStorage.setItem('dash-theme', isLight ? 'light' : 'dark'); }} catch(e) {{}}
+      if (btn) btn.textContent = isLight ? 'Dark' : 'Light';
+    }}
+    (function() {{
+      try {{
+        if (localStorage.getItem('dash-theme') === 'light') {{
+          document.documentElement.classList.add('theme-light');
+          const btn = document.getElementById('theme-toggle-btn');
+          if (btn) btn.textContent = 'Dark';
+        }}
+      }} catch(e) {{}}
     }})();
   </script>
 </body>

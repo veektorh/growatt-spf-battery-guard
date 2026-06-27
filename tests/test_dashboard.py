@@ -101,7 +101,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("mix-grid", html)
         self.assertIn("Where energy came from", html)
         self.assertIn("Local solar dashboard", html)
-        self.assertIn("Command status", html)
+        self.assertIn("Battery command status", html)
         self.assertIn("Tonight Planner", html)
         self.assertIn("Metric source paths", html)
         self.assertIn("Projected Sunrise SOC", html)
