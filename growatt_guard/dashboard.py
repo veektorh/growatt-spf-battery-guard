@@ -51,7 +51,7 @@ from growatt_guard.schedule import (
     validate_schedule,
     validate_schedule_overrides,
 )
-from growatt_guard.weather import choose_preserve_threshold, hours_until_next_sunrise
+from growatt_guard.weather import choose_preserve_threshold, get_pv_forecast, hours_until_next_sunrise
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -530,6 +530,7 @@ def _build_pace_item(
     label: str,
     unit: str,
     lower_is_better: bool = False,
+    now: dt.datetime | None = None,
 ) -> dict[str, Any]:
     current = live_metrics.get(key)
     if not isinstance(current, (int, float)):
@@ -596,14 +597,67 @@ def _build_pace_item(
             level = "ok"
             title = "Normal"
 
-    delta_text = ""
-    if delta_pct is not None:
-        delta_text = f", {delta_pct:+.0f}%"
-    detail = (
-        f"{_fmt_insight_value(float(current), unit)} vs "
-        f"{_fmt_insight_value(baseline, unit)} same-time average "
-        f"({sample_count} days{delta_text})."
-    )
+    _now = now or dt.datetime.now()
+    abs_pct = abs(delta_pct) if delta_pct is not None else None
+
+    # Linear projection to end-of-day (6am–6pm window; skip if unit != kWh or >95% through day)
+    _day_fraction = max(0.08, min(1.0, (_now.hour + _now.minute / 60 - 6.0) / 12.0))
+    _can_project = unit == "kWh" and _day_fraction < 0.95 and float(current) >= 0
+
+    def _proj() -> str:
+        proj = float(current) / _day_fraction
+        return f"~{proj:.1f} kWh"
+
+    n = sample_count
+
+    if key == "pv_today_kwh":
+        if level == "good":
+            detail = f"↑ {abs_pct:.0f}% above your {n}-day average."
+            if _can_project:
+                detail += f" On track for {_proj()} today."
+        elif level == "watch":
+            detail = f"↓ {abs_pct:.0f}% below your {n}-day average."
+            if _can_project:
+                detail += f" Could finish around {_proj()}."
+        else:
+            detail = f"Tracking your {n}-day average."
+            if _can_project:
+                detail += f" {_proj()} expected today."
+
+    elif key == "load_today_kwh":
+        if level == "watch":
+            detail = f"↑ {abs_pct:.0f}% above your typical load — consumption running high."
+        elif level == "good":
+            detail = f"↓ {abs_pct:.0f}% below your typical load — efficient day so far."
+        else:
+            detail = f"Load tracking your {n}-day average."
+
+    elif key == "grid_today_kwh":
+        if float(current) < 0.05:
+            detail = "Zero grid import — running entirely on solar."
+        elif level == "watch":
+            detail = f"↑ {abs_pct:.0f}% more grid than usual — solar may not be covering full load."
+        elif level == "good":
+            detail = f"↓ {abs_pct:.0f}% less grid than usual — solar covering well."
+        else:
+            detail = f"Grid usage tracking your {n}-day average."
+
+    elif key == "soc":
+        delta_abs = abs(round(float(current) - baseline))
+        if level == "good":
+            detail = f"Battery {delta_abs}% ahead of your {n}-day average for this time."
+        elif level == "watch":
+            detail = f"Battery {delta_abs}% below your typical position — worth watching tonight."
+        else:
+            detail = f"Battery tracking your {n}-day position."
+
+    else:
+        # Fallback for any future metrics
+        if delta_pct is not None:
+            arrow = "↑" if delta > 0 else "↓"
+            detail = f"{arrow} {abs_pct:.0f}% vs your {n}-day average."
+        else:
+            detail = f"Tracking your {n}-day average."
     return {
         "key": key,
         "label": label,
@@ -626,10 +680,10 @@ def build_dashboard_daily_insights(
     now = now or dt.datetime.now()
     baseline_rows = _same_time_baseline_rows(history, now)
     items = [
-        _build_pace_item(live_metrics, baseline_rows, "pv_today_kwh", "PV pace", "kWh"),
-        _build_pace_item(live_metrics, baseline_rows, "load_today_kwh", "Load pace", "kWh", lower_is_better=True),
-        _build_pace_item(live_metrics, baseline_rows, "grid_today_kwh", "Grid pace", "kWh", lower_is_better=True),
-        _build_pace_item(live_metrics, baseline_rows, "soc", "SOC position", "%"),
+        _build_pace_item(live_metrics, baseline_rows, "pv_today_kwh", "PV pace", "kWh", now=now),
+        _build_pace_item(live_metrics, baseline_rows, "load_today_kwh", "Load pace", "kWh", lower_is_better=True, now=now),
+        _build_pace_item(live_metrics, baseline_rows, "grid_today_kwh", "Grid pace", "kWh", lower_is_better=True, now=now),
+        _build_pace_item(live_metrics, baseline_rows, "soc", "SOC position", "%", now=now),
     ]
     levels = {str(item.get("level")) for item in items}
     if "watch" in levels:
@@ -1481,6 +1535,7 @@ def build_dashboard_html(
     tonight_floor_soc: float = 35.0,
     tonight_comfortable_soc: float = 45.0,
     utility_hold_state: dict[str, Any] | None = None,
+    pv_forecast: dict[str, Any] | None = None,
 ) -> str:
     now = dt.datetime.now()
     generated_at = now.astimezone()
@@ -1726,6 +1781,33 @@ def build_dashboard_html(
         f'<div class="rec-item"><span class="rec-icon">{esc(r["icon"])}</span><span>{esc(r["text"])}</span></div>'
         for r in recommendations
     )
+    if pv_forecast:
+        _tmr = pv_forecast.get("tomorrow_kwh")
+        _rem = pv_forecast.get("today_remaining_kwh")
+        _kwp = pv_forecast.get("panel_kwp", 0)
+        _tmr_str = f"{_tmr:.1f} kWh" if isinstance(_tmr, (int, float)) else "--"
+        _rem_str = f"{_rem:.1f} kWh" if isinstance(_rem, (int, float)) else "--"
+        pv_forecast_html = f"""
+    <div class="section-head" id="forecast">
+      <div>
+        <h2>Solar Forecast</h2>
+        <div class="muted">Expected PV generation from Open-Meteo irradiance · {esc(f'{_kwp:g}')} kWp system.</div>
+      </div>
+    </div>
+    <section class="grid ops-grid" aria-label="Solar forecast">
+      <div class="card">
+        <div class="label">Tomorrow</div>
+        <div class="value">{esc(_tmr_str)}</div>
+        <div class="muted small">Forecast from overnight irradiance data.</div>
+      </div>
+      <div class="card">
+        <div class="label">Today Remaining</div>
+        <div class="value">{esc(_rem_str)}</div>
+        <div class="muted small">Expected generation from now until sunset.</div>
+      </div>
+    </section>"""
+    else:
+        pv_forecast_html = ""
     quality_badge_class = _status_badge_class(str(data_quality.get("level", "unknown")))
     quality_title = str(data_quality.get("title", "Unknown"))
     quality_score = data_quality.get("score")
@@ -2308,7 +2390,8 @@ def build_dashboard_html(
     .status-activity-grid {{ display: grid; grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr); gap: 12px; margin-top: 12px; }}
     .card {{ padding: 16px; }}
     .metric-card {{ min-height: 148px; display: grid; align-content: space-between; gap: 12px; }}
-    .insight-card {{ min-height: 132px; display: grid; align-content: space-between; gap: 8px; }}
+    .insight-card {{ min-height: 120px; display: grid; align-content: space-between; gap: 8px; }}
+    .insight-card .muted.small {{ font-size: 13px; line-height: 1.5; }}
     .metric-head {{ display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }}
     .metric-meter {{ height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }}
     .metric-meter span {{ display: block; height: 100%; max-width: 100%; background: var(--accent); border-radius: inherit; }}
@@ -2456,6 +2539,7 @@ def build_dashboard_html(
       <a href="#insights">Energy Insights</a>
       <a href="#daily">Daily Energy</a>
       <a href="#planner">Tonight Planner</a>
+      <a href="#forecast">Forecast</a>
       <a href="#recommendations">Recommendations</a>
       <a href="#automation">Automation</a>
       <a href="#trends">Trends</a>
@@ -2607,6 +2691,8 @@ def build_dashboard_html(
         <div class="muted small">{esc(threshold_decision.reason)}</div>
       </div>
     </section>
+
+    {pv_forecast_html}
 
     <div class="section-head" id="recommendations">
       <div>
@@ -3160,6 +3246,7 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
         tonight_floor_soc=getattr(config, "auto_topup_sunrise_floor_soc", 35.0),
         tonight_comfortable_soc=45.0,
         utility_hold_state=read_utility_hold_state(),
+        pv_forecast=get_pv_forecast(config),
     )
     # Atomic write: temp file in same directory then rename to avoid serving
     # a partially written file when the browser auto-refreshes mid-write.

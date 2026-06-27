@@ -289,6 +289,74 @@ def get_tomorrow_solar_kwh_m2(config: Any, now: dt.datetime | None = None) -> fl
     return total_wh_m2 / 1000.0 if found else None
 
 
+def get_today_remaining_solar_kwh_m2(config: Any, now: dt.datetime | None = None) -> float | None:
+    """Return forecasted remaining solar irradiance (kWh/m²) for the rest of today.
+
+    Sums hourly shortwave_radiation values from Open-Meteo for today's date,
+    from the current hour onward. Returns None if unavailable.
+    """
+    if not getattr(config, "weather_lat", None) or not getattr(config, "weather_lon", None):
+        return None
+    try:
+        forecast = fetch_weather_forecast(config)
+    except Exception as exc:  # noqa: BLE001
+        logging.debug("Solar forecast unavailable: %s", exc)
+        return None
+
+    hourly = forecast.get("hourly", {})
+    times = hourly.get("time", [])
+    radiation = hourly.get("shortwave_radiation", [])
+    if not times or not radiation:
+        return None
+
+    _now = now or dt.datetime.now()
+    today = _now.date()
+
+    total_wh_m2 = 0.0
+    found = False
+    for index, time_value in enumerate(times):
+        if index >= len(radiation) or radiation[index] is None:
+            continue
+        forecast_time = parse_forecast_time(str(time_value))
+        if forecast_time.date() == today and forecast_time >= _now:
+            total_wh_m2 += float(radiation[index])
+            found = True
+
+    return total_wh_m2 / 1000.0 if found else None
+
+
+def get_pv_forecast(config: Any, now: dt.datetime | None = None) -> dict[str, Any] | None:
+    """Return a PV generation forecast dict using Open-Meteo irradiance + panel config.
+
+    Returns None if panel_kwp is not configured or weather coordinates are missing.
+    Keys: tomorrow_kwh (float), today_remaining_kwh (float | None), panel_kwp (float).
+    """
+    panel_kwp = getattr(config, "panel_kwp", 0.0) or 0.0
+    if panel_kwp <= 0:
+        return None
+    if not getattr(config, "weather_lat", None) or not getattr(config, "weather_lon", None):
+        return None
+
+    pr = float(getattr(config, "panel_performance_ratio", 0.75) or 0.75)
+    _now = now or dt.datetime.now()
+
+    ghi_tomorrow = get_tomorrow_solar_kwh_m2(config, now=_now)
+    if ghi_tomorrow is None:
+        return None
+
+    ghi_today_remaining = get_today_remaining_solar_kwh_m2(config, now=_now)
+
+    tomorrow_kwh = round(ghi_tomorrow * panel_kwp * pr, 1)
+    today_remaining_kwh = round(ghi_today_remaining * panel_kwp * pr, 1) if ghi_today_remaining is not None else None
+
+    return {
+        "tomorrow_kwh": tomorrow_kwh,
+        "today_remaining_kwh": today_remaining_kwh,
+        "panel_kwp": panel_kwp,
+        "performance_ratio": pr,
+    }
+
+
 def analyze_weather_window(config: Any, forecast: dict[str, Any]) -> ThresholdDecision:
     hourly = forecast.get("hourly", {})
     times = hourly.get("time", [])

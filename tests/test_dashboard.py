@@ -246,7 +246,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(items["grid_today_kwh"]["level"], "good")
         self.assertEqual(items["soc"]["level"], "good")
         self.assertEqual(items["pv_today_kwh"]["baseline"], 1.1)
-        self.assertIn("same-time average", items["pv_today_kwh"]["detail"])
+        self.assertIn("above your", items["pv_today_kwh"]["detail"])
 
     def test_dashboard_topup_estimate_shows_short_topup_skip(self):
         status = {

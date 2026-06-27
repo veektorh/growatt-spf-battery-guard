@@ -76,6 +76,8 @@ class Config:
     auto_topup_sunrise_floor_soc: float = 35.0
     auto_topup_sunrise_buffer_soc: float = 38.0
     auto_topup_unusual_soc_threshold: float = 70.0
+    panel_kwp: float = 0.0
+    panel_performance_ratio: float = 0.75
 
 
 def app_module() -> Any:
@@ -218,4 +220,6 @@ def load_config() -> Config:
         auto_topup_sunrise_floor_soc=float(env("AUTO_TOPUP_SUNRISE_FLOOR_SOC", "35")),
         auto_topup_sunrise_buffer_soc=float(env("AUTO_TOPUP_SUNRISE_BUFFER_SOC", "38")),
         auto_topup_unusual_soc_threshold=float(env("AUTO_TOPUP_UNUSUAL_SOC_THRESHOLD", "70")),
+        panel_kwp=float(env("PANEL_KWP", "0")),
+        panel_performance_ratio=float(env("PANEL_PERFORMANCE_RATIO", "0.75")),
     )
