@@ -409,6 +409,12 @@ def _fmt_pct(value: float | None) -> str:
     return "--" if value is None else f"{value:.0f}%"
 
 
+def _fmt_g(value: Any, suffix: str = "") -> str:
+    if not isinstance(value, (int, float)):
+        return "--"
+    return f"{value:g}{suffix}"
+
+
 def _fmt_volts(value: float | None) -> str:
     return "--" if value is None else f"{value:g} V"
 
@@ -611,14 +617,24 @@ def _build_pace_item(
         return f"~{proj:.1f} kWh"
 
     n = sample_count
+    above_average = (
+        f"{abs_pct:.0f}% above your {n}-day average"
+        if abs_pct is not None
+        else f"above your {n}-day zero average"
+    )
+    below_average = (
+        f"{abs_pct:.0f}% below your {n}-day average"
+        if abs_pct is not None
+        else f"below your {n}-day zero average"
+    )
 
     if key == "pv_today_kwh":
         if level == "good":
-            detail = f"↑ {abs_pct:.0f}% above your {n}-day average."
+            detail = f"↑ {above_average}."
             if _can_project:
                 detail += f" On track for {_proj()} today."
         elif level == "watch":
-            detail = f"↓ {abs_pct:.0f}% below your {n}-day average."
+            detail = f"↓ {below_average}."
             if _can_project:
                 detail += f" Could finish around {_proj()}."
         else:
@@ -628,9 +644,19 @@ def _build_pace_item(
 
     elif key == "load_today_kwh":
         if level == "watch":
-            detail = f"↑ {abs_pct:.0f}% above your typical load — consumption running high."
+            load_change = (
+                f"{abs_pct:.0f}% above your typical load"
+                if abs_pct is not None
+                else "above your usual zero load baseline"
+            )
+            detail = f"↑ {load_change} — consumption running high."
         elif level == "good":
-            detail = f"↓ {abs_pct:.0f}% below your typical load — efficient day so far."
+            load_change = (
+                f"{abs_pct:.0f}% below your typical load"
+                if abs_pct is not None
+                else "below your usual zero load baseline"
+            )
+            detail = f"↓ {load_change} — efficient day so far."
         else:
             detail = f"Load tracking your {n}-day average."
 
@@ -638,9 +664,19 @@ def _build_pace_item(
         if float(current) < 0.05:
             detail = "Zero grid import — running entirely on solar."
         elif level == "watch":
-            detail = f"↑ {abs_pct:.0f}% more grid than usual — solar may not be covering full load."
+            grid_change = (
+                f"{abs_pct:.0f}% more grid than usual"
+                if abs_pct is not None
+                else "more grid than your usual zero baseline"
+            )
+            detail = f"↑ {grid_change} — solar may not be covering full load."
         elif level == "good":
-            detail = f"↓ {abs_pct:.0f}% less grid than usual — solar covering well."
+            grid_change = (
+                f"{abs_pct:.0f}% less grid than usual"
+                if abs_pct is not None
+                else "less grid than your usual zero baseline"
+            )
+            detail = f"↓ {grid_change} — solar covering well."
         else:
             detail = f"Grid usage tracking your {n}-day average."
 
@@ -659,7 +695,7 @@ def _build_pace_item(
             arrow = "↑" if delta > 0 else "↓"
             detail = f"{arrow} {abs_pct:.0f}% vs your {n}-day average."
         else:
-            detail = f"Tracking your {n}-day average."
+            detail = f"Changed from your {n}-day zero average."
     return {
         "key": key,
         "label": label,
@@ -2238,6 +2274,8 @@ def build_dashboard_html(
         battery_capacity_wh,
         battery_charge_rate_w,
     )
+    threshold_display = _fmt_g(getattr(threshold_decision, "threshold", None), "%")
+    threshold_reason = str(getattr(threshold_decision, "reason", "") or "Weather signal is unavailable.")
     home_status = build_dashboard_home_status(
         live_metrics,
         mode,
@@ -2276,11 +2314,12 @@ def build_dashboard_html(
         _kwp = pv_forecast.get("panel_kwp", 0)
         _tmr_str = f"{_tmr:.1f} kWh" if isinstance(_tmr, (int, float)) else "--"
         _rem_str = f"{_rem:.1f} kWh" if isinstance(_rem, (int, float)) else "--"
+        _kwp_str = _fmt_g(_kwp)
         pv_forecast_html = f"""
     <div class="section-head" id="forecast">
       <div>
         <h2>Solar Forecast</h2>
-        <div class="muted">Expected PV generation from Open-Meteo irradiance · {esc(f'{_kwp:g}')} kWp system.</div>
+        <div class="muted">Expected PV generation from Open-Meteo irradiance · {esc(_kwp_str)} kWp system.</div>
       </div>
     </div>
     <section class="grid ops-grid" aria-label="Solar forecast">
@@ -2312,7 +2351,7 @@ def build_dashboard_html(
     )
     _weather_str = str(energy_outlook.get("weather", "not configured"))
     _weather_short_str = _weather_str.split(" (", 1)[0]
-    _weather_reason_str = str(getattr(threshold_decision, "reason", "") or "Weather signal is unavailable.")
+    _weather_reason_str = threshold_reason
     _kwp = pv_forecast.get("panel_kwp", 0) if pv_forecast else 0
     _weather_category = str(getattr(threshold_decision, "weather_category", "") or "").strip().lower()
     _has_weather_signal = _weather_category not in {"", "disabled", "unavailable", "not configured", "unknown"}
@@ -3557,8 +3596,8 @@ def build_dashboard_html(
       </div>
       <div class="planner-card">
         <div class="label">Preserve Threshold</div>
-        <div class="value">{esc(f'{threshold_decision.threshold:g}%')}</div>
-        <div class="muted small">{esc(threshold_decision.reason)}</div>
+        <div class="value">{esc(threshold_display)}</div>
+        <div class="muted small">{esc(threshold_reason)}</div>
       </div>
     </section>
 
@@ -3703,7 +3742,7 @@ def build_dashboard_html(
       <details class="detail-panel">
         <summary><span>Automation Notes</span><span class="summary-meta">context</span></summary>
         <div class="card">
-          <div>Threshold: {esc(threshold_decision.reason)}</div>
+          <div>Threshold: {esc(threshold_reason)}</div>
           <div>Skipped today: {esc(skipped or 'none')}</div>
         </div>
       </details>

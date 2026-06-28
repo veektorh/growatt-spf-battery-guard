@@ -185,6 +185,40 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(json_asset[1], "application/json; charset=utf-8")
         self.assertEqual(json.loads(json_asset[2])["schema_version"], 1)
 
+    def test_dashboard_html_tolerates_missing_optional_forecast_values(self):
+        class PartialThreshold:
+            threshold = None
+            reason = ""
+            weather_category = ""
+
+        status = {
+            "device": {"capacity": "50%"},
+            "storage_params": {
+                "storageBean": {"outputConfig": "0", "pPv1": 700, "pPv2": 500, "outPutPower": 900},
+                "storageDetailBean": {"bmsSoc": 50},
+            },
+        }
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+        pv_forecast = {"tomorrow_kwh": None, "today_remaining_kwh": None, "panel_kwp": None}
+
+        with patch("growatt_guard.dashboard.read_pause_state", return_value=None), patch(
+            "growatt_guard.dashboard.read_battery_alert_state", return_value=None
+        ), patch("growatt_guard.dashboard.read_growatt_cloud_failure_state", return_value=None), patch(
+            "growatt_guard.dashboard.read_pvoutput_state", return_value=None
+        ), patch("growatt_guard.dashboard.read_mode_audit_rows", return_value=[]):
+            html = build_dashboard_html(
+                status,
+                schedule,
+                {"dates": {}},
+                PartialThreshold(),
+                metrics_history=[],
+                pv_forecast=pv_forecast,
+            )
+
+        self.assertIn("Preserve Threshold", html)
+        self.assertIn("Weather signal is unavailable.", html)
+        self.assertIn("Set PANEL_KWP", html)
+
     def test_dashboard_next_action_finds_upcoming_job(self):
         schedule = {
             "timezone": "Africa/Lagos",
@@ -279,6 +313,25 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(items["soc"]["level"], "good")
         self.assertEqual(items["pv_today_kwh"]["baseline"], 1.1)
         self.assertIn("above your", items["pv_today_kwh"]["detail"])
+
+    def test_dashboard_daily_insights_handles_zero_baseline(self):
+        now = dt.datetime(2026, 6, 25, 9, 0)
+        live = {
+            "timestamp": now.isoformat(),
+            "pv_today_kwh": 1.2,
+        }
+        history = [
+            {"timestamp": "2026-06-23T08:55:00", "pv_today_kwh": 0.0},
+            {"timestamp": "2026-06-24T08:50:00", "pv_today_kwh": 0.0},
+        ]
+
+        insights = build_dashboard_daily_insights(live, history, now=now)
+        pv_item = next(item for item in insights["items"] if item["key"] == "pv_today_kwh")
+
+        self.assertEqual(pv_item["level"], "good")
+        self.assertEqual(pv_item["baseline"], 0.0)
+        self.assertIsNone(pv_item["delta_pct"])
+        self.assertIn("zero average", pv_item["detail"])
 
     def test_dashboard_topup_estimate_shows_short_topup_skip(self):
         status = {

@@ -1380,7 +1380,8 @@ def _pv_can_cover_load(status: dict) -> tuple[float, float, bool]:
     from growatt_guard.growatt_api import extract_channel_metric_sum, parse_number, extract_first_metric
     from growatt_guard.growatt_api import PV_POWER_CHANNELS
 
-    pv_w = extract_channel_metric_sum(status, PV_POWER_CHANNELS)
+    pv_result = extract_channel_metric_sum(status, PV_POWER_CHANNELS)
+    pv_w = pv_result[0] if pv_result is not None else None
     if pv_w is None:
         pv_w = 0.0
 

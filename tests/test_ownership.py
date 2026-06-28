@@ -139,6 +139,27 @@ class TestWasteAlertState(unittest.TestCase):
         self.assertTrue(waste_alert_is_due(cooldown_minutes=30.0))
 
 
+class TestWasteAlertMetrics(unittest.TestCase):
+    def test_pv_can_cover_load_unpacks_channel_sum(self):
+        from growatt_guard.modes import _pv_can_cover_load
+
+        status = {
+            "storage_params": {
+                "storageBean": {
+                    "pPv1": 700,
+                    "pPv2": 500,
+                    "outPutPower": 900,
+                }
+            }
+        }
+
+        pv_w, load_w, can_cover = _pv_can_cover_load(status)
+
+        self.assertEqual(pv_w, 1200.0)
+        self.assertEqual(load_w, 900.0)
+        self.assertTrue(can_cover)
+
+
 # ---------------------------------------------------------------------------
 # Projected sunrise SOC helper tests
 # ---------------------------------------------------------------------------
