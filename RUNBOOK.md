@@ -15,7 +15,8 @@
 */20 22-23,0-2   start night auto-topup only if needed
 */10 22-23,0-6   complete an expired auto-topup and return to SBU
 21:10 Sundays     post weekly performance summary
-00:10 daily       rotate old generated logs/probes
+00:10 daily       prune old generated probe/temp files
+00:20 monthly     prune audit CSV rows older than retention
 ```
 
 ## Key Commands
@@ -154,6 +155,13 @@ Expected jobs:
 tail -n 120 ~/automation/logs/growatt_power_guard.log
 tail -n 120 ~/automation/logs/cron.log
 tail -n 40 ~/automation/logs/mode_decisions.csv
+```
+
+growatt_power_guard.log rotates automatically by size. Install cron.log rotation on Linux with:
+
+```bash
+cd ~/automation
+sudo ./install_logrotate.sh
 ```
 
 Success response:

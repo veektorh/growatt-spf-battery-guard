@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import logging
-from pathlib import Path
-
 from growatt_guard.audit import (
     MODE_AUDIT_FILE,
     append_mode_audit,
@@ -14,10 +11,15 @@ from growatt_guard.audit import (
     summarize_today_log_counts,
 )
 from growatt_guard.cli import (
+    LOG_BACKUP_COUNT,
+    LOG_DIR,
+    LOG_FILE,
+    LOG_MAX_BYTES,
     build_parser,
     dispatch_command,
     main,
     parse_command_tokens,
+    setup_logging,
 )
 from growatt_guard.config import (
     Config,
@@ -199,32 +201,8 @@ from growatt_guard.weather import (
     fetch_weather_forecast,
 )
 
-BASE_DIR = Path(__file__).resolve().parent
-LOG_DIR = BASE_DIR / "logs"
-LOG_FILE = LOG_DIR / "growatt_power_guard.log"
-
 PAUSABLE_COMMANDS = {"preserve-battery", "utility-check", "morning-check", "return-sbu", "watchdog-sbu"}
 LOCKED_COMMANDS = PAUSABLE_COMMANDS | {"force-utility", "adopt-utility"}
-
-
-def setup_logging(verbose: bool) -> None:
-    LOG_DIR.mkdir(exist_ok=True)
-    level = logging.DEBUG if verbose else logging.INFO
-    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-
-    root = logging.getLogger()
-    root.setLevel(level)
-    root.handlers.clear()
-
-    file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
-    file_handler.setFormatter(formatter)
-    file_handler.setLevel(level)
-    root.addHandler(file_handler)
-
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
-    console_handler.setLevel(level)
-    root.addHandler(console_handler)
 
 
 if __name__ == "__main__":

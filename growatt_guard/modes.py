@@ -102,6 +102,18 @@ from growatt_guard.weather import apply_load_adjustment, choose_preserve_thresho
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 LOG_DIR = BASE_DIR / "logs"
+ROTATE_LOG_PROTECTED_FILES = {
+    "cron.log",
+    "dashboard_metrics.jsonl",
+    "growatt_power_guard.log",
+    "mode_decisions.csv",
+}
+ROTATE_LOG_GENERATED_PATTERNS = (
+    "growatt-probe-*.json",
+    ".dashboard_metrics_*.jsonl",
+    ".dash_tmp_*.json",
+    ".dash_tmp_*.html",
+)
 
 _TOPUP_EXPIRY_BUFFER_FACTOR = 1.2  # max_expiry = eta * 1.2
 _TOPUP_EXPIRY_BUFFER_MIN_MINUTES = 15.0  # minimum buffer added to ETA
@@ -720,10 +732,11 @@ def command_rotate_logs(config: Config) -> int:
     cutoff = dt.datetime.now() - dt.timedelta(days=config.log_retention_days)
     removed = 0
     LOG_DIR.mkdir(exist_ok=True)
-    for path in LOG_DIR.iterdir():
-        if not path.is_file():
-            continue
-        if path.name in {"growatt_power_guard.log", "cron.log"}:
+    candidates: set[Path] = set()
+    for pattern in ROTATE_LOG_GENERATED_PATTERNS:
+        candidates.update(LOG_DIR.glob(pattern))
+    for path in candidates:
+        if not path.is_file() or path.name in ROTATE_LOG_PROTECTED_FILES:
             continue
         if path.stat().st_mtime < cutoff.timestamp():
             path.unlink()

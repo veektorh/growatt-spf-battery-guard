@@ -1,4 +1,6 @@
 import datetime as dt
+import logging.handlers
+import os
 import subprocess
 import unittest
 from contextlib import redirect_stdout
@@ -21,7 +23,9 @@ from growatt_power_guard import (
     command_battery_alert,
     command_estimate_charge_rate,
     command_health_check,
+    command_rotate_logs,
     format_health_report,
+    setup_logging,
 )
 from growatt_guard.schedule import HealthCheckItem as ScheduleHealthCheckItem
 
@@ -72,6 +76,52 @@ class GrowattPowerGuardTests(unittest.TestCase):
         args = build_parser().parse_args(["rotate-logs"])
 
         self.assertEqual(args.command, "rotate-logs")
+
+    def test_rotate_logs_removes_generated_files_but_preserves_stateful_logs(self):
+        config = make_config(log_retention_days=30)
+
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.modes.LOG_DIR", Path(tmpdir)):
+            old_probe = Path(tmpdir) / "growatt-probe-20200101-000000.json"
+            old_probe.write_text("{}", encoding="utf-8")
+            active_log = Path(tmpdir) / "growatt_power_guard.log"
+            cron_log = Path(tmpdir) / "cron.log"
+            audit_log = Path(tmpdir) / "mode_decisions.csv"
+            metrics_log = Path(tmpdir) / "dashboard_metrics.jsonl"
+            unrelated_old_file = Path(tmpdir) / "notes.txt"
+            for file_path in (active_log, cron_log, audit_log, metrics_log, unrelated_old_file):
+                file_path.write_text("keep", encoding="utf-8")
+
+            old_timestamp = (dt.datetime.now() - dt.timedelta(days=45)).timestamp()
+            for file_path in (old_probe, active_log, cron_log, audit_log, metrics_log, unrelated_old_file):
+                os.utime(file_path, (old_timestamp, old_timestamp))
+
+            output = StringIO()
+            with redirect_stdout(output):
+                command_rotate_logs(config)
+
+            self.assertFalse(old_probe.exists())
+            self.assertTrue(active_log.exists())
+            self.assertTrue(cron_log.exists())
+            self.assertTrue(audit_log.exists())
+            self.assertTrue(metrics_log.exists())
+            self.assertTrue(unrelated_old_file.exists())
+            self.assertIn("Removed 1 old log/probe files", output.getvalue())
+
+    def test_setup_logging_uses_rotating_file_handler(self):
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.cli.LOG_DIR", Path(tmpdir)), patch(
+            "growatt_guard.cli.LOG_FILE", Path(tmpdir) / "growatt_power_guard.log"
+        ):
+            setup_logging(verbose=False)
+            handlers = logging.getLogger().handlers
+            try:
+                file_handlers = [handler for handler in handlers if isinstance(handler, logging.handlers.RotatingFileHandler)]
+                self.assertEqual(len(file_handlers), 1)
+                self.assertGreater(file_handlers[0].maxBytes, 0)
+                self.assertGreater(file_handlers[0].backupCount, 0)
+            finally:
+                for handler in list(logging.getLogger().handlers):
+                    handler.close()
+                logging.getLogger().handlers.clear()
 
     def test_validate_schedule_command_is_available(self):
         args = build_parser().parse_args(["validate-schedule"])

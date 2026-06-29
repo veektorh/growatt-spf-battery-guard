@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import logging
+import logging.handlers
 import sys
+from pathlib import Path
 from typing import Any
 
 from growatt_guard.config import Config, load_config, validate_config
@@ -17,6 +19,38 @@ from growatt_guard.discord_control import command_serve_discord_bot
 from growatt_guard.notifications import notify_failure
 from growatt_guard.pvoutput import command_pvoutput_upload
 from growatt_guard.schedule import command_outage_profile, command_schedule_override, command_validate_schedule
+
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+LOG_DIR = BASE_DIR / "logs"
+LOG_FILE = LOG_DIR / "growatt_power_guard.log"
+LOG_MAX_BYTES = 5 * 1024 * 1024
+LOG_BACKUP_COUNT = 5
+
+
+def setup_logging(verbose: bool) -> None:
+    LOG_DIR.mkdir(exist_ok=True)
+    level = logging.DEBUG if verbose else logging.INFO
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+
+    root = logging.getLogger()
+    root.setLevel(level)
+    root.handlers.clear()
+
+    file_handler = logging.handlers.RotatingFileHandler(
+        LOG_FILE,
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(level)
+    root.addHandler(file_handler)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+    console_handler.setLevel(level)
+    root.addHandler(console_handler)
 
 
 def app_module() -> Any:
@@ -340,7 +374,7 @@ def main(argv: list[str] | None = None) -> int:
     app = app_module()
     parser = build_parser()
     args = parser.parse_args(argv)
-    app.setup_logging(args.verbose)
+    setup_logging(args.verbose)
     config: Config | None = None
 
     try:

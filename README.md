@@ -339,7 +339,8 @@ The automation should therefore:
 21:00 daily       post Discord daily summary
 */30 always       alert once if battery SOC drops below 30%
 21:10 Sundays     post weekly performance summary
-00:10 daily       rotate old generated logs/probes
+00:10 daily       prune old generated probe/temp files
+00:20 monthly     prune audit CSV rows older than retention
 ```
 
 The cloud cron installer reads these jobs from [schedule.json](schedule.json). Cron calls `run-scheduled <job-id>`, which applies date overrides before running the job. To change outage times, edit `schedule.json`, validate it, then reinstall cron:
@@ -507,12 +508,19 @@ Verify the scheduled jobs:
 crontab -l | grep growatt-power-guard
 ```
 
-Cron logs go to:
+Logs go to:
 
 ```text
 ~/automation/logs/cron.log
 ~/automation/logs/growatt_power_guard.log
 ~/automation/logs/mode_decisions.csv
+```
+
+growatt_power_guard.log rotates automatically by size. To rotate cron.log on Linux, install the host logrotate rule:
+
+```bash
+cd ~/automation
+sudo ./install_logrotate.sh
 ```
 
 ## Operations
