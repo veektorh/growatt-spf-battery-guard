@@ -3575,6 +3575,27 @@ def build_dashboard_html(
       {energy_cards}
     </section>
 
+    <h2 id="trends">Energy Trends</h2>
+    <section class="chart-grid">
+      <div class="card chart-card compact">
+        <div class="label">7-Day Battery Energy</div>
+        <canvas id="battery-energy-chart"></canvas>
+        <div class="legend">
+          <span style="--c:#35C4A0">Charge</span>
+          <span style="--c:#6A7A99">Discharge</span>
+        </div>
+      </div>
+      <div class="card chart-card compact">
+        <div class="label">7-Day Supply Mix</div>
+        <canvas id="supply-energy-chart"></canvas>
+        <div class="legend">
+          <span style="--c:#F5A82A">PV</span>
+          <span style="--c:#5B8DEF">Grid</span>
+          <span style="--c:#EF6F6F">Load</span>
+        </div>
+      </div>
+    </section>
+
     <h2 id="planner">Tonight Planner</h2>
     <section class="planner-grid">
       {tonight_safe_html}
@@ -3688,25 +3709,8 @@ def build_dashboard_html(
       <div class="table-wrap"><table><thead><tr><th>Metric</th><th>Source</th></tr></thead><tbody>{source_rows_html}</tbody></table></div>
     </details>
 
-    <h2 id="trends">Energy Trends</h2>
+    <h2 id="automation-history">Automation History</h2>
     <section class="chart-grid">
-      <div class="card chart-card compact">
-        <div class="label">7-Day Battery Energy</div>
-        <canvas id="battery-energy-chart"></canvas>
-        <div class="legend">
-          <span style="--c:#35C4A0">Charge</span>
-          <span style="--c:#6A7A99">Discharge</span>
-        </div>
-      </div>
-      <div class="card chart-card compact">
-        <div class="label">7-Day Supply Mix</div>
-        <canvas id="supply-energy-chart"></canvas>
-        <div class="legend">
-          <span style="--c:#F5A82A">PV</span>
-          <span style="--c:#5B8DEF">Grid</span>
-          <span style="--c:#EF6F6F">Load</span>
-        </div>
-      </div>
       <div class="card chart-card compact">
         <div class="label">7-Day History</div>
         <canvas id="history-chart"></canvas>
@@ -3756,53 +3760,128 @@ def build_dashboard_html(
       if (canvas && dataEl) {{
         try {{
           const data = JSON.parse(dataEl.textContent);
-          const ctx = canvas.getContext("2d");
-          const dpr = window.devicePixelRatio || 1;
-          const rect = canvas.getBoundingClientRect();
-          canvas.width = rect.width * dpr || 600 * dpr;
-          canvas.height = 160 * dpr;
-          ctx.scale(dpr, dpr);
-          const W = canvas.width / dpr, H = 160;
           const PAD = {{ top: 12, right: 12, bottom: 28, left: 32 }};
-          const chartW = W - PAD.left - PAD.right;
-          const chartH = H - PAD.top - PAD.bottom;
-          const n = data.labels.length;
-          const maxVal = Math.max(1, ...data.preserve_checks, ...data.utility_switches, ...data.watchdog_repairs);
-          const yStep = Math.ceil(maxVal / 4);
-          ctx.font = "11px system-ui, sans-serif";
-          ctx.fillStyle = "#6A7A99";
-          for (let y = 0; y <= maxVal; y += yStep) {{
-            const px = PAD.top + chartH - (y / maxVal) * chartH;
-            ctx.fillText(y, 0, px + 4);
-            ctx.strokeStyle = "#2C3548"; ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.moveTo(PAD.left, px); ctx.lineTo(PAD.left + chartW, px); ctx.stroke();
+          const SERIES = [
+            {{ key: "preserve_checks", label: "Preserve checks", color: "#3AC87A" }},
+            {{ key: "utility_switches", label: "Utility switches", color: "#F5A82A" }},
+            {{ key: "watchdog_repairs", label: "Watchdog repairs", color: "#5B8DEF" }}
+          ];
+
+          function setupHistoryCanvas() {{
+            const ctx = canvas.getContext("2d");
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr || 600 * dpr;
+            canvas.height = 160 * dpr;
+            ctx.scale(dpr, dpr);
+            return {{ ctx, width: canvas.width / dpr, height: 160 }};
           }}
-          const groupW = chartW / n;
-          const barW = Math.max(4, groupW / 4 - 2);
-          const COLORS = ["#3AC87A", "#F5A82A", "#5B8DEF"];
-          const SERIES = ["preserve_checks", "utility_switches", "watchdog_repairs"];
-          SERIES.forEach(function (key, si) {{
-            ctx.fillStyle = COLORS[si];
-            data[key].forEach(function (val, i) {{
-              const x = PAD.left + i * groupW + si * (barW + 2) + (groupW - SERIES.length * (barW + 2)) / 2;
-              const barH = (val / maxVal) * chartH;
-              ctx.fillRect(x, PAD.top + chartH - barH, barW, barH || 1);
+
+          function drawHistoryTooltip(ctx, lines, x, width) {{
+            ctx.font = "bold 11px system-ui, sans-serif";
+            const lineH = 16;
+            const tipW = Math.max(...lines.map(function(line) {{ return ctx.measureText(line).width; }})) + 20;
+            const tipH = lines.length * lineH + 12;
+            let tx = x + 10;
+            if (tx + tipW > width - PAD.right) tx = x - tipW - 10;
+            const ty = PAD.top + 4;
+            ctx.fillStyle = "rgba(22,27,36,0.92)";
+            ctx.beginPath();
+            ctx.roundRect(tx, ty, tipW, tipH, 6);
+            ctx.fill();
+            ctx.strokeStyle = "rgba(255,255,255,0.1)";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            lines.forEach(function(line, i) {{
+              ctx.fillStyle = i === 0 ? "#6A7A99" : "#E2E8F0";
+              ctx.font = i === 0 ? "11px system-ui, sans-serif" : "bold 11px system-ui, sans-serif";
+              ctx.fillText(line, tx + 10, ty + 14 + i * lineH);
             }});
-          }});
-          data.labels.forEach(function (label, i) {{
+          }}
+
+          function drawHistoryChart() {{
+            const setup = setupHistoryCanvas();
+            const ctx = setup.ctx;
+            const W = setup.width, H = setup.height;
+            const chartW = W - PAD.left - PAD.right;
+            const chartH = H - PAD.top - PAD.bottom;
+            const n = data.labels.length;
+            const maxVal = Math.max(1, ...data.preserve_checks, ...data.utility_switches, ...data.watchdog_repairs);
+            const yStep = Math.ceil(maxVal / 4);
+            ctx.font = "11px system-ui, sans-serif";
             ctx.fillStyle = "#6A7A99";
-            const x = PAD.left + i * groupW + groupW / 2;
-            ctx.textAlign = "center";
-            ctx.fillText(label, x, H - 6);
+            for (let y = 0; y <= maxVal; y += yStep) {{
+              const px = PAD.top + chartH - (y / maxVal) * chartH;
+              ctx.fillText(y, 0, px + 4);
+              ctx.strokeStyle = "#2C3548"; ctx.lineWidth = 1;
+              ctx.beginPath(); ctx.moveTo(PAD.left, px); ctx.lineTo(PAD.left + chartW, px); ctx.stroke();
+            }}
+            const groupW = n > 0 ? chartW / n : chartW;
+            const barW = Math.max(4, groupW / 4 - 2);
+            SERIES.forEach(function (series, si) {{
+              ctx.fillStyle = series.color;
+              data[series.key].forEach(function (val, i) {{
+                const x = PAD.left + i * groupW + si * (barW + 2) + (groupW - SERIES.length * (barW + 2)) / 2;
+                const barH = (val / maxVal) * chartH;
+                ctx.fillRect(x, PAD.top + chartH - barH, barW, barH || 1);
+              }});
+            }});
+            data.labels.forEach(function (label, i) {{
+              ctx.fillStyle = "#6A7A99";
+              const x = PAD.left + i * groupW + groupW / 2;
+              ctx.textAlign = "center";
+              ctx.fillText(label, x, H - 6);
+            }});
+            ctx.textAlign = "left";
+            const legendY = PAD.top; const legendX = PAD.left + chartW - 200;
+            SERIES.forEach(function (series, i) {{
+              ctx.fillStyle = series.color;
+              ctx.fillRect(legendX + i * 70, legendY, 8, 8);
+              ctx.fillStyle = "#6A7A99";
+              ctx.fillText(series.label.split(" ")[0], legendX + i * 70 + 11, legendY + 8);
+            }});
+          }}
+
+          function drawHistoryTip(mx) {{
+            const rect = canvas.getBoundingClientRect();
+            const W = rect.width || 600, H = 160;
+            const chartW = W - PAD.left - PAD.right;
+            const chartH = H - PAD.top - PAD.bottom;
+            if (!data.labels.length || mx < PAD.left || mx > W - PAD.right) return;
+            const groupW = chartW / data.labels.length;
+            const idx = Math.floor((mx - PAD.left) / groupW);
+            if (idx < 0 || idx >= data.labels.length) return;
+            const x = PAD.left + idx * groupW + groupW / 2;
+            const ctx = canvas.getContext("2d");
+            ctx.save();
+            ctx.fillStyle = "rgba(255,255,255,0.04)";
+            ctx.fillRect(PAD.left + idx * groupW, PAD.top, groupW, chartH);
+            ctx.strokeStyle = "rgba(255,255,255,0.15)";
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(x, PAD.top);
+            ctx.lineTo(x, H - PAD.bottom);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            const lines = [data.labels[idx]];
+            SERIES.forEach(function (series) {{
+              const value = data[series.key][idx];
+              if (typeof value === "number" && isFinite(value)) {{
+                lines.push(series.label + ":  " + Math.round(value));
+              }}
+            }});
+            drawHistoryTooltip(ctx, lines, x, W);
+            ctx.restore();
+          }}
+
+          drawHistoryChart();
+          canvas.addEventListener("mousemove", function(e) {{
+            const rect = canvas.getBoundingClientRect();
+            drawHistoryChart();
+            drawHistoryTip(e.clientX - rect.left);
           }});
-          ctx.textAlign = "left";
-          const legendY = PAD.top; const legendX = PAD.left + chartW - 200;
-          [["Preserve checks", "#3AC87A"], ["Utility switches", "#F5A82A"], ["Watchdog repairs", "#5B8DEF"]].forEach(function (item, i) {{
-            ctx.fillStyle = item[1];
-            ctx.fillRect(legendX + i * 70, legendY, 8, 8);
-            ctx.fillStyle = "#6A7A99";
-            ctx.fillText(item[0].split(" ")[0], legendX + i * 70 + 11, legendY + 8);
-          }});
+          canvas.addEventListener("mouseleave", drawHistoryChart);
         }} catch (e) {{ /* chart render failed */ }}
       }}
     }})();
@@ -3848,6 +3927,35 @@ def build_dashboard_html(
           ctx.stroke();
           ctx.fillText(Math.round(val) + suffix, 6, y + 4);
         }}
+      }}
+
+      function formatChartValue(value, suffix) {{
+        if (suffix === "%") return value.toFixed(0) + "%";
+        if (suffix === "kWh") return value.toFixed(value >= 10 ? 1 : 2) + " kWh";
+        if (!suffix) return Math.round(value).toString();
+        return value >= 1000 ? (value / 1000).toFixed(1) + " k" + suffix : Math.round(value) + " " + suffix;
+      }}
+
+      function drawTooltipBox(ctx, lines, x, width, pad) {{
+        ctx.font = "bold 11px system-ui, sans-serif";
+        const lineH = 16;
+        const tipW = Math.max(...lines.map(function(l) {{ return ctx.measureText(l).width; }})) + 20;
+        const tipH = lines.length * lineH + 12;
+        let tx = x + 10;
+        if (tx + tipW > width - pad.right) tx = x - tipW - 10;
+        const ty = pad.top + 4;
+        ctx.fillStyle = "rgba(22,27,36,0.92)";
+        ctx.beginPath();
+        ctx.roundRect(tx, ty, tipW, tipH, 6);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.1)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        lines.forEach(function(line, i) {{
+          ctx.fillStyle = i === 0 ? "#6A7A99" : "#E2E8F0";
+          ctx.font = i === 0 ? "11px system-ui, sans-serif" : "bold 11px system-ui, sans-serif";
+          ctx.fillText(line, tx + 10, ty + 14 + i * lineH);
+        }});
       }}
 
       function drawLineChart(id, labels, series, options) {{
@@ -3926,7 +4034,7 @@ def build_dashboard_html(
           series.forEach(function(s) {{
             const v = s.values[idx];
             if (typeof v === "number" && isFinite(v)) {{
-              lines.push(s.label + ":  " + (suffix === "%" ? v.toFixed(0) + "%" : (v >= 1000 ? (v/1000).toFixed(1) + " k" + suffix : Math.round(v) + " " + suffix)));
+              lines.push(s.label + ":  " + formatChartValue(v, suffix));
             }}
           }});
           if (options.modes && options.modes[idx]) {{
@@ -3937,25 +4045,7 @@ def build_dashboard_html(
             const dir = bw > 0 ? "discharging" : (bw < 0 ? "charging" : "standby");
             lines.push("Battery:  " + Math.round(Math.abs(bw)) + " W " + dir);
           }}
-          ctx.font = "bold 11px system-ui, sans-serif";
-          const lineH = 16;
-          const tipW = Math.max(...lines.map(function(l) {{ return ctx.measureText(l).width; }})) + 20;
-          const tipH = lines.length * lineH + 12;
-          let tx = x + 10;
-          if (tx + tipW > width - pad.right) tx = x - tipW - 10;
-          const ty = pad.top + 4;
-          ctx.fillStyle = "rgba(22,27,36,0.92)";
-          ctx.beginPath();
-          ctx.roundRect(tx, ty, tipW, tipH, 6);
-          ctx.fill();
-          ctx.strokeStyle = "rgba(255,255,255,0.1)";
-          ctx.lineWidth = 1;
-          ctx.stroke();
-          lines.forEach(function(line, i) {{
-            ctx.fillStyle = i === 0 ? "#6A7A99" : "#E2E8F0";
-            ctx.font = i === 0 ? "11px system-ui, sans-serif" : "bold 11px system-ui, sans-serif";
-            ctx.fillText(line, tx + 10, ty + 14 + i * lineH);
-          }});
+          drawTooltipBox(ctx, lines, x, width, pad);
           ctx.restore();
         }}
 
@@ -4008,6 +4098,56 @@ def build_dashboard_html(
         ctx.textAlign = "left";
       }}
 
+      function setupBarTooltip(id, labels, series, suffix) {{
+        const canvas = document.getElementById(id);
+        if (!canvas) return;
+        const pad = {{ top: 14, right: 16, bottom: 34, left: 44 }};
+
+        function redrawWithTip(mx) {{
+          const rect = canvas.getBoundingClientRect();
+          const width = rect.width || 600;
+          const height = rect.height || 220;
+          const chartW = width - pad.left - pad.right;
+          const chartH = height - pad.top - pad.bottom;
+          const values = series.flatMap(function (s) {{ return clean(s.values).filter(function (v) {{ return v !== null; }}); }});
+          if (labels.length === 0 || values.length === 0 || mx < pad.left || mx > width - pad.right) return;
+          const groupW = chartW / labels.length;
+          const idx = Math.floor((mx - pad.left) / groupW);
+          if (idx < 0 || idx >= labels.length) return;
+          const x = pad.left + idx * groupW + groupW / 2;
+          const ctx = canvas.getContext("2d");
+          ctx.save();
+          ctx.fillStyle = "rgba(255,255,255,0.04)";
+          ctx.fillRect(pad.left + idx * groupW, pad.top, groupW, chartH);
+          ctx.strokeStyle = "rgba(255,255,255,0.15)";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.moveTo(x, pad.top);
+          ctx.lineTo(x, height - pad.bottom);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          const lines = [labels[idx]];
+          series.forEach(function (s) {{
+            const v = s.values[idx];
+            if (typeof v === "number" && isFinite(v)) {{
+              lines.push(s.label + ":  " + formatChartValue(v, suffix || ""));
+            }}
+          }});
+          if (lines.length > 1) drawTooltipBox(ctx, lines, x, width, pad);
+          ctx.restore();
+        }}
+
+        canvas.addEventListener("mousemove", function(e) {{
+          const rect = canvas.getBoundingClientRect();
+          drawBarChart(id, labels, series, suffix);
+          redrawWithTip(e.clientX - rect.left);
+        }});
+        canvas.addEventListener("mouseleave", function() {{
+          drawBarChart(id, labels, series, suffix);
+        }});
+      }}
+
       try {{
         const data = JSON.parse(dataEl.textContent);
         const powerSeries = [
@@ -4022,15 +4162,19 @@ def build_dashboard_html(
         setupLineTooltip("power-trend-chart", data.power.labels || [], powerSeries, {{ suffix: "W", minMax: 1000, modes: data.power.mode || [], batteryNet: data.power.battery_net_w || [] }});
         drawLineChart("soc-trend-chart", data.soc.labels || [], socSeries, {{ suffix: "%", minMax: 100 }});
         setupLineTooltip("soc-trend-chart", data.soc.labels || [], socSeries, {{ suffix: "%", minMax: 100 }});
-        drawBarChart("battery-energy-chart", data.daily.labels || [], [
-          {{ color: "#35C4A0", values: data.daily.charge_kwh || [] }},
-          {{ color: "#6A7A99", values: data.daily.discharge_kwh || [] }}
-        ], "kWh");
-        drawBarChart("supply-energy-chart", data.daily.labels || [], [
-          {{ color: "#F5A82A", values: data.daily.pv_kwh || [] }},
-          {{ color: "#5B8DEF", values: data.daily.grid_kwh || [] }},
-          {{ color: "#EF6F6F", values: data.daily.load_kwh || [] }}
-        ], "kWh");
+        const batteryEnergySeries = [
+          {{ color: "#35C4A0", label: "Charge", values: data.daily.charge_kwh || [] }},
+          {{ color: "#6A7A99", label: "Discharge", values: data.daily.discharge_kwh || [] }}
+        ];
+        const supplyEnergySeries = [
+          {{ color: "#F5A82A", label: "PV", values: data.daily.pv_kwh || [] }},
+          {{ color: "#5B8DEF", label: "Grid", values: data.daily.grid_kwh || [] }},
+          {{ color: "#EF6F6F", label: "Load", values: data.daily.load_kwh || [] }}
+        ];
+        drawBarChart("battery-energy-chart", data.daily.labels || [], batteryEnergySeries, "kWh");
+        setupBarTooltip("battery-energy-chart", data.daily.labels || [], batteryEnergySeries, "kWh");
+        drawBarChart("supply-energy-chart", data.daily.labels || [], supplyEnergySeries, "kWh");
+        setupBarTooltip("supply-energy-chart", data.daily.labels || [], supplyEnergySeries, "kWh");
       }} catch (e) {{ /* metric chart render failed */ }}
     }})();
     (function () {{
