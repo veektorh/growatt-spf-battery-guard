@@ -480,11 +480,19 @@ def clear_utility_hold_state() -> None:
     clear_state_file(UTILITY_HOLD_FILE)
 
 
-def utility_hold_ownership() -> str | None:
+def utility_hold_ownership(now: dt.datetime | None = None) -> str | None:
     """Return "owned", "adopted", or None if no active hold."""
     state = read_utility_hold_state()
     if state is None:
         return None
+    max_expiry_str = state.get("max_expiry")
+    if max_expiry_str:
+        try:
+            max_expiry = parse_utc_datetime(str(max_expiry_str))
+        except ValueError:
+            return None
+        if (now or utc_now()) >= max_expiry:
+            return None
     return str(state.get("ownership")) if state.get("ownership") else None
 
 

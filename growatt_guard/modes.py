@@ -55,7 +55,9 @@ from growatt_guard.notifications import (
 from growatt_guard.pause import command_pause, command_resume, ensure_not_paused
 from growatt_guard.schedule import (
     find_schedule_job,
+    next_scheduled_runs,
     schedule_job_tokens,
+    schedule_job_id,
     today_schedule_override,
     validate_schedule,
     validate_schedule_overrides,
@@ -103,6 +105,8 @@ LOG_DIR = BASE_DIR / "logs"
 
 _TOPUP_EXPIRY_BUFFER_FACTOR = 1.2  # max_expiry = eta * 1.2
 _TOPUP_EXPIRY_BUFFER_MIN_MINUTES = 15.0  # minimum buffer added to ETA
+_PRESERVE_HOLD_FALLBACK_MINUTES = 90.0
+_PRESERVE_HOLD_MAX_SCHEDULE_MINUTES = 180.0
 
 
 def _projected_sunrise_soc(
@@ -138,6 +142,61 @@ def _topup_max_expiry(eta_min: float) -> tuple[float, dt.datetime]:
     buffer = max(_TOPUP_EXPIRY_BUFFER_MIN_MINUTES, eta_min * (_TOPUP_EXPIRY_BUFFER_FACTOR - 1))
     max_min = eta_min + buffer
     return max_min, utc_now() + dt.timedelta(minutes=max_min)
+
+
+def _effective_scheduled_command(job: dict, index: int, override: dict) -> str | None:
+    if override.get("skip_all"):
+        return None
+    job_id = schedule_job_id(job, index)
+    if job_id in override.get("skip", []):
+        return None
+    replacement = override.get("replace", {}).get(job_id) if isinstance(override.get("replace", {}), dict) else None
+    if isinstance(replacement, dict):
+        return str(replacement.get("command", "")).strip() or None
+    return str(job.get("command", "")).strip() or None
+
+
+def _preserve_hold_expiry(now: dt.datetime | None = None) -> dt.datetime:
+    """Return a conservative Utility-hold expiry for preserve-battery.
+
+    Prefer the next effective scheduled return-sbu, capped so a manual preserve
+    cannot suppress waste alerts for most of a day.
+    """
+    local_now = now or dt.datetime.now().astimezone()
+    fallback = local_now + dt.timedelta(minutes=_PRESERVE_HOLD_FALLBACK_MINUTES)
+    try:
+        schedule = validate_schedule()
+        overrides = validate_schedule_overrides(schedule)
+    except Exception as exc:  # noqa: BLE001 - preserve mode should not fail because schedule metadata is unavailable
+        logging.warning("Could not read schedule for preserve Utility hold expiry: %s", exc)
+        return fallback.astimezone(dt.timezone.utc)
+
+    max_delta = dt.timedelta(minutes=_PRESERVE_HOLD_MAX_SCHEDULE_MINUTES)
+    for run_at, job in next_scheduled_runs(schedule, now=local_now, limit=256):
+        try:
+            index = next(i for i, candidate in enumerate(schedule["jobs"], start=1) if candidate is job)
+            override = today_schedule_override(overrides, run_at.date())
+            command = _effective_scheduled_command(job, index, override)
+        except Exception:  # noqa: BLE001
+            command = str(job.get("command", "")).strip()
+        if command != "return-sbu":
+            continue
+        if run_at - local_now <= max_delta:
+            return run_at.astimezone(dt.timezone.utc)
+        break
+    return fallback.astimezone(dt.timezone.utc)
+
+
+def _record_preserve_utility_hold(config: Config, soc: float, threshold: float) -> None:
+    if config.dry_run:
+        return
+    max_expiry = _preserve_hold_expiry()
+    write_utility_hold_state("owned", threshold, max_expiry, start_soc=soc)
+    logging.info(
+        "Preserve-battery Utility hold recorded until %s with target SOC %.1f%%.",
+        max_expiry.isoformat(),
+        threshold,
+    )
 
 
 _MODE_CHANGING_COMMANDS = {
@@ -266,6 +325,7 @@ def command_preserve_battery(config: Config) -> int:
         current_source = extract_spf_output_source(status)
         if current_source and current_source[0] == "2":
             logging.info("Battery SOC %.1f%% is below %.1f%% but already in Utility; skipping switch.", soc, threshold)
+            _record_preserve_utility_hold(config, soc, threshold)
             append_mode_audit(
                 config,
                 "preserve-battery",
@@ -318,6 +378,8 @@ def command_preserve_battery(config: Config) -> int:
                 logging.warning("preserve-battery: Utility switch not confirmed by re-read.")
                 if config.discord_notify_failure:
                     send_discord_embed(config, embed_mode_not_confirmed("preserve-battery", "Utility first"))
+            else:
+                _record_preserve_utility_hold(config, soc, threshold)
     else:
         logging.info("Battery SOC %.1f%% is not below %.1f%%; leaving SBU as-is.", soc, threshold)
         append_mode_audit(
@@ -413,6 +475,8 @@ def command_return_sbu(config: Config) -> int:
     current_source = extract_spf_output_source(status)
     if current_source and current_source[0] == "0":
         logging.info("Already in SBU priority mode; skipping return-sbu switch.")
+        if not config.dry_run:
+            clear_utility_hold_state()
         append_mode_audit(
             config,
             "return-sbu",
@@ -455,6 +519,8 @@ def command_return_sbu(config: Config) -> int:
             logging.warning("return-sbu: SBU switch not confirmed by re-read.")
             if config.discord_notify_failure:
                 send_discord_embed(config, embed_mode_not_confirmed("return-sbu", "SBU priority"))
+        else:
+            clear_utility_hold_state()
     return 0
 
 

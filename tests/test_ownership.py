@@ -78,6 +78,12 @@ class TestUtilityHoldState(unittest.TestCase):
         write_utility_hold_state("owned", 40.0, expiry)
         self.assertFalse(utility_hold_is_active())
 
+    def test_utility_hold_ownership_ignores_expired_hold(self):
+        from growatt_guard.state import write_utility_hold_state, utility_hold_ownership
+        expiry = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=1)
+        write_utility_hold_state("owned", 40.0, expiry)
+        self.assertIsNone(utility_hold_ownership())
+
     def test_topup_is_active_includes_hold(self):
         from growatt_guard.state import write_utility_hold_state, topup_is_active
         expiry = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)
@@ -158,6 +164,28 @@ class TestWasteAlertMetrics(unittest.TestCase):
         self.assertEqual(pv_w, 1200.0)
         self.assertEqual(load_w, 900.0)
         self.assertTrue(can_cover)
+
+
+class TestPreserveHoldExpiry(unittest.TestCase):
+    def test_uses_next_scheduled_return_sbu_when_nearby(self):
+        from growatt_guard.modes import _preserve_hold_expiry
+
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "afternoon-preserve", "cron": "30 14 * * 1-5", "command": "preserve-battery"},
+                {"id": "afternoon-return-sbu", "cron": "25 15 * * 1-5", "command": "return-sbu"},
+            ],
+        }
+        now = dt.datetime(2026, 6, 29, 14, 30, tzinfo=dt.timezone(dt.timedelta(hours=1)))
+
+        with (
+            patch("growatt_guard.modes.validate_schedule", return_value=schedule),
+            patch("growatt_guard.modes.validate_schedule_overrides", return_value={"dates": {}}),
+        ):
+            expiry = _preserve_hold_expiry(now)
+
+        self.assertEqual(expiry, dt.datetime(2026, 6, 29, 14, 25, tzinfo=dt.timezone.utc))
 
 
 # ---------------------------------------------------------------------------
