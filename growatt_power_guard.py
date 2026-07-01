@@ -33,7 +33,6 @@ from growatt_guard.dashboard import (
     DASHBOARD_JSON_FILE,
     MIN_DASHBOARD_REFRESH_MINUTES,
     build_dashboard_data_payload,
-    build_dashboard_energy_balance,
     build_dashboard_daily_insights,
     build_dashboard_next_action,
     build_tonight_risk,

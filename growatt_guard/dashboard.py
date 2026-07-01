@@ -967,75 +967,6 @@ def build_dashboard_data_quality(
     }
 
 
-def build_dashboard_energy_balance(live_metrics: dict[str, Any]) -> dict[str, Any]:
-    """Compare daily energy supply and demand when Growatt exposes enough fields."""
-    supply_parts = [
-        ("PV today", "pv_today_kwh"),
-        ("grid import today", "grid_today_kwh"),
-        ("battery discharge today", "discharge_today_kwh"),
-    ]
-    demand_parts = [
-        ("load today", "load_today_kwh"),
-        ("battery charge today", "charge_today_kwh"),
-    ]
-    required_parts = supply_parts + demand_parts
-    missing = [
-        label
-        for label, key in required_parts
-        if not isinstance(live_metrics.get(key), (int, float))
-    ]
-    if missing:
-        return {
-            "level": "unknown",
-            "title": "Incomplete",
-            "detail": "Missing: " + ", ".join(missing) + ".",
-            "missing": missing,
-            "supply_kwh": None,
-            "demand_kwh": None,
-            "difference_kwh": None,
-            "difference_pct": None,
-        }
-
-    supply_kwh = sum(float(live_metrics[key]) for _, key in supply_parts)
-    demand_kwh = sum(float(live_metrics[key]) for _, key in demand_parts)
-    if supply_kwh <= 0 or demand_kwh <= 0:
-        return {
-            "level": "unknown",
-            "title": "Incomplete",
-            "detail": "Supply or demand is zero, so balance cannot be calculated.",
-            "missing": [],
-            "supply_kwh": round(supply_kwh, 2),
-            "demand_kwh": round(demand_kwh, 2),
-            "difference_kwh": round(supply_kwh - demand_kwh, 2),
-            "difference_pct": None,
-        }
-
-    difference_kwh = supply_kwh - demand_kwh
-    difference_pct = abs(difference_kwh) / max(supply_kwh, demand_kwh) * 100.0
-    if difference_pct <= 15:
-        level = "good"
-        title = "Balanced"
-    elif difference_pct <= 30:
-        level = "watch"
-        title = "Watch"
-    else:
-        level = "high"
-        title = "Mismatch"
-
-    return {
-        "level": level,
-        "title": title,
-        "detail": (
-            f"Supply {_fmt_kwh(supply_kwh)} vs demand {_fmt_kwh(demand_kwh)} "
-            f"(gap {_fmt_kwh(abs(difference_kwh))}, {difference_pct:.0f}%)."
-        ),
-        "missing": [],
-        "supply_kwh": round(supply_kwh, 2),
-        "demand_kwh": round(demand_kwh, 2),
-        "difference_kwh": round(difference_kwh, 2),
-        "difference_pct": round(difference_pct, 1),
-    }
-
 
 def _positive_metric(value: Any) -> float | None:
     if isinstance(value, (int, float)):
@@ -1632,7 +1563,6 @@ def build_dashboard_data_payload(
     pvoutput_state = read_pvoutput_state()
     sources = extract_dashboard_metric_sources(status)
     data_quality = build_dashboard_data_quality(live_metrics, sources)
-    energy_balance = build_dashboard_energy_balance(live_metrics)
     daily_mix = build_dashboard_daily_mix(live_metrics)
     next_action = build_dashboard_next_action(schedule, now=now)
     daily_insights = build_dashboard_daily_insights(live_metrics, metric_history, now=now)
@@ -1697,7 +1627,7 @@ def build_dashboard_data_payload(
         "freshness": {"stale_after_minutes": stale_after_minutes},
         "live": live_metrics,
         "sources": sources,
-        "quality": {"data": data_quality, "energy_balance": energy_balance},
+        "quality": {"data": data_quality},
         "insights": {"daily": daily_insights, "daily_mix": daily_mix},
         "planner": {"tonight_risk": risk, "outlook": energy_outlook},
         "assistant": {
@@ -2280,7 +2210,6 @@ def build_dashboard_html(
         battery_context = f"Idle · {soc_health}"
     metric_sources = extract_dashboard_metric_sources(status)
     data_quality = build_dashboard_data_quality(live_metrics, metric_sources)
-    energy_balance = build_dashboard_energy_balance(live_metrics)
     daily_mix = build_dashboard_daily_mix(live_metrics)
     daily_insights = build_dashboard_daily_insights(live_metrics, metric_history, now=now)
     energy_outlook = build_dashboard_energy_outlook(
@@ -2449,9 +2378,6 @@ def build_dashboard_html(
         if isinstance(quality_score, (int, float))
         else quality_title
     )
-    balance_badge_class = _status_badge_class(str(energy_balance.get("level", "unknown")))
-    balance_title = str(energy_balance.get("title", "Unknown"))
-    balance_detail = str(energy_balance.get("detail", "Energy balance could not be calculated."))
     home_badge_class = _status_badge_class(str(home_status.get("level", "unknown")))
     home_badge_label = str(home_status.get("now_label") or "Learning")
     home_tonight_level = str(home_status.get("tonight_level") or tonight_risk.get("level") or "unknown")
@@ -2521,7 +2447,7 @@ def build_dashboard_html(
           <div class="label">Today Mix</div>
           <div class="muted small">Where energy came from, where it went, and the battery net position.</div>
         </div>
-        <span class="badge {esc(balance_badge_class)}">{esc(balance_title)}</span>
+        <span class="badge {esc(quality_badge_class)}">Reported counters</span>
       </div>
       <div class="mix-grid">
         <div class="mix-panel">
@@ -2650,7 +2576,6 @@ def build_dashboard_html(
             ("Grid Bypass", bypass_badge_label, bypass_badge_class),
             ("Dashboard", "OK", "badge-ok"),
             ("Data Quality", quality_display, quality_badge_class),
-            ("Energy Balance", balance_title, balance_badge_class),
             ("Emergency Alert", alert, emergency_badge_class),
             ("Cloud Streak", str(cloud_streak), cloud_badge_class),
         ]
@@ -3690,11 +3615,6 @@ def build_dashboard_html(
         <div class="label">Data Quality</div>
         <div class="value"><span class="badge {esc(quality_badge_class)}">{esc(quality_display)}</span></div>
         <div class="muted small">{esc(quality_detail)}</div>
-      </div>
-      <div class="card">
-        <div class="label">Energy Balance</div>
-        <div class="value"><span class="badge {esc(balance_badge_class)}">{esc(balance_title)}</span></div>
-        <div class="muted small">{esc(balance_detail)}</div>
       </div>
       <div class="card">
         <div class="label">Projected Sunrise SOC</div>
