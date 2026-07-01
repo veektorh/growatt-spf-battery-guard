@@ -385,6 +385,45 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Topup to Sunrise", html)
         self.assertIn("skip (&lt;20min)", html)
 
+    def test_dashboard_recent_activity_hides_dry_run_rows(self):
+        status = {"device": {"capacity": "90%"}, "storage_params": {"storageBean": {"outputConfig": "0"}}}
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+        audit_rows = [
+            {
+                "timestamp": "2026-07-01T08:00:26",
+                "command": "auto-topup-check",
+                "action": "auto-topup-started",
+                "soc": "40",
+                "previous_mode": "SBU priority [0]",
+                "dry_run": "true",
+            },
+            {
+                "timestamp": "2026-07-01T08:01:04",
+                "command": "watchdog-sbu",
+                "action": "verified-sbu",
+                "soc": "89",
+                "previous_mode": "SBU priority [0]",
+                "dry_run": "false",
+            },
+        ]
+
+        with patch("growatt_guard.dashboard.read_pause_state", return_value=None), patch(
+            "growatt_guard.dashboard.read_battery_alert_state", return_value=None
+        ), patch(
+            "growatt_guard.dashboard.read_growatt_cloud_failure_state", return_value={}
+        ), patch(
+            "growatt_guard.dashboard.read_mode_audit_rows", return_value=audit_rows
+        ), patch(
+            "growatt_guard.dashboard.read_pvoutput_state", return_value=None
+        ), patch(
+            "growatt_guard.dashboard.build_chart_data",
+            return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
+        ):
+            html = build_dashboard_html(status, schedule, {"dates": {}}, ThresholdDecision(50, "fixed threshold"))
+
+        self.assertIn("verified-sbu", html)
+        self.assertNotIn("auto-topup-started", html)
+
     def test_dashboard_pv_forecast_explains_missing_panel_size(self):
         status = {
             "device": {"capacity": "85%"},

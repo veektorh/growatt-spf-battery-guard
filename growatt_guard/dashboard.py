@@ -2120,7 +2120,11 @@ def build_dashboard_html(
     today_override = today_schedule_override(overrides, now.date())
     override_note = str(today_override.get("note", "")).strip() or "none"
     skipped = ", ".join(today_override.get("skip", [])) if isinstance(today_override.get("skip", []), list) else ""
-    last_actions = read_mode_audit_rows(limit=8, newest_first=True)
+    last_actions = [
+        row
+        for row in read_mode_audit_rows(limit=40, newest_first=True)
+        if str(row.get("dry_run", "")).strip().lower() != "true"
+    ][:8]
     next_runs = next_scheduled_runs(schedule, now=now, limit=8)
     next_action = build_dashboard_next_action(schedule, now=now)
     stale_minutes_text = f"{stale_after_minutes:g}"
