@@ -470,7 +470,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Needs PANEL_KWP", html)
         self.assertIn("Set PANEL_KWP to convert Open-Meteo irradiance into PV kWh.", html)
 
-    def test_dashboard_runtime_labels_usable_energy_to_floor(self):
+    def test_dashboard_runtime_labels_current_load_energy_to_floor(self):
         status = {
             "device": {"capacity": "70%"},
             "storage_params": {
@@ -506,8 +506,8 @@ class DashboardTests(unittest.TestCase):
                 battery_bms_cutoff_soc=25,
             )
 
-        self.assertIn("Usable runtime", html)
-        self.assertIn("Usable Runtime", html)
+        self.assertIn("Current-load runtime", html)
+        self.assertIn("Current Load Runtime", html)
         self.assertIn("13h 30m remaining", html)
         self.assertIn("Usable to 25% floor: 13.5 kWh", html)
         self.assertNotIn("Capacity 30.0 kWh", html)

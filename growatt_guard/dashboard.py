@@ -3429,7 +3429,7 @@ def build_dashboard_html(
             <div><span>Sunrise reserve</span><strong>{esc(tonight_projection_display)}</strong><em>{esc(sunrise_reserve_detail_display)}</em></div>
             <div><span>Top-up needed</span><strong>{esc(topup_needed_display)}</strong><em>Expected grid {esc(_grid_forecast_str)}</em></div>
             <div><span>Reserve target</span><strong>{esc(reserve_target_display)}</strong><em>{esc(sunrise_basis_display)}</em></div>
-            <div><span>Usable runtime</span><strong>{esc(est_runtime)}</strong><em>{esc(runtime_note)}</em></div>
+            <div><span>Current-load runtime</span><strong>{esc(est_runtime)}</strong><em>{esc(runtime_note)}</em></div>
             <div><span>Charge rate</span><strong>{esc(battery_charge_rate_display)}</strong><em>Configured grid charge</em></div>
             <div><span>Voltage</span><strong>{esc(vbat)}</strong><em>Battery bus reading</em></div>
             <div><span>Day throughput</span><strong>{esc(battery_throughput_display)}</strong><em>Charge plus discharge today</em></div>
@@ -3627,7 +3627,7 @@ def build_dashboard_html(
         <div class="muted small">Topup estimate: {esc(tonight_topup_display)}</div>
       </div>
       <div class="card"><div class="label">Battery Voltage</div><div class="value">{esc(vbat)}</div></div>
-      <div class="card"><div class="label">Usable Runtime</div><div class="value">{esc(est_runtime)}</div><div class="muted small">{esc(runtime_note)}</div></div>
+      <div class="card"><div class="label">Current Load Runtime</div><div class="value">{esc(est_runtime)}</div><div class="muted small">{esc(runtime_note)}</div></div>
       <div class="card"><div class="label">Pause State</div><div class="value">{esc(pause)}</div></div>
       <div class="card"><div class="label">Emergency Alert</div><div class="value">{esc(alert)}</div></div>
       <div class="card"><div class="label">Cloud Streak</div><div class="value">{esc(cloud_streak)}</div></div>
