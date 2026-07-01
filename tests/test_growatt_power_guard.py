@@ -467,6 +467,30 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(send_mock.call_count, 1)
 
+    def test_battery_alert_suppresses_bypass_during_owned_topup(self):
+        config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example", bypass_alert_soc=40)
+        status = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "2"},
+                "storageDetailBean": {"bmsSoc": 55, "pCharge": 1200, "statusText": "AC charge and Bypass"},
+            }
+        }
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.state.BATTERY_ALERT_FILE", Path(tmpdir) / "battery_alert.json"
+        ), patch(
+            "growatt_guard.state.BYPASS_ALERT_FILE", Path(tmpdir) / "bypass_alert.json"
+        ), patch(
+            "growatt_guard.modes.load_context",
+            return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
+        ), patch("growatt_guard.modes.utility_hold_ownership", return_value="owned"), patch(
+            "growatt_guard.modes.send_discord_embed", return_value=True
+        ) as send_mock, redirect_stdout(StringIO()) as stdout:
+            self.assertEqual(command_battery_alert(config), 0)
+
+        send_mock.assert_not_called()
+        self.assertIn("suppressing bypass alert", stdout.getvalue())
+
     def test_battery_alert_sends_at_most_three_times_for_high_soc_bypass(self):
         config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example", bypass_alert_soc=40)
         status = {

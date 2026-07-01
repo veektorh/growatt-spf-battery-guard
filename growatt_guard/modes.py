@@ -785,7 +785,15 @@ def command_battery_alert(config: Config) -> int:
     bypass = detect_grid_bypass(status)
     bypass_state = read_bypass_alert_state()
     bypass_threshold = config.bypass_alert_soc
-    if bypass_threshold > 0 and bypass["detected"] and soc > bypass_threshold:
+    utility_ownership = utility_hold_ownership()
+    intentional_utility_hold = utility_ownership in {"owned", "adopted"} or topup_is_active()
+    if bypass_threshold > 0 and bypass["detected"] and soc > bypass_threshold and intentional_utility_hold:
+        reason = str(bypass.get("reason") or "bypass detected")
+        print(
+            f"Grid bypass observed during intentional Utility/topup hold; suppressing bypass alert "
+            f"(SOC {soc:g}% > {bypass_threshold:g}%; {previous_mode}; {reason})."
+        )
+    elif bypass_threshold > 0 and bypass["detected"] and soc > bypass_threshold:
         reason = str(bypass.get("reason") or "bypass detected")
         sent_count = int((bypass_state or {}).get("sent_count", 1 if bypass_state else 0) or 0)
         if bypass_state and bypass_state.get("active") and sent_count >= _BYPASS_ALERT_MAX_SENDS:
