@@ -470,6 +470,48 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Needs PANEL_KWP", html)
         self.assertIn("Set PANEL_KWP to convert Open-Meteo irradiance into PV kWh.", html)
 
+    def test_dashboard_runtime_labels_usable_energy_to_floor(self):
+        status = {
+            "device": {"capacity": "70%"},
+            "storage_params": {
+                "outputConfig": "0",
+                "storageBean": {
+                    "pDischarge": 1000,
+                    "pCharge": 0,
+                    "ppv": 0,
+                    "outPutPower": 1000,
+                },
+            },
+        }
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+
+        with patch("growatt_guard.dashboard.read_pause_state", return_value=None), patch(
+            "growatt_guard.dashboard.read_battery_alert_state", return_value=None
+        ), patch(
+            "growatt_guard.dashboard.read_growatt_cloud_failure_state", return_value={}
+        ), patch(
+            "growatt_guard.dashboard.read_mode_audit_rows", return_value=[]
+        ), patch(
+            "growatt_guard.dashboard.read_pvoutput_state", return_value=None
+        ), patch(
+            "growatt_guard.dashboard.build_chart_data",
+            return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
+        ):
+            html = build_dashboard_html(
+                status,
+                schedule,
+                {"dates": {}},
+                ThresholdDecision(50, "fixed threshold"),
+                battery_capacity_wh=30000,
+                battery_bms_cutoff_soc=25,
+            )
+
+        self.assertIn("Usable runtime", html)
+        self.assertIn("Usable Runtime", html)
+        self.assertIn("13h 30m remaining", html)
+        self.assertIn("Usable to 25% floor: 13.5 kWh", html)
+        self.assertNotIn("Capacity 30.0 kWh", html)
+
     def test_dashboard_runtime_handles_near_zero_battery_draw(self):
         status = {
             "device": {"capacity": "98%"},

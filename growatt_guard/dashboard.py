@@ -1989,7 +1989,12 @@ def build_dashboard_html(
     _pdv = parse_number(_pd[0]) if _pd else None
     _pcv = parse_number(_pc[0]) if _pc else None
     est_runtime = "—"
-    runtime_note = "Capacity " + (_fmt_kwh(battery_capacity_wh / 1000.0) if battery_capacity_wh > 0 else "--")
+    runtime_note = "Usable energy unavailable"
+    if battery_capacity_wh > 0 and soc_result:
+        _usable_runtime_kwh = max(0.0, (soc_result[0] - battery_bms_cutoff_soc) / 100.0 * battery_capacity_wh / 1000.0)
+        runtime_note = f"Usable to {_fmt_pct(battery_bms_cutoff_soc)} floor: {_fmt_kwh(_usable_runtime_kwh)}"
+    elif battery_capacity_wh > 0:
+        runtime_note = "Capacity " + _fmt_kwh(battery_capacity_wh / 1000.0)
     if _pdv is not None or _pcv is not None:
         _bw = (_pdv or 0.0) - (_pcv or 0.0)
         if battery_capacity_wh > 0 and soc_result:
@@ -3424,7 +3429,7 @@ def build_dashboard_html(
             <div><span>Sunrise reserve</span><strong>{esc(tonight_projection_display)}</strong><em>{esc(sunrise_reserve_detail_display)}</em></div>
             <div><span>Top-up needed</span><strong>{esc(topup_needed_display)}</strong><em>Expected grid {esc(_grid_forecast_str)}</em></div>
             <div><span>Reserve target</span><strong>{esc(reserve_target_display)}</strong><em>{esc(sunrise_basis_display)}</em></div>
-            <div><span>Runtime</span><strong>{esc(est_runtime)}</strong><em>{esc(runtime_note)}</em></div>
+            <div><span>Usable runtime</span><strong>{esc(est_runtime)}</strong><em>{esc(runtime_note)}</em></div>
             <div><span>Charge rate</span><strong>{esc(battery_charge_rate_display)}</strong><em>Configured grid charge</em></div>
             <div><span>Voltage</span><strong>{esc(vbat)}</strong><em>Battery bus reading</em></div>
             <div><span>Day throughput</span><strong>{esc(battery_throughput_display)}</strong><em>Charge plus discharge today</em></div>
@@ -3622,7 +3627,7 @@ def build_dashboard_html(
         <div class="muted small">Topup estimate: {esc(tonight_topup_display)}</div>
       </div>
       <div class="card"><div class="label">Battery Voltage</div><div class="value">{esc(vbat)}</div></div>
-      <div class="card"><div class="label">Est. Runtime</div><div class="value">{esc(est_runtime)}</div></div>
+      <div class="card"><div class="label">Usable Runtime</div><div class="value">{esc(est_runtime)}</div><div class="muted small">{esc(runtime_note)}</div></div>
       <div class="card"><div class="label">Pause State</div><div class="value">{esc(pause)}</div></div>
       <div class="card"><div class="label">Emergency Alert</div><div class="value">{esc(alert)}</div></div>
       <div class="card"><div class="label">Cloud Streak</div><div class="value">{esc(cloud_streak)}</div></div>
