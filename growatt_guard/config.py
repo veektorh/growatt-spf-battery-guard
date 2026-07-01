@@ -37,6 +37,7 @@ class Config:
     audit_retention_days: int = 90
     emergency_soc: float = 30
     emergency_soc_recovery: float = 35
+    bypass_alert_soc: float = 40
     cloud_failure_alert_threshold: int = 3
     dashboard_stale_minutes: float = 30
     weather_enabled: bool = False
@@ -181,6 +182,7 @@ def load_config() -> Config:
         audit_retention_days=int(env("AUDIT_RETENTION_DAYS", "90")),
         emergency_soc=float(env("EMERGENCY_SOC", "30")),
         emergency_soc_recovery=float(env("EMERGENCY_SOC_RECOVERY", "35")),
+        bypass_alert_soc=float(env("BYPASS_ALERT_SOC", "40")),
         cloud_failure_alert_threshold=int(env("GROWATT_CLOUD_FAILURE_ALERT_THRESHOLD", "3")),
         dashboard_stale_minutes=float(env("DASHBOARD_STALE_MINUTES", "30")),
         weather_enabled=str_to_bool(env("WEATHER_ENABLED"), default=False),

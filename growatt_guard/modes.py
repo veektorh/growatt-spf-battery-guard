@@ -16,6 +16,7 @@ from growatt_guard.config import Config
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import (
     describe_status_output_source,
+    detect_grid_bypass,
     estimate_runtime,
     estimate_topup_for_sunrise,
     extract_first_metric,
@@ -40,6 +41,8 @@ from growatt_guard.notifications import (
     embed_waste_alert,
     embed_battery_alert,
     embed_battery_cleared,
+    embed_bypass_alert,
+    embed_bypass_cleared,
     embed_mode_not_confirmed,
     embed_mode_switch_sbu,
     embed_mode_switch_utility,
@@ -68,6 +71,7 @@ from growatt_guard.state import (
     battery_alert_is_muted,
     clear_battery_alert_mute,
     clear_battery_alert_state,
+    clear_bypass_alert_state,
     clear_runtime_alert_state,
     clear_topup_state,
     clear_utility_hold_state,
@@ -76,6 +80,7 @@ from growatt_guard.state import (
     parse_utc_datetime,
     pause_message,
     read_battery_alert_state,
+    read_bypass_alert_state,
     read_discharge_rate_history,
     read_pause_state,
     read_runtime_alert_state,
@@ -90,6 +95,7 @@ from growatt_guard.state import (
     waste_alert_is_snoozed,
     write_battery_alert_mute,
     write_battery_alert_state,
+    write_bypass_alert_state,
     write_runtime_alert_state,
     write_topup_skip_notification_state,
     write_topup_state,
@@ -118,6 +124,7 @@ ROTATE_LOG_GENERATED_PATTERNS = (
 _TOPUP_EXPIRY_BUFFER_FACTOR = 1.2  # max_expiry = eta * 1.2
 _TOPUP_EXPIRY_BUFFER_MIN_MINUTES = 15.0  # minimum buffer added to ETA
 _PRESERVE_HOLD_FALLBACK_MINUTES = 90.0
+_BYPASS_ALERT_MAX_SENDS = 3
 _PRESERVE_HOLD_MAX_SCHEDULE_MINUTES = 180.0
 
 
@@ -775,6 +782,34 @@ def command_battery_alert(config: Config) -> int:
 
     soc, path = soc_result
     previous_mode = describe_status_output_source(status) or "unknown"
+    bypass = detect_grid_bypass(status)
+    bypass_state = read_bypass_alert_state()
+    bypass_threshold = config.bypass_alert_soc
+    if bypass_threshold > 0 and bypass["detected"] and soc > bypass_threshold:
+        reason = str(bypass.get("reason") or "bypass detected")
+        sent_count = int((bypass_state or {}).get("sent_count", 1 if bypass_state else 0) or 0)
+        if bypass_state and bypass_state.get("active") and sent_count >= _BYPASS_ALERT_MAX_SENDS:
+            print(
+                f"Grid bypass alert already sent {sent_count} times; suppressing further alerts "
+                f"until bypass clears (SOC {soc:g}% > {bypass_threshold:g}%; {previous_mode}; {reason})."
+            )
+        else:
+            if not config.discord_webhook_url:
+                raise GrowattGuardError("DISCORD_WEBHOOK_URL must be configured for grid bypass alerts.")
+            if not send_discord_embed(config, embed_bypass_alert(soc, bypass_threshold, previous_mode, reason)):
+                raise GrowattGuardError("Grid bypass alert could not be sent to Discord.")
+            sent_count += 1
+            write_bypass_alert_state(soc, reason, sent_count=sent_count)
+            print(
+                f"Grid bypass alert sent ({sent_count}/{_BYPASS_ALERT_MAX_SENDS}): "
+                f"SOC {soc:g}% > {bypass_threshold:g}% ({reason})."
+            )
+    elif bypass_state and bypass_state.get("active"):
+        clear_bypass_alert_state()
+        if config.discord_webhook_url:
+            send_discord_embed(config, embed_bypass_cleared(soc, bypass_threshold, previous_mode))
+        print(f"Grid bypass alert cleared: SOC {soc:g}% / bypass={bool(bypass['detected'])}.")
+
     state = read_battery_alert_state()
     recovery_soc = max(config.emergency_soc_recovery, config.emergency_soc)
 
@@ -812,7 +847,8 @@ def command_battery_alert(config: Config) -> int:
         print(f"Emergency battery alert cleared: SOC {soc:g}% >= {recovery_soc:g}%.")
         return 0
 
-    print(f"Battery alert OK: SOC {soc:g}% >= {config.emergency_soc:g}% ({previous_mode}).")
+    bypass_note = " bypass=detected" if bypass["detected"] else ""
+    print(f"Battery alert OK: SOC {soc:g}% >= {config.emergency_soc:g}% ({previous_mode}).{bypass_note}")
     return 0
 
 

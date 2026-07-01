@@ -17,7 +17,7 @@ from growatt_power_guard import (
     verify_mode_switch,
     command_watchdog_sbu,
 )
-from growatt_guard.growatt_api import extract_battery_status, estimate_runtime, estimate_charge_time, estimate_topup_for_sunrise, format_duration_minutes
+from growatt_guard.growatt_api import detect_grid_bypass, extract_battery_status, estimate_runtime, estimate_charge_time, estimate_topup_for_sunrise, format_duration_minutes
 
 
 class GrowattApiTests(unittest.TestCase):
@@ -543,6 +543,30 @@ class ExtractMetricsTests(unittest.TestCase):
     def test_extract_battery_status_returns_none_when_absent(self):
         status = {"storage_params": {"storageDetailBean": {"bmsSoc": 62}}}
         self.assertIsNone(extract_battery_status(status))
+
+    def test_detect_grid_bypass_from_status_text(self):
+        status = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {"statusText": "AC charge and Bypass", "pCharge": 0},
+            }
+        }
+        result = detect_grid_bypass(status)
+        self.assertTrue(result["detected"])
+        self.assertIn("AC charge and Bypass", result["reason"])
+        self.assertEqual(result["output_raw"], "0")
+
+    def test_detect_grid_bypass_from_grid_charging_power(self):
+        status = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "0", "pGrid": 1800},
+                "storageDetailBean": {"statusText": "Charging", "pCharge": 1200, "pDischarge": 0},
+            }
+        }
+        result = detect_grid_bypass(status)
+        self.assertTrue(result["detected"])
+        self.assertEqual(result["grid_w"], 1800)
+        self.assertEqual(result["charge_w"], 1200)
 
     def test_summarize_status_includes_live_metrics(self):
         status = {

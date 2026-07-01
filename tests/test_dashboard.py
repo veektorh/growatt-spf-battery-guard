@@ -96,6 +96,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Live energy flow", html)
         self.assertIn("Grid Import Now", html)
         self.assertIn("Grid Import Today", html)
+        self.assertIn("Grid Bypass", html)
+        self.assertIn("Bypass: Clear", html)
         self.assertIn("Daily Energy", html)
         self.assertIn("Today Mix", html)
         self.assertIn("mix-grid", html)
@@ -558,6 +560,37 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(metrics["load_w"], 1145)
         self.assertEqual(metrics["discharge_w"], 374)
         self.assertEqual(metrics["battery_net_w"], 374)
+
+    def test_dashboard_metrics_include_bypass_detection(self):
+        now = dt.datetime(2026, 6, 25, 23, 30)
+        status = {
+            "device": {"capacity": "55%"},
+            "storage_params": {
+                "storageBean": {"outputConfig": "0", "pGrid": 1800, "outPutPower": 700},
+                "storageDetailBean": {"bmsSoc": 55, "pCharge": 1200, "pDischarge": 0, "statusText": "AC charge and Bypass"},
+            },
+        }
+
+        metrics = extract_dashboard_metrics(status, now=now)
+
+        self.assertTrue(metrics["bypass_detected"])
+        self.assertIn("AC charge and Bypass", metrics["bypass_reason"])
+
+    def test_dashboard_html_displays_bypass_detected_badge(self):
+        status = {
+            "device": {"capacity": "55%"},
+            "storage_params": {
+                "storageBean": {"outputConfig": "0", "pGrid": 1800, "outPutPower": 700},
+                "storageDetailBean": {"bmsSoc": 55, "pCharge": 1200, "pDischarge": 0, "statusText": "AC charge and Bypass"},
+            },
+        }
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+
+        html = build_dashboard_html(status, schedule, {"dates": {}}, ThresholdDecision(50, "test threshold"))
+
+        self.assertIn("Grid Bypass", html)
+        self.assertIn("Bypass: Detected", html)
+        self.assertIn("AC charge and Bypass", html)
 
     def test_dashboard_metrics_sums_pv_input_channels_when_ppv_is_one_channel(self):
         now = dt.datetime(2026, 6, 25, 8, 30)

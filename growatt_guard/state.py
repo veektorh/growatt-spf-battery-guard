@@ -14,6 +14,7 @@ STATE_DIR = BASE_DIR / "state"
 PAUSE_FILE = STATE_DIR / "automation_pause.json"
 BATTERY_ALERT_FILE = STATE_DIR / "battery_alert.json"
 BATTERY_ALERT_MUTED_FILE = STATE_DIR / "battery_alert_muted.json"
+BYPASS_ALERT_FILE = STATE_DIR / "bypass_alert.json"
 COMMAND_LOCK_FILE = STATE_DIR / "mode_command.lock"
 DASHBOARD_STALE_ALERT_FILE = STATE_DIR / "dashboard_stale_alert.json"
 GROWATT_CLOUD_FAILURE_FILE = STATE_DIR / "growatt_cloud_failures.json"
@@ -179,6 +180,24 @@ def write_battery_alert_state(soc: float) -> None:
 
 def clear_battery_alert_state() -> None:
     clear_state_file(BATTERY_ALERT_FILE)
+
+
+def read_bypass_alert_state() -> dict[str, Any] | None:
+    return read_json_state(BYPASS_ALERT_FILE, "bypass alert")
+
+
+def write_bypass_alert_state(soc: float, reason: str, sent_count: int = 1) -> None:
+    write_json_state(BYPASS_ALERT_FILE, {
+        "active": True,
+        "last_soc": soc,
+        "reason": reason,
+        "sent_count": sent_count,
+        "last_alert_at": utc_now().isoformat(),
+    })
+
+
+def clear_bypass_alert_state() -> None:
+    clear_state_file(BYPASS_ALERT_FILE)
 
 
 def battery_alert_is_muted() -> bool:

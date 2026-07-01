@@ -496,6 +496,51 @@ def extract_battery_status(data: dict[str, Any]) -> str | None:
     return None
 
 
+def _first_metric_number(data: dict[str, Any], keys: tuple[str, ...]) -> tuple[float | None, str]:
+    result = extract_first_metric(data, keys)
+    if not result:
+        return None, ""
+    parsed = parse_number(result[0])
+    return parsed, result[1]
+
+
+def detect_grid_bypass(data: dict[str, Any], min_power_w: float = 100.0) -> dict[str, Any]:
+    """Detect actual grid bypass/AC charging from live status metrics.
+
+    outputConfig is only the configured priority. SPF payloads can still report
+    the real power path through statusText and charge/grid power readings.
+    """
+    battery_status = extract_battery_status(data) or ""
+    output_source = extract_spf_output_source(data)
+    charge_w, charge_source = _first_metric_number(data, ("pCharge", "pCharge1", "pChargeText", "chargePower"))
+    discharge_w, discharge_source = _first_metric_number(data, ("pDischarge", "pDischarge1", "pDischargeText", "dischargePower"))
+    grid_w, grid_source = _first_metric_number(
+        data,
+        ("pGrid", "pGridText", "gridPower", "pImport", "pImportText", "pAcInput", "pAcInPut", "pacToUser", "pToUser"),
+    )
+    text_bypass = "bypass" in battery_status.lower()
+    grid_charging = (charge_w or 0.0) > min_power_w and (grid_w or 0.0) > min_power_w
+    detected = text_bypass or grid_charging
+    reasons: list[str] = []
+    if text_bypass:
+        reasons.append(f"statusText={battery_status}")
+    if grid_charging:
+        reasons.append(f"grid_w={grid_w:g}, charge_w={charge_w:g}")
+    return {
+        "detected": detected,
+        "reason": "; ".join(reasons),
+        "battery_status": battery_status,
+        "output_raw": output_source[0] if output_source else "",
+        "output_label": output_source[1] if output_source else "",
+        "charge_w": charge_w,
+        "charge_source": charge_source,
+        "discharge_w": discharge_w,
+        "discharge_source": discharge_source,
+        "grid_w": grid_w,
+        "grid_source": grid_source,
+    }
+
+
 def read_device_status(api, device: DeviceRef) -> dict[str, Any]:
     status: dict[str, Any] = {
         "plant_id": device.plant_id,
@@ -584,6 +629,9 @@ def summarize_status(
     bat_status = extract_battery_status(status)
     if bat_status:
         parts.append(f"bat_status={bat_status}")
+    bypass = detect_grid_bypass(status)
+    if bypass["detected"]:
+        parts.append(f"grid_bypass=detected ({bypass['reason']})")
     _out_w = extract_first_metric(status, ("outPutPower", "outPutPower1", "activePower"))
     if _out_w:
         n = parse_number(_out_w[0])

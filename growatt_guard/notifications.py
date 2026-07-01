@@ -147,6 +147,25 @@ def embed_battery_cleared(soc: float, recovery_soc: float, output_mode: str) -> 
     return _embed("✅ Battery alert cleared", _COLOR_OK, fields)
 
 
+def embed_bypass_alert(soc: float, threshold: float, output_mode: str, reason: str) -> dict:
+    fields = [
+        _f("Battery SOC", f"{soc:g}%"),
+        _f("Alert threshold", f"> {threshold:g}%"),
+        _f("Output mode", output_mode),
+        _f("Evidence", reason or "bypass detected", inline=False),
+    ]
+    return _embed("⚠️ Grid bypass detected", _COLOR_WARN, fields)
+
+
+def embed_bypass_cleared(soc: float, threshold: float, output_mode: str) -> dict:
+    fields = [
+        _f("Battery SOC", f"{soc:g}%"),
+        _f("Alert threshold", f"> {threshold:g}%"),
+        _f("Output mode", output_mode),
+    ]
+    return _embed("✅ Grid bypass cleared", _COLOR_OK, fields)
+
+
 def embed_cloud_failure(command: str, count: int, threshold: int, message: str) -> dict:
     fields = [
         _f("Command", command),

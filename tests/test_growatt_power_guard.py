@@ -465,6 +465,64 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(send_mock.call_count, 1)
 
+    def test_battery_alert_sends_at_most_three_times_for_high_soc_bypass(self):
+        config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example", bypass_alert_soc=40)
+        status = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {"bmsSoc": 55, "pCharge": 0, "statusText": "AC charge and Bypass"},
+            }
+        }
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.state.BATTERY_ALERT_FILE", Path(tmpdir) / "battery_alert.json"
+        ), patch(
+            "growatt_guard.state.BYPASS_ALERT_FILE", Path(tmpdir) / "bypass_alert.json"
+        ), patch(
+            "growatt_guard.modes.load_context",
+            return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
+        ), patch("growatt_guard.modes.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()) as stdout:
+            self.assertEqual(command_battery_alert(config), 0)
+            self.assertEqual(command_battery_alert(config), 0)
+            self.assertEqual(command_battery_alert(config), 0)
+            self.assertEqual(command_battery_alert(config), 0)
+
+        self.assertEqual(send_mock.call_count, 3)
+        self.assertIn("Grid bypass alert sent (3/3)", stdout.getvalue())
+        self.assertIn("suppressing further alerts", stdout.getvalue())
+
+    def test_battery_alert_clears_bypass_alert_when_bypass_stops(self):
+        config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example", bypass_alert_soc=40)
+        bypass_status = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {"bmsSoc": 55, "statusText": "AC charge and Bypass"},
+            }
+        }
+        normal_status = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {"bmsSoc": 55, "statusText": "Discharging", "pCharge": 0, "pDischarge": 600},
+            }
+        }
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.state.BATTERY_ALERT_FILE", Path(tmpdir) / "battery_alert.json"
+        ), patch(
+            "growatt_guard.state.BYPASS_ALERT_FILE", Path(tmpdir) / "bypass_alert.json"
+        ), patch(
+            "growatt_guard.modes.load_context",
+            side_effect=[
+                (None, DeviceRef("plant123", "SN123", "storage", {}), bypass_status),
+                (None, DeviceRef("plant123", "SN123", "storage", {}), normal_status),
+            ],
+        ), patch("growatt_guard.modes.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()) as stdout:
+            self.assertEqual(command_battery_alert(config), 0)
+            self.assertEqual(command_battery_alert(config), 0)
+
+        self.assertEqual(send_mock.call_count, 2)
+        self.assertIn("Grid bypass alert cleared", stdout.getvalue())
+
     def test_append_mode_audit_writes_csv_row(self):
         config = make_config(dry_run=False)
 

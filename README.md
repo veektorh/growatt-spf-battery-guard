@@ -211,6 +211,16 @@ RUNTIME_ALERT_CLEAR_MINUTES=120
 
 `RUNTIME_ALERT_MINUTES` triggers the alert. `RUNTIME_ALERT_CLEAR_MINUTES` clears it when runtime recovers (defaults to 1.5× the alert threshold if unset). State is tracked so the alert fires once and clears once, with no repeat spam.
 
+### Grid Bypass Alert
+
+`battery-alert` also detects actual grid bypass/AC charging from Growatt status text and live grid/charge power, independent of the configured output source. Set the SOC threshold for this warning:
+
+```text
+BYPASS_ALERT_SOC=40
+```
+
+When bypass is detected above that SOC, Discord gets up to three warnings for the active incident. The counter resets once bypass stops or SOC drops to/below the threshold. This is read-only; it does not change inverter mode.
+
 Add a cron job (e.g. every 15 min):
 
 ```text

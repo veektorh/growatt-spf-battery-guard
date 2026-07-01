@@ -22,6 +22,7 @@ from growatt_guard.growatt_api import (
     estimate_runtime,
     estimate_topup_for_sunrise,
     deep_values,
+    detect_grid_bypass,
     extract_battery_status,
     extract_channel_metric_sum,
     extract_first_metric,
@@ -288,6 +289,7 @@ def extract_dashboard_metrics(status: dict[str, Any], now: dt.datetime | None = 
     now = now or dt.datetime.now().astimezone()
     soc_result = extract_soc(status)
     output_source = extract_spf_output_source(status)
+    bypass = detect_grid_bypass(status)
     pv_w = _metric_number_or_channel_sum(status, PV_POWER_KEYS, PV_POWER_CHANNELS)
     load_w = _metric_number(status, LOAD_POWER_KEYS)
     charge_w = _metric_number(status, CHARGE_POWER_KEYS)
@@ -310,6 +312,8 @@ def extract_dashboard_metrics(status: dict[str, Any], now: dt.datetime | None = 
         "mode": output_source[1] if output_source else "",
         "mode_source": output_source[2] if output_source else "",
         "battery_status": extract_battery_status(status) or "",
+        "bypass_detected": bool(bypass["detected"]),
+        "bypass_reason": bypass.get("reason", ""),
         "pv_w": _rounded(pv_w, 0),
         "pv_today_kwh": _rounded(_metric_number_or_channel_sum(status, PV_TODAY_KEYS, PV_TODAY_CHANNELS), 2),
         "pv_total": _metric_lifetime_text(status),
@@ -2043,6 +2047,9 @@ def build_dashboard_html(
     soc = f"{soc_result[0]:g}%" if soc_result else "Not found"
     output_source = extract_spf_output_source(status)
     mode = f"{output_source[1]} [{output_source[0]}]" if output_source else "Not found"
+    bypass = detect_grid_bypass(status)
+    bypass_detected = bool(bypass["detected"])
+    bypass_reason = str(bypass.get("reason") or "")
     bat_status = extract_battery_status(status) or "—"
     _load = extract_first_metric(status, ("loadPercent", "loadPercent1"))
     _n = parse_number(_load[0]) if _load else None
@@ -2244,6 +2251,9 @@ def build_dashboard_html(
     battery_charge_share_display = f"{battery_charge_share:.0f}%" if battery_charge_share is not None else "--"
     battery_charge_share_width = min(100.0, battery_charge_share) if battery_charge_share is not None else 0.0
     mode_badge_class = "badge-warn" if "utility" in mode.lower() else ("badge-ok" if "sbu" in mode.lower() else "badge-warn")
+    bypass_badge_class = "badge-fail" if bypass_detected else "badge-ok"
+    bypass_badge_label = "Detected" if bypass_detected else "Clear"
+    bypass_status_detail = bypass_reason or "No grid bypass detected"
     grid_now_detail = "estimated from load + charge - PV" if grid_source == "estimated" else (grid_detail or "reported by Growatt")
     _grid_w = live_metrics.get("grid_w") or 0
     if _grid_w < 20:
@@ -2616,6 +2626,7 @@ def build_dashboard_html(
         )
         for label, value, badge_class in [
             ("Inverter Mode", mode, mode_badge_class),
+            ("Grid Bypass", bypass_badge_label, bypass_badge_class),
             ("Dashboard", "OK", "badge-ok"),
             ("Data Quality", quality_display, quality_badge_class),
             ("Energy Balance", balance_title, balance_badge_class),
@@ -3488,6 +3499,7 @@ def build_dashboard_html(
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <a href="#insights" class="badge {esc(_status_badge_class(str(daily_insights.get("status", "unknown"))))}" style="text-decoration:none">Today: {esc(str(daily_insights.get("title", "Learning")))}</a>
             <span class="badge {esc(tonight_badge_class)}">Tonight: {esc(tonight_title)}</span>
+            <span class="badge {esc(bypass_badge_class)}" title="{esc(bypass_status_detail)}">Bypass: {esc(bypass_badge_label)}</span>
             <span class="badge badge-neutral" title="{esc(next_action_detail)}">Next: {esc(next_action_relative)} · {esc(next_action_title)}</span>
           </div>
         </div>
@@ -3506,7 +3518,7 @@ def build_dashboard_html(
                 <div class="flow-label">Inverter</div>
                 <div class="flow-value">{esc(mode)}</div>
               </div>
-              <div class="flow-detail">{esc(bat_status)}</div>
+              <div class="flow-detail">{esc(bat_status)}{esc(' · ' + bypass_status_detail if bypass_detected else '')}</div>
             </div>
             <div class="connector load {esc(flow_load_class)}" aria-hidden="true"></div>
             <div class="flow-tile load">
