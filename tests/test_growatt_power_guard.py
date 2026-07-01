@@ -457,6 +457,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir, patch("growatt_guard.state.STATE_DIR", Path(tmpdir)), patch(
             "growatt_guard.state.BATTERY_ALERT_FILE", Path(tmpdir) / "battery_alert.json"
         ), patch(
+            "growatt_guard.state.BYPASS_ALERT_FILE", Path(tmpdir) / "bypass_alert.json"
+        ), patch(
             "growatt_guard.modes.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
         ), patch("growatt_guard.modes.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()):
