@@ -471,6 +471,90 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Needs PANEL_KWP", html)
         self.assertIn("Set PANEL_KWP to convert Open-Meteo irradiance into PV kWh.", html)
 
+    def test_dashboard_runtime_handles_near_zero_battery_draw(self):
+        status = {
+            "device": {"capacity": "98%"},
+            "storage_params": {
+                "outputConfig": "0",
+                "storageBean": {
+                    "pDischarge": 53,
+                    "pCharge": 0,
+                    "ppv": 1134,
+                    "outPutPower": 1088,
+                },
+            },
+        }
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+
+        with patch("growatt_guard.dashboard.read_pause_state", return_value=None), patch(
+            "growatt_guard.dashboard.read_battery_alert_state", return_value=None
+        ), patch(
+            "growatt_guard.dashboard.read_growatt_cloud_failure_state", return_value={}
+        ), patch(
+            "growatt_guard.dashboard.read_mode_audit_rows", return_value=[]
+        ), patch(
+            "growatt_guard.dashboard.read_pvoutput_state", return_value=None
+        ), patch(
+            "growatt_guard.dashboard.build_chart_data",
+            return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
+        ):
+            html = build_dashboard_html(
+                status,
+                schedule,
+                {"dates": {}},
+                ThresholdDecision(50, "fixed threshold"),
+                battery_capacity_wh=30000,
+                battery_bms_cutoff_soc=25,
+            )
+
+        self.assertIn("PV covering load", html)
+        self.assertIn("Live battery draw only 53 W", html)
+        self.assertNotIn("413h", html)
+
+    def test_dashboard_pv_forecast_marks_rainy_forecast_as_weather_sensitive(self):
+        status = {
+            "device": {"capacity": "85%"},
+            "storage_params": {
+                "outputConfig": "0",
+                "storageBean": {
+                    "ppv": 2900,
+                    "epvToday": 25.1,
+                },
+            },
+        }
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+
+        with patch("growatt_guard.dashboard.read_pause_state", return_value=None), patch(
+            "growatt_guard.dashboard.read_battery_alert_state", return_value=None
+        ), patch(
+            "growatt_guard.dashboard.read_growatt_cloud_failure_state", return_value={}
+        ), patch(
+            "growatt_guard.dashboard.read_mode_audit_rows", return_value=[]
+        ), patch(
+            "growatt_guard.dashboard.read_pvoutput_state", return_value=None
+        ), patch(
+            "growatt_guard.dashboard.build_chart_data",
+            return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
+        ):
+            html = build_dashboard_html(
+                status,
+                schedule,
+                {"dates": {}},
+                ThresholdDecision(
+                    50,
+                    "rainy/cloudy forecast: max cloud 90%, rain 2mm",
+                    weather_category="rainy/cloudy",
+                    cloud_cover=90,
+                    precipitation_mm=2,
+                ),
+                pv_forecast={"tomorrow_kwh": 30.5, "today_remaining_kwh": 8.2, "panel_kwp": 6.0},
+            )
+
+        self.assertIn("Tomorrow PV", html)
+        self.assertIn("30.5 kWh", html)
+        self.assertIn("Weather-sensitive", html)
+        self.assertIn("plan around 18.3 kWh-30.5 kWh", html)
+
     def test_dashboard_asset_for_path_handles_missing_json(self):
         with TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "dashboard.html"

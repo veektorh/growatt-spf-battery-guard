@@ -2059,13 +2059,18 @@ def build_dashboard_html(
     _pdv = parse_number(_pd[0]) if _pd else None
     _pcv = parse_number(_pc[0]) if _pc else None
     est_runtime = "—"
+    runtime_note = "Capacity " + (_fmt_kwh(battery_capacity_wh / 1000.0) if battery_capacity_wh > 0 else "--")
     if _pdv is not None or _pcv is not None:
         _bw = (_pdv or 0.0) - (_pcv or 0.0)
         if battery_capacity_wh > 0 and soc_result:
             if _bw > 0:
-                _rt = estimate_runtime(soc_result[0], _bw, battery_capacity_wh, battery_bms_cutoff_soc)
-                if _rt is not None:
-                    est_runtime = format_duration_minutes(_rt) + " remaining"
+                if _bw < 200:
+                    est_runtime = "PV covering load"
+                    runtime_note = f"Live battery draw only {_fmt_w(_bw)}"
+                else:
+                    _rt = estimate_runtime(soc_result[0], _bw, battery_capacity_wh, battery_bms_cutoff_soc)
+                    if _rt is not None:
+                        est_runtime = format_duration_minutes(_rt) + " remaining"
             elif _bw < 0:
                 _ct = estimate_charge_time(soc_result[0], abs(_bw), battery_capacity_wh)
                 if _ct is not None:
@@ -2350,7 +2355,8 @@ def build_dashboard_html(
     </section>"""
     else:
         pv_forecast_html = ""
-    _tmr_str = _fmt_kwh(energy_outlook.get("tomorrow_kwh"))
+    _tmr_value = energy_outlook.get("tomorrow_kwh")
+    _tmr_str = _fmt_kwh(_tmr_value)
     _rem_str = _fmt_kwh(energy_outlook.get("today_remaining_kwh"))
     _sunset_str = _fmt_pct(energy_outlook.get("projected_sunset_soc"))
     _sunrise_str = _fmt_pct(energy_outlook.get("projected_sunrise_soc"))
@@ -2366,12 +2372,23 @@ def build_dashboard_html(
     _weather_str = str(energy_outlook.get("weather", "not configured"))
     _weather_short_str = _weather_str.split(" (", 1)[0]
     _weather_reason_str = threshold_reason
+    _tomorrow_pv_detail = "Open-Meteo estimate; actual output can be lower in local rain/cloud."
+    _weather_sensitive_pv = False
+    _rain = getattr(threshold_decision, "precipitation_mm", None)
+    _cloud = getattr(threshold_decision, "cloud_cover", None)
+    if isinstance(_tmr_value, (int, float)) and (
+        (isinstance(_rain, (int, float)) and _rain >= 1)
+        or (isinstance(_cloud, (int, float)) and _cloud >= 70)
+    ):
+        _low_tmr = _fmt_kwh(float(_tmr_value) * 0.6)
+        _tomorrow_pv_detail = f"Weather-sensitive estimate; plan around {_low_tmr}-{_tmr_str}."
+        _weather_sensitive_pv = True
     _kwp = pv_forecast.get("panel_kwp", 0) if pv_forecast else 0
     _weather_category = str(getattr(threshold_decision, "weather_category", "") or "").strip().lower()
     _has_weather_signal = _weather_category not in {"", "disabled", "unavailable", "not configured", "unknown"}
     if isinstance(_kwp, (int, float)) and _kwp > 0:
-        _forecast_source = f"Open-Meteo irradiance forecast - {float(_kwp):g} kWp system"
-        _forecast_short_str = "Open-Meteo forecast"
+        _forecast_source = _tomorrow_pv_detail + f" {_fmt_g(float(_kwp))} kWp system."
+        _forecast_short_str = "Weather-sensitive" if _weather_sensitive_pv else "Open-Meteo estimate"
     elif _has_weather_signal:
         _forecast_source = "Set PANEL_KWP to convert Open-Meteo irradiance into PV kWh."
         _forecast_short_str = "Needs PANEL_KWP"
@@ -3482,7 +3499,7 @@ def build_dashboard_html(
             <div><span>Sunrise reserve</span><strong>{esc(tonight_projection_display)}</strong><em>{esc(sunrise_reserve_detail_display)}</em></div>
             <div><span>Top-up needed</span><strong>{esc(topup_needed_display)}</strong><em>Expected grid {esc(_grid_forecast_str)}</em></div>
             <div><span>Reserve target</span><strong>{esc(reserve_target_display)}</strong><em>{esc(sunrise_basis_display)}</em></div>
-            <div><span>Runtime</span><strong>{esc(est_runtime)}</strong><em>Capacity {esc(battery_capacity_display)}</em></div>
+            <div><span>Runtime</span><strong>{esc(est_runtime)}</strong><em>{esc(runtime_note)}</em></div>
             <div><span>Charge rate</span><strong>{esc(battery_charge_rate_display)}</strong><em>Configured grid charge</em></div>
             <div><span>Voltage</span><strong>{esc(vbat)}</strong><em>Battery bus reading</em></div>
             <div><span>Day throughput</span><strong>{esc(battery_throughput_display)}</strong><em>Charge plus discharge today</em></div>
