@@ -566,7 +566,7 @@ class DashboardTests(unittest.TestCase):
         status = {
             "device": {"capacity": "55%"},
             "storage_params": {
-                "storageBean": {"outputConfig": "0", "pGrid": 1800, "outPutPower": 700},
+                "storageBean": {"outputConfig": "0", "pGrid": 1800, "outPutPower": 700, "pCharge": 0},
                 "storageDetailBean": {"bmsSoc": 55, "pCharge": 1200, "pDischarge": 0, "statusText": "AC charge and Bypass"},
             },
         }
@@ -575,6 +575,8 @@ class DashboardTests(unittest.TestCase):
 
         self.assertTrue(metrics["bypass_detected"])
         self.assertIn("AC charge and Bypass", metrics["bypass_reason"])
+        self.assertEqual(metrics["charge_w"], 1200)
+        self.assertEqual(metrics["battery_net_w"], -1200)
 
     def test_dashboard_html_displays_bypass_detected_badge(self):
         status = {

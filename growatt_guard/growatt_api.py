@@ -59,6 +59,16 @@ PV_TODAY_CHANNELS = (
     ("epv1Today", "ePv1Today"),
     ("epv2Today", "ePv2Today"),
 )
+DETAIL_PREFERRED_METRIC_KEYS = {
+    "pCharge",
+    "pCharge1",
+    "pChargeText",
+    "chargePower",
+    "pDischarge",
+    "pDischarge1",
+    "pDischargeText",
+    "dischargePower",
+}
 
 
 @dataclass(frozen=True)
@@ -406,10 +416,19 @@ def output_source_label(raw: str) -> str:
 
 
 def extract_first_metric(data: dict[str, Any], keys: tuple[str, ...]) -> tuple[Any, str] | None:
+    flat = deep_values(data)
     for wanted_key in keys:
-        for path, value in deep_values(data):
-            if path.split(".")[-1] == wanted_key and value not in (None, ""):
-                return value, path
+        matches = [
+            (path, value)
+            for path, value in flat
+            if path.split(".")[-1] == wanted_key and value not in (None, "")
+        ]
+        if not matches:
+            continue
+        if wanted_key in DETAIL_PREFERRED_METRIC_KEYS:
+            matches.sort(key=lambda item: 0 if "Detail" in item[0] else 1)
+        path, value = matches[0]
+        return value, path
     return None
 
 

@@ -591,6 +591,27 @@ class ExtractMetricsTests(unittest.TestCase):
         self.assertIn("load_pct=28", result)
         self.assertIn("bat_w=1736", result)
 
+    def test_summarize_status_prefers_detail_charge_power_over_storage_bean_zero(self):
+        status = {
+            "plant_id": "p1",
+            "device_sn": "SN1",
+            "device_type": "storage",
+            "storage_params": {
+                "storageBean": {"outputConfig": "0", "pCharge": 0, "pDischarge": 0},
+                "storageDetailBean": {
+                    "bmsSoc": 99,
+                    "statusText": "AC charge and Bypass",
+                    "pCharge": 2026,
+                    "pDischarge": 0,
+                },
+            },
+        }
+
+        result = summarize_status(status)
+
+        self.assertIn("grid_bypass=detected", result)
+        self.assertIn("bat_w=-2026", result)
+
     def test_summarize_status_includes_vbat(self):
         status = {
             "plant_id": "p1",
