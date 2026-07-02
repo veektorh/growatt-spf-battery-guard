@@ -17,7 +17,7 @@ FAKE_SCHEDULE = {
     "jobs": [
         {"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"},
         {"id": "morning-health", "cron": "10 6 * * *", "command": "health-check", "args": ["--notify"]},
-        {"id": "morning-return-sbu", "cron": "55 7 * * *", "command": "return-sbu"},
+        {"id": "morning-return-sbu", "cron": "0 8 * * *", "command": "return-sbu"},
         {"id": "watchdog", "cron": "*/30 * * * *", "command": "watchdog-sbu"},
     ],
 }

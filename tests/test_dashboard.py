@@ -260,7 +260,7 @@ class DashboardTests(unittest.TestCase):
                 {
                     "id": "morning-return",
                     "name": "Morning Return",
-                    "cron": "55 7 * * *",
+                    "cron": "0 8 * * *",
                     "command": "return-sbu",
                 },
                 {

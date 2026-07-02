@@ -309,7 +309,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
             "jobs": [
                 {"id": "morning-health", "cron": "10 6 * * *", "command": "health-check", "args": ["--notify"]},
                 {"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"},
-                {"id": "morning-return-sbu", "cron": "55 7 * * *", "command": "return-sbu"},
+                {"id": "morning-return-sbu", "cron": "0 8 * * *", "command": "return-sbu"},
             ],
         }
         crontab = "\n".join(
@@ -324,7 +324,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
                     "growatt_power_guard.py run-scheduled morning-preserve >> logs/cron.log 2>&1 # growatt-power-guard"
                 ),
                 (
-                    "55 7 * * * cd /home/ubuntu/automation && .venv/bin/python "
+                    "0 8 * * * cd /home/ubuntu/automation && .venv/bin/python "
                     "growatt_power_guard.py run-scheduled morning-return-sbu >> logs/cron.log 2>&1 # growatt-power-guard"
                 ),
             ]

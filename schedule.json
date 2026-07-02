@@ -19,13 +19,13 @@
     {
       "id": "morning-return-sbu",
       "name": "Return to SBU before morning outage",
-      "cron": "55 7 * * *",
+      "cron": "0 8 * * *",
       "command": "return-sbu"
     },
     {
       "id": "morning-watchdog",
       "name": "Verify SBU after morning outage starts",
-      "cron": "1 8 * * *",
+      "cron": "6 8 * * *",
       "command": "watchdog-sbu"
     },
     {
