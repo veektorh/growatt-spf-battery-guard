@@ -729,6 +729,24 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Bypass: Detected", html)
         self.assertIn("AC charge and Bypass", html)
 
+    def test_dashboard_html_treats_utility_bypass_as_clear(self):
+        status = {
+            "device": {"capacity": "34%"},
+            "storage_params": {
+                "storageBean": {"outputConfig": "2", "pAcInPut": 899, "outPutPower": 883},
+                "storageDetailBean": {"bmsSoc": 34, "pCharge": 131, "pDischarge": 0, "statusText": "Combine charge and Bypass"},
+            },
+        }
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+
+        html = build_dashboard_html(status, schedule, {"dates": {}}, ThresholdDecision(50, "test threshold"))
+        metrics = extract_dashboard_metrics(status)
+
+        self.assertFalse(metrics["bypass_detected"])
+        self.assertEqual(metrics["bypass_reason"], "")
+        self.assertIn("Bypass: Clear", html)
+        self.assertNotIn("Bypass: Detected", html)
+
     def test_dashboard_metrics_sums_pv_input_channels_when_ppv_is_one_channel(self):
         now = dt.datetime(2026, 6, 25, 8, 30)
         status = {

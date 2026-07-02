@@ -16,7 +16,7 @@ from growatt_guard.config import Config
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import (
     describe_status_output_source,
-    detect_grid_bypass,
+    detect_unexpected_grid_bypass,
     estimate_runtime,
     estimate_topup_for_sunrise,
     extract_first_metric,
@@ -782,7 +782,7 @@ def command_battery_alert(config: Config) -> int:
 
     soc, path = soc_result
     previous_mode = describe_status_output_source(status) or "unknown"
-    bypass = detect_grid_bypass(status)
+    bypass = detect_unexpected_grid_bypass(status)
     bypass_state = read_bypass_alert_state()
     bypass_threshold = config.bypass_alert_soc
     utility_ownership = utility_hold_ownership()

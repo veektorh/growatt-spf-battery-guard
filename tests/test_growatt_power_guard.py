@@ -489,7 +489,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
             self.assertEqual(command_battery_alert(config), 0)
 
         send_mock.assert_not_called()
-        self.assertIn("suppressing bypass alert", stdout.getvalue())
+        self.assertIn("Battery alert OK", stdout.getvalue())
 
     def test_battery_alert_sends_at_most_three_times_for_high_soc_bypass(self):
         config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example", bypass_alert_soc=40)

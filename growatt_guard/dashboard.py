@@ -22,7 +22,7 @@ from growatt_guard.growatt_api import (
     estimate_runtime,
     estimate_topup_for_sunrise,
     deep_values,
-    detect_grid_bypass,
+    detect_unexpected_grid_bypass,
     extract_battery_status,
     extract_channel_metric_sum,
     extract_first_metric,
@@ -289,7 +289,7 @@ def extract_dashboard_metrics(status: dict[str, Any], now: dt.datetime | None = 
     now = now or dt.datetime.now().astimezone()
     soc_result = extract_soc(status)
     output_source = extract_spf_output_source(status)
-    bypass = detect_grid_bypass(status)
+    bypass = detect_unexpected_grid_bypass(status)
     pv_w = _metric_number_or_channel_sum(status, PV_POWER_KEYS, PV_POWER_CHANNELS)
     load_w = _metric_number(status, LOAD_POWER_KEYS)
     charge_w = _metric_number(status, CHARGE_POWER_KEYS)
@@ -1977,7 +1977,7 @@ def build_dashboard_html(
     soc = f"{soc_result[0]:g}%" if soc_result else "Not found"
     output_source = extract_spf_output_source(status)
     mode = f"{output_source[1]} [{output_source[0]}]" if output_source else "Not found"
-    bypass = detect_grid_bypass(status)
+    bypass = detect_unexpected_grid_bypass(status)
     bypass_detected = bool(bypass["detected"])
     bypass_reason = str(bypass.get("reason") or "")
     bat_status = extract_battery_status(status) or "—"

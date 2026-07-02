@@ -17,7 +17,7 @@ from growatt_power_guard import (
     verify_mode_switch,
     command_watchdog_sbu,
 )
-from growatt_guard.growatt_api import detect_grid_bypass, extract_battery_status, estimate_runtime, estimate_charge_time, estimate_topup_for_sunrise, format_duration_minutes
+from growatt_guard.growatt_api import detect_grid_bypass, detect_unexpected_grid_bypass, extract_battery_status, estimate_runtime, estimate_charge_time, estimate_topup_for_sunrise, format_duration_minutes
 
 
 class GrowattApiTests(unittest.TestCase):
@@ -556,6 +556,34 @@ class ExtractMetricsTests(unittest.TestCase):
         self.assertIn("AC charge and Bypass", result["reason"])
         self.assertEqual(result["output_raw"], "0")
 
+    def test_detect_unexpected_grid_bypass_ignores_expected_utility_mode(self):
+        status = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "2", "pAcInPut": 900},
+                "storageDetailBean": {"statusText": "Combine charge and Bypass", "pCharge": 131, "pDischarge": 0},
+            }
+        }
+
+        result = detect_unexpected_grid_bypass(status)
+
+        self.assertFalse(result["detected"])
+        self.assertTrue(result["expected_utility"])
+        self.assertEqual(result["reason"], "")
+
+    def test_detect_unexpected_grid_bypass_flags_sbu_bypass(self):
+        status = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "0", "pAcInPut": 900},
+                "storageDetailBean": {"statusText": "AC charge and Bypass", "pCharge": 131, "pDischarge": 0},
+            }
+        }
+
+        result = detect_unexpected_grid_bypass(status)
+
+        self.assertTrue(result["detected"])
+        self.assertFalse(result["expected_utility"])
+        self.assertIn("AC charge and Bypass", result["reason"])
+
     def test_detect_grid_bypass_from_grid_charging_power(self):
         status = {
             "storage_params": {
@@ -1047,6 +1075,7 @@ class TopupCompleteFeedbackTests(unittest.TestCase):
                 patch.object(state_mod, "PAUSE_FILE", tmp / "pause.json"),
                 patch.object(state_mod, "CHARGE_RATE_HISTORY_FILE", tmp / "cr.json"),
                 patch("growatt_guard.modes.read_topup_state", return_value=state),
+                patch("growatt_guard.modes.read_utility_hold_state", return_value=None),
                 patch("growatt_guard.modes.topup_is_active", return_value=False),
                 patch("growatt_guard.modes.load_context", return_value=(None, None, end_status)),
                 patch("growatt_guard.modes.command_resume", return_value=0),
@@ -1080,6 +1109,7 @@ class TopupCompleteFeedbackTests(unittest.TestCase):
                 patch.object(state_mod, "PAUSE_FILE", tmp / "pause.json"),
                 patch.object(state_mod, "CHARGE_RATE_HISTORY_FILE", tmp / "cr.json"),
                 patch("growatt_guard.modes.read_topup_state", return_value=state),
+                patch("growatt_guard.modes.read_utility_hold_state", return_value=None),
                 patch("growatt_guard.modes.topup_is_active", return_value=False),
                 patch("growatt_guard.modes.load_context", return_value=(None, None, end_status)),
                 patch("growatt_guard.modes.command_resume", return_value=0),
@@ -1114,6 +1144,7 @@ class TopupCompleteFeedbackTests(unittest.TestCase):
                 patch.object(state_mod, "PAUSE_FILE", tmp / "pause.json"),
                 patch.object(state_mod, "CHARGE_RATE_HISTORY_FILE", tmp / "cr.json"),
                 patch("growatt_guard.modes.read_topup_state", return_value=state),
+                patch("growatt_guard.modes.read_utility_hold_state", return_value=None),
                 patch("growatt_guard.modes.topup_is_active", return_value=False),
                 patch("growatt_guard.modes.load_context", return_value=(None, None, self._make_status(74.0))),
                 patch("growatt_guard.modes.command_resume", return_value=0),
@@ -1174,6 +1205,7 @@ class TopupCompleteFeedbackTests(unittest.TestCase):
             with (
                 patch("growatt_guard.audit.MODE_AUDIT_FILE", audit_path),
                 patch("growatt_guard.modes.read_topup_state", return_value=None),
+                patch("growatt_guard.modes.read_utility_hold_state", return_value=None),
                 patch("growatt_guard.modes.command_return_sbu", return_value=0) as return_mock,
                 redirect_stdout(buf),
             ):
@@ -1210,6 +1242,7 @@ class TopupCompleteFeedbackTests(unittest.TestCase):
             with (
                 patch("growatt_guard.audit.MODE_AUDIT_FILE", audit_path),
                 patch("growatt_guard.modes.read_topup_state", return_value=None),
+                patch("growatt_guard.modes.read_utility_hold_state", return_value=None),
                 patch("growatt_guard.modes.command_return_sbu", return_value=0) as return_mock,
                 redirect_stdout(buf),
             ):

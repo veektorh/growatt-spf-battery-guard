@@ -560,6 +560,25 @@ def detect_grid_bypass(data: dict[str, Any], min_power_w: float = 100.0) -> dict
     }
 
 
+def detect_unexpected_grid_bypass(data: dict[str, Any], min_power_w: float = 100.0) -> dict[str, Any]:
+    """Detect grid bypass that conflicts with SBU priority.
+
+    Growatt reports normal Utility operation as "Bypass" because the grid is
+    feeding the load. For alerts/dashboard warnings, only treat it as bypass
+    when the configured output source is SBU and the live power path still
+    shows grid bypass or grid charging.
+    """
+    result = detect_grid_bypass(data, min_power_w=min_power_w)
+    output_label = str(result.get("output_label") or "").lower()
+    output_raw = str(result.get("output_raw") or "")
+    sbu_configured = "sbu" in output_label or output_raw == "0"
+    result["detected"] = bool(result.get("detected")) and sbu_configured
+    result["expected_utility"] = bool(result.get("reason")) and not sbu_configured
+    if result["expected_utility"] and not result["detected"]:
+        result["reason"] = ""
+    return result
+
+
 def read_device_status(api, device: DeviceRef) -> dict[str, Any]:
     status: dict[str, Any] = {
         "plant_id": device.plant_id,
