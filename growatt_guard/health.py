@@ -40,6 +40,10 @@ class HealthCheckItem:
     suggestion: str = ""
 
 
+_HEALTH_EMBED_MAX_PROBLEM_FIELDS = 6
+_HEALTH_EMBED_FIELD_LIMIT = 360
+
+
 def health_result(checks: list[HealthCheckItem]) -> str:
     statuses = {check.status for check in checks}
     if "FAIL" in statuses:
@@ -103,14 +107,28 @@ def format_health_report(checks: list[HealthCheckItem]) -> str:
     return "\n".join(lines)
 
 
+def health_embed_description(checks: list[HealthCheckItem]) -> str:
+    counts = {status: 0 for status in ("OK", "WARN", "FAIL")}
+    for check in checks:
+        counts[check.status] = counts.get(check.status, 0) + 1
+    parts = [f"{counts['OK']} OK", f"{counts['WARN']} WARN", f"{counts['FAIL']} FAIL"]
+    if counts["WARN"] or counts["FAIL"]:
+        return ", ".join(parts) + ". Showing only checks that need attention."
+    return ", ".join(parts) + ". All checks passed."
+
+
 def health_embed_fields(checks: list[HealthCheckItem]) -> list[dict[str, Any]]:
     fields: list[dict[str, Any]] = []
-    for check in checks:
+    problem_checks = [check for check in checks if check.status != "OK"]
+    for check in problem_checks[:_HEALTH_EMBED_MAX_PROBLEM_FIELDS]:
         value = " ".join(str(check.detail).split()) or "-"
         suggestion = getattr(check, "suggestion", "") or default_health_suggestion(check)
         if suggestion:
             value = f"{value}\nNext: {' '.join(str(suggestion).split())}"
-        fields.append({"name": f"[{check.status}] {check.name}", "value": value[:1024], "inline": False})
+        fields.append({"name": f"[{check.status}] {check.name}", "value": value[:_HEALTH_EMBED_FIELD_LIMIT], "inline": False})
+    overflow = len(problem_checks) - _HEALTH_EMBED_MAX_PROBLEM_FIELDS
+    if overflow > 0:
+        fields.append({"name": "More checks", "value": f"{overflow} additional WARN/FAIL check(s) not shown.", "inline": False})
     return fields
 
 
@@ -343,20 +361,11 @@ def command_health_check(config: Config, notify: bool = False) -> int:
         else:
             result = health_result(checks)
             color = 0x57F287 if result == "OK" else (0xFEE75C if result == "WARN" else 0xED4245)
-            embed_fields = [
-                {"name": f"[{c.status}] {c.name}", "value": " ".join(str(c.detail).split())[:1024] or "—", "inline": False}
-                for c in checks
-            ]
-            embed_fields = health_embed_fields(checks)
-            _MAX_FIELDS = 24
-            if len(embed_fields) > _MAX_FIELDS:
-                overflow = len(embed_fields) - _MAX_FIELDS
-                embed_fields = embed_fields[:_MAX_FIELDS]
-                embed_fields.append({"name": "⚠️ Truncated", "value": f"{overflow} more check(s) not shown.", "inline": False})
             embed = {
-                "title": f"Growatt health — {result}",
+                "title": f"Growatt health - {result}",
                 "color": color,
-                "fields": embed_fields,
+                "description": health_embed_description(checks),
+                "fields": health_embed_fields(checks),
                 "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
             }
             if send_discord_embed(config, embed):

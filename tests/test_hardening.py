@@ -94,6 +94,7 @@ class TopupImpliedRateTests(unittest.TestCase):
              patch("growatt_guard.modes.command_return_sbu", return_value=0), \
              patch("growatt_guard.modes.append_charge_rate_reading",
                    return_value=[{"rate_w": recorded_rate}]), \
+             patch("growatt_guard.modes.append_mode_audit"), \
              redirect_stdout(StringIO()) as out:
             rc = command_topup_complete_check(config)
         return rc, out.getvalue()

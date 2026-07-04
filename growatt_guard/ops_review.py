@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -87,6 +88,17 @@ def _fmt_w(value: Any) -> str:
     return f"{float(value):.0f} W"
 
 
+def _fmt_age(minutes: float | None) -> str:
+    if minutes is None:
+        return "age unknown"
+    if minutes < 90:
+        return f"{minutes:.0f} min ago"
+    hours = minutes / 60.0
+    if hours < 48:
+        return f"{hours:.1f} h ago"
+    return f"{hours / 24.0:.1f} d ago"
+
+
 def _age_minutes(timestamp: dt.datetime | None, now: dt.datetime) -> float | None:
     if timestamp is None:
         return None
@@ -95,6 +107,36 @@ def _age_minutes(timestamp: dt.datetime | None, now: dt.datetime) -> float | Non
     if now.tzinfo is not None:
         now = now.astimezone().replace(tzinfo=None)
     return max(0.0, (now - timestamp).total_seconds() / 60.0)
+
+
+def _parse_topup_completion_note(note: str) -> dict[str, float]:
+    values: dict[str, float] = {}
+    for key, pattern in {
+        "start_soc": r"start_soc=([-+]?\d+(?:\.\d+)?)",
+        "end_soc": r"end_soc=([-+]?\d+(?:\.\d+)?)",
+        "actual_min": r"actual_min=([-+]?\d+(?:\.\d+)?)",
+        "implied_rate_w": r"implied_rate_w=([-+]?\d+(?:\.\d+)?)",
+    }.items():
+        match = re.search(pattern, note)
+        if match:
+            try:
+                values[key] = float(match.group(1))
+            except ValueError:
+                pass
+    return values
+
+
+def _last_mode_change(rows: list[dict[str, str]]) -> dict[str, str] | None:
+    mode_change_actions = {
+        "switch-to-utility",
+        "switch-to-sbu",
+        "repair-sbu",
+        "auto-topup-started",
+    }
+    for row in reversed(rows):
+        if row.get("action") in mode_change_actions and row.get("result") != "error":
+            return row
+    return None
 
 
 def _audit_stats(rows: list[dict[str, str]]) -> dict[str, Any]:
@@ -120,6 +162,23 @@ def _audit_stats(rows: list[dict[str, str]]) -> dict[str, Any]:
     topup_minutes = [
         minutes for row in topups if (minutes := parse_topup_minutes(row)) is not None
     ]
+    completed_topups = [
+        row for row in rows
+        if row.get("command") == "topup-complete-check"
+        and row.get("action", "").startswith("topup-")
+    ]
+    completion_notes = [
+        _parse_topup_completion_note(row.get("note", ""))
+        for row in completed_topups
+    ]
+    soc_gains = [
+        values["end_soc"] - values["start_soc"]
+        for values in completion_notes
+        if "start_soc" in values and "end_soc" in values
+    ]
+    implied_rates = [
+        values["implied_rate_w"] for values in completion_notes if "implied_rate_w" in values
+    ]
     return {
         "rows": len(rows),
         "preserve_checks": len(preserve_rows),
@@ -131,9 +190,13 @@ def _audit_stats(rows: list[dict[str, str]]) -> dict[str, Any]:
         "topups": len(topups),
         "topup_minutes": sum(topup_minutes),
         "avg_topup_soc": average(topup_socs),
+        "completed_topups": len(completed_topups),
+        "avg_topup_soc_gain": average(soc_gains),
+        "avg_implied_charge_rate_w": average(implied_rates),
         "lowest_soc": min(socs) if socs else None,
         "avg_preserve_soc": average(preserve_socs),
         "last_row": rows[-1] if rows else None,
+        "last_mode_change": _last_mode_change(rows),
     }
 
 
@@ -232,6 +295,12 @@ def build_ops_review(
     since = now - dt.timedelta(days=days)
     audit_rows = real_audit_rows(read_mode_audit_rows(since=since))
     stats = _audit_stats(audit_rows)
+    if config.battery_charge_rate_w > 0:
+        stats["topup_estimated_grid_kwh"] = (
+            stats["topup_minutes"] / 60.0 * config.battery_charge_rate_w / 1000.0
+        )
+    else:
+        stats["topup_estimated_grid_kwh"] = None
     dashboard = _load_dashboard_payload(dashboard_path)
     generated_at = _parse_dashboard_timestamp(dashboard)
     dashboard_age_min = _age_minutes(generated_at, now)
@@ -273,23 +342,49 @@ def build_ops_review(
         f"  Rows: {stats['rows']} real rows",
         f"  Preserve checks: {stats['preserve_checks']} ({stats['preserve_no_changes']} no-change)",
         f"  Utility switches: {stats['utility_switches']}; return-SBU: {stats['return_sbu']}; watchdog repairs: {stats['watchdog_repairs']}",
-        f"  Auto-topups: {stats['topups']} ({stats['topup_minutes']} min total)",
+        (
+            f"  Auto-topups: {stats['topups']} "
+            f"({stats['topup_minutes']} min total, "
+            f"{_fmt_kwh(stats.get('topup_estimated_grid_kwh'))} est. grid)"
+        ),
+        (
+            f"  Completed topups: {stats['completed_topups']}; "
+            f"avg SOC gain {_fmt_value(stats['avg_topup_soc_gain'], '%')}; "
+            f"avg implied charge {_fmt_w(stats['avg_implied_charge_rate_w'])}"
+        ),
         f"  Failures: {stats['failures']}",
         f"  SOC range: lowest {_fmt_value(stats['lowest_soc'], '%')}; avg preserve {_fmt_value(stats['avg_preserve_soc'], '%')}; avg topup start {_fmt_value(stats['avg_topup_soc'], '%')}",
         "",
         "State:",
-        f"  Pause: {state['pause']}; active top-up/hold: {'yes' if state['topup_active'] else 'no'}",
+        f"  Scheduled automation: {state['pause']}; active top-up/hold: {'yes' if state['topup_active'] else 'no'}",
         f"  Battery alert: {'active' if state['battery_alert'] and state['battery_alert'].get('active') else 'clear'}; bypass alert: {'active' if state['bypass_alert'] and state['bypass_alert'].get('active') else 'clear'}",
         f"  Cloud failure streak: {state['cloud_failure_count']}; command lock: {'present' if state['command_lock'] else 'clear'}",
     ]
     if automation:
-        lines.append(f"  Dashboard automation: {automation.get('pause', 'unknown')}; emergency alert {automation.get('emergency_alert', 'unknown')}")
+        lines.append(f"  Dashboard scheduled automation: {automation.get('pause', 'unknown')}; emergency alert {automation.get('emergency_alert', 'unknown')}")
+    if stats["last_mode_change"]:
+        row = stats["last_mode_change"]
+        ts = parse_audit_timestamp(row.get("timestamp", ""))
+        lines.extend([
+            "",
+            "Last mode change:",
+            (
+                f"  {row.get('timestamp', '')} ({_fmt_age(_age_minutes(ts, now))}) "
+                f"{row.get('command', '')} {row.get('action', '')} "
+                f"SOC={row.get('soc', '')}%"
+            ),
+        ])
     if stats["last_row"]:
         row = stats["last_row"]
+        ts = parse_audit_timestamp(row.get("timestamp", ""))
         lines.extend([
             "",
             "Last audit action:",
-            f"  {row.get('timestamp', '')} {row.get('command', '')} {row.get('action', '')} SOC={row.get('soc', '')}%",
+            (
+                f"  {row.get('timestamp', '')} ({_fmt_age(_age_minutes(ts, now))}) "
+                f"{row.get('command', '')} {row.get('action', '')} "
+                f"SOC={row.get('soc', '')}%"
+            ),
         ])
 
     lines.extend(["", "Recommendations:"])

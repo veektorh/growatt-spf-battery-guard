@@ -36,6 +36,7 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py validate-schedule
 .venv/bin/python growatt_power_guard.py health-check
 .venv/bin/python growatt_power_guard.py health-check --notify
+.venv/bin/python growatt_power_guard.py ops-review --days 7
 .venv/bin/python growatt_power_guard.py battery-alert
 .venv/bin/python growatt_power_guard.py runtime-alert
 .venv/bin/python growatt_power_guard.py auto-topup-check
@@ -53,6 +54,10 @@ cd ~/automation
 
 `weekly-summary` includes threshold tuning guidance based on the last 7 days of
 audit rows, including lowest SOC, near-cutoff readings, and auto-topup behavior.
+`ops-review --days 7` is a read-only operational review of the latest dashboard
+snapshot, sunrise plan, mode audit rows, topup activity, estimated grid charge,
+completed-topup efficiency, failures, current automation state, and last mode
+change. Add `--notify` to post the review to Discord.
 
 ## Pause Automation
 
@@ -244,6 +249,7 @@ Run a read-only health check:
 cd ~/automation
 .venv/bin/python growatt_power_guard.py health-check
 .venv/bin/python growatt_power_guard.py health-check --notify
+.venv/bin/python growatt_power_guard.py ops-review --days 7
 .venv/bin/python growatt_power_guard.py battery-alert
 .venv/bin/python growatt_power_guard.py weekly-summary
 .venv/bin/python growatt_power_guard.py dashboard

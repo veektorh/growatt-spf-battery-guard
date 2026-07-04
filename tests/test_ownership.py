@@ -361,12 +361,18 @@ class TestWatchdogSbuOwnership(unittest.TestCase):
         _state.UTILITY_HOLD_FILE = self._state_dir / "utility_hold.json"
         _state.PAUSE_FILE = self._state_dir / "automation_pause.json"
         _state.COMMAND_LOCK_FILE = self._state_dir / "mode_command.lock"
+        self._audit_patch = patch(
+            "growatt_guard.audit.MODE_AUDIT_FILE",
+            self._state_dir / "mode_decisions.csv",
+        )
+        self._audit_patch.start()
 
     def tearDown(self):
         import growatt_guard.state as _state
         _state.UTILITY_HOLD_FILE = self._orig_hold
         _state.PAUSE_FILE = self._orig_pause
         _state.COMMAND_LOCK_FILE = self._orig_lock
+        self._audit_patch.stop()
         self._tmp.cleanup()
 
     def test_observed_utility_skips_repair(self):
@@ -446,6 +452,11 @@ class TestTopupCompleteCheckSoc(unittest.TestCase):
         _state.TOPUP_STATE_FILE = self._state_dir / "topup_active.json"
         _state.PAUSE_FILE = self._state_dir / "automation_pause.json"
         _state.COMMAND_LOCK_FILE = self._state_dir / "mode_command.lock"
+        self._audit_patch = patch(
+            "growatt_guard.audit.MODE_AUDIT_FILE",
+            self._state_dir / "mode_decisions.csv",
+        )
+        self._audit_patch.start()
 
     def tearDown(self):
         import growatt_guard.state as _state
@@ -453,6 +464,7 @@ class TestTopupCompleteCheckSoc(unittest.TestCase):
         _state.TOPUP_STATE_FILE = self._orig_topup
         _state.PAUSE_FILE = self._orig_pause
         _state.COMMAND_LOCK_FILE = self._orig_lock
+        self._audit_patch.stop()
         self._tmp.cleanup()
 
     def test_no_state_prints_no_active(self):

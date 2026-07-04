@@ -1167,16 +1167,38 @@ def _topup_record_charge_rate(
     start_soc: float | None,
     end_soc: float | None,
     actual_min: float,
-) -> None:
+) -> float | None:
     """Record implied charge rate from a completed topup if there was SOC gain."""
     if end_soc is None or start_soc is None or config.battery_capacity_wh <= 0:
-        return
+        return None
     soc_gain = end_soc - start_soc
     if soc_gain <= 0:
-        return
+        return None
     energy_wh = soc_gain / 100.0 * config.battery_capacity_wh
     implied_rate_w = energy_wh / (max(1.0, actual_min) / 60.0)
     append_charge_rate_reading(implied_rate_w)
+    return implied_rate_w
+
+
+def _topup_completion_note(
+    *,
+    start_soc: float | None,
+    end_soc: float | None,
+    target_soc: float | None,
+    actual_min: float,
+    implied_rate_w: float | None,
+    ownership: str,
+) -> str:
+    parts = [f"actual_min={actual_min:.0f}", f"ownership={ownership}"]
+    if start_soc is not None:
+        parts.append(f"start_soc={start_soc:g}")
+    if end_soc is not None:
+        parts.append(f"end_soc={end_soc:g}")
+    if target_soc is not None:
+        parts.append(f"target_soc={target_soc:g}")
+    if implied_rate_w is not None:
+        parts.append(f"implied_rate_w={implied_rate_w:.0f}")
+    return ", ".join(parts)
 
 
 def command_topup_complete_check(config: Config) -> int:
@@ -1236,7 +1258,22 @@ def command_topup_complete_check(config: Config) -> int:
         # Check if SOC target reached (early completion).
         if target_soc is not None and end_soc is not None and end_soc >= target_soc:
             logging.info("Topup SOC target reached: %.0f%% >= %.0f%%", end_soc, target_soc)
-            _topup_record_charge_rate(config, start_soc, end_soc, actual_min)
+            implied_rate_w = _topup_record_charge_rate(config, start_soc, end_soc, actual_min)
+            append_mode_audit(
+                config,
+                "topup-complete-check",
+                soc=end_soc,
+                action="topup-target-reached",
+                result="ok",
+                note=_topup_completion_note(
+                    start_soc=start_soc,
+                    end_soc=end_soc,
+                    target_soc=target_soc,
+                    actual_min=actual_min,
+                    implied_rate_w=implied_rate_w,
+                    ownership=ownership,
+                ),
+            )
             if config.discord_notify_success and not config.dry_run:
                 send_discord_embed(config, embed_topup_soc_complete(
                     start_soc or end_soc, end_soc, target_soc, actual_min, ownership=ownership,
@@ -1265,7 +1302,22 @@ def command_topup_complete_check(config: Config) -> int:
                 logging.warning(
                     "Topup max expiry reached: end_soc=%s target=%s", end_soc, target_soc
                 )
-                _topup_record_charge_rate(config, start_soc, end_soc, actual_min)
+                implied_rate_w = _topup_record_charge_rate(config, start_soc, end_soc, actual_min)
+                append_mode_audit(
+                    config,
+                    "topup-complete-check",
+                    soc=end_soc,
+                    action="topup-expired",
+                    result="ok",
+                    note=_topup_completion_note(
+                        start_soc=start_soc,
+                        end_soc=end_soc,
+                        target_soc=target_soc,
+                        actual_min=actual_min,
+                        implied_rate_w=implied_rate_w,
+                        ownership=ownership,
+                    ),
+                )
                 command_resume(config)
                 if end_soc is not None and end_soc <= floor_soc:
                     # At or below safety floor — urgent alert.

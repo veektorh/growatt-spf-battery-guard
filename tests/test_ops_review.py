@@ -68,7 +68,10 @@ class OpsReviewTests(unittest.TestCase):
         ]
         with TemporaryDirectory() as tmpdir:
             dashboard_path = Path(tmpdir) / "dashboard.json"
-            dashboard_path.write_text(json.dumps(self.dashboard_payload("2026-07-04T11:50:00")), encoding="utf-8")
+            dashboard_path.write_text(
+                json.dumps(self.dashboard_payload("2026-07-04T11:50:00")),
+                encoding="utf-8",
+            )
             with patch("growatt_guard.ops_review.read_mode_audit_rows", return_value=rows), \
                 patch("growatt_guard.ops_review.read_pause_state", return_value=None), \
                 patch("growatt_guard.ops_review.read_topup_state", return_value=None), \
@@ -82,7 +85,71 @@ class OpsReviewTests(unittest.TestCase):
         self.assertIn("Growatt ops review - last 7 days", review.text)
         self.assertIn("Rows: 1 real rows", review.text)
         self.assertIn("Auto-topups: 0", review.text)
+        self.assertIn("Scheduled automation: active; active top-up/hold: no", review.text)
+        self.assertIn("Dashboard scheduled automation: active; emergency alert clear", review.text)
         self.assertIn("Tonight projection says no top-up is needed", review.text)
+
+    def test_build_ops_review_summarizes_completed_topup_efficiency(self):
+        now = dt.datetime(2026, 7, 4, 12, 0, 0)
+        rows = [
+            {
+                "timestamp": "2026-07-04T01:00:00",
+                "command": "auto-topup-check",
+                "soc": "40",
+                "action": "auto-topup-started",
+                "dry_run": "false",
+                "result": "ok",
+                "note": "60min, 5.0h to sunrise",
+            },
+            {
+                "timestamp": "2026-07-04T02:00:00",
+                "command": "topup-complete-check",
+                "soc": "48",
+                "action": "topup-target-reached",
+                "dry_run": "false",
+                "result": "ok",
+                "note": (
+                    "actual_min=60, ownership=owned, start_soc=40, "
+                    "end_soc=48, target_soc=48, implied_rate_w=2400"
+                ),
+            },
+            {
+                "timestamp": "2026-07-04T02:01:00",
+                "command": "return-sbu",
+                "soc": "48",
+                "action": "switch-to-sbu",
+                "dry_run": "false",
+                "result": "ok",
+                "note": "",
+            },
+        ]
+        with TemporaryDirectory() as tmpdir:
+            dashboard_path = Path(tmpdir) / "dashboard.json"
+            dashboard_path.write_text(
+                json.dumps(self.dashboard_payload("2026-07-04T11:50:00")),
+                encoding="utf-8",
+            )
+            with patch("growatt_guard.ops_review.read_mode_audit_rows", return_value=rows), \
+                patch("growatt_guard.ops_review.read_pause_state", return_value=None), \
+                patch("growatt_guard.ops_review.read_topup_state", return_value=None), \
+                patch("growatt_guard.ops_review.read_bypass_alert_state", return_value=None), \
+                patch("growatt_guard.ops_review.read_battery_alert_state", return_value=None), \
+                patch("growatt_guard.ops_review.read_growatt_cloud_failure_state", return_value=None), \
+                patch("growatt_guard.ops_review.read_command_lock_state", return_value=None), \
+                patch("growatt_guard.ops_review.topup_is_active", return_value=False):
+                review = build_ops_review(
+                    make_config(battery_charge_rate_w=3000.0),
+                    days=7,
+                    now=now,
+                    dashboard_path=dashboard_path,
+                )
+
+        self.assertIn("Auto-topups: 1 (60 min total, 3.0 kWh est. grid)", review.text)
+        self.assertIn("Completed topups: 1; avg SOC gain 8%; avg implied charge 2.4 kW", review.text)
+        self.assertIn("Last mode change:", review.text)
+        self.assertIn("return-sbu switch-to-sbu SOC=48%", review.text)
+        self.assertIn("Last audit action:", review.text)
+        self.assertIn("10.0 h ago", review.text)
 
     def test_build_ops_review_flags_current_bypass(self):
         now = dt.datetime(2026, 7, 4, 12, 0, 0)

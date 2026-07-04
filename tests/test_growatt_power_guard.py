@@ -28,6 +28,7 @@ from growatt_power_guard import (
     setup_logging,
 )
 from growatt_guard.schedule import HealthCheckItem as ScheduleHealthCheckItem
+from growatt_guard.health import health_embed_description, health_embed_fields
 
 
 class GrowattPowerGuardTests(unittest.TestCase):
@@ -335,6 +336,28 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertIn("[FAIL] Cron jobs: missing", report)
         self.assertIn("Next:", report)
+
+    def test_health_embed_keeps_discord_alert_compact(self):
+        checks = [
+            HealthCheckItem("Config", "OK", "loaded"),
+            HealthCheckItem("Dashboard freshness", "WARN", "stale"),
+            HealthCheckItem("Growatt cloud", "FAIL", "login failed"),
+        ]
+
+        fields = health_embed_fields(checks)
+
+        self.assertEqual(health_embed_description(checks), "1 OK, 1 WARN, 1 FAIL. Showing only checks that need attention.")
+        self.assertEqual([field["name"] for field in fields], ["[WARN] Dashboard freshness", "[FAIL] Growatt cloud"])
+        self.assertNotIn("Config", "\n".join(field["name"] for field in fields))
+
+    def test_health_embed_caps_problem_fields(self):
+        checks = [HealthCheckItem(f"Check {i}", "WARN", "detail") for i in range(8)]
+
+        fields = health_embed_fields(checks)
+
+        self.assertEqual(len(fields), 7)
+        self.assertEqual(fields[-1]["name"], "More checks")
+        self.assertIn("2 additional", fields[-1]["value"])
 
     def test_check_cron_schedule_accepts_installed_jobs(self):
         schedule = {

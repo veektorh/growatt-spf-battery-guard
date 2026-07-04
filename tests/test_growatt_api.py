@@ -816,7 +816,7 @@ class AutoTopupTargetSocTests(unittest.TestCase):
                   patch.object(state_mod, "PAUSE_FILE", tmp / "p1.json"),
                   patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", tmp / "dr1.json"),
                   ps[0], ps[1], ps[2], ps[3], ps[4], ps[5], ps[6], ps[7],
-                  redirect_stdout(StringIO())):
+                  ps[8], redirect_stdout(StringIO())):
                 command_auto_topup_check(cfg_cutoff)
 
             cfg_target = make_config(
@@ -829,7 +829,7 @@ class AutoTopupTargetSocTests(unittest.TestCase):
                   patch.object(state_mod, "PAUSE_FILE", tmp / "p2.json"),
                   patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", tmp / "dr2.json"),
                   ps2[0], ps2[1], ps2[2], ps2[3], ps2[4], ps2[5], ps2[6], ps2[7],
-                  redirect_stdout(StringIO())):
+                  ps2[8], redirect_stdout(StringIO())):
                 command_auto_topup_check(cfg_target)
 
         self.assertIn("minutes", written_cutoff)
@@ -1088,6 +1088,7 @@ class TopupCompleteFeedbackTests(unittest.TestCase):
                 patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "topup_active.json"),
                 patch.object(state_mod, "PAUSE_FILE", tmp / "pause.json"),
                 patch.object(state_mod, "CHARGE_RATE_HISTORY_FILE", tmp / "cr.json"),
+                patch("growatt_guard.audit.MODE_AUDIT_FILE", tmp / "mode_decisions.csv"),
                 patch("growatt_guard.modes.read_topup_state", return_value=state),
                 patch("growatt_guard.modes.read_utility_hold_state", return_value=None),
                 patch("growatt_guard.modes.topup_is_active", return_value=False),
@@ -1122,6 +1123,7 @@ class TopupCompleteFeedbackTests(unittest.TestCase):
                 patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "topup_active.json"),
                 patch.object(state_mod, "PAUSE_FILE", tmp / "pause.json"),
                 patch.object(state_mod, "CHARGE_RATE_HISTORY_FILE", tmp / "cr.json"),
+                patch("growatt_guard.audit.MODE_AUDIT_FILE", tmp / "mode_decisions.csv"),
                 patch("growatt_guard.modes.read_topup_state", return_value=state),
                 patch("growatt_guard.modes.read_utility_hold_state", return_value=None),
                 patch("growatt_guard.modes.topup_is_active", return_value=False),
@@ -1157,6 +1159,7 @@ class TopupCompleteFeedbackTests(unittest.TestCase):
                 patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "topup_active.json"),
                 patch.object(state_mod, "PAUSE_FILE", tmp / "pause.json"),
                 patch.object(state_mod, "CHARGE_RATE_HISTORY_FILE", tmp / "cr.json"),
+                patch("growatt_guard.audit.MODE_AUDIT_FILE", tmp / "mode_decisions.csv"),
                 patch("growatt_guard.modes.read_topup_state", return_value=state),
                 patch("growatt_guard.modes.read_utility_hold_state", return_value=None),
                 patch("growatt_guard.modes.topup_is_active", return_value=False),

@@ -38,6 +38,8 @@ _COLOR_WARN = 0xFEE75C
 _COLOR_FAIL = 0xED4245
 _STATUS_ICON = {"OK": "✅", "WARN": "⚠️", "FAIL": "❌"}
 _CHECK_RE = re.compile(r"^\[(OK|WARN|FAIL)\]\s+([^:]+):\s+(.+)$")
+_HEALTH_EMBED_MAX_PROBLEM_FIELDS = 6
+_HEALTH_EMBED_FIELD_LIMIT = 360
 
 
 def _read_state_file(relative_path: str) -> dict[str, Any] | None:
@@ -58,24 +60,38 @@ def build_health_embed(discord_module: Any, output: str, return_code: int) -> An
     lines = output.strip().splitlines()
     title_line = lines[0] if lines else "Growatt health check"
     overall = "FAIL"
+    parsed_checks: list[tuple[str, str, str]] = []
     for line in lines:
         if line.startswith("Result:"):
             overall = line.split(":", 1)[1].strip()
-            break
+            continue
+        m = _CHECK_RE.match(line)
+        if m:
+            parsed_checks.append((m.group(1), m.group(2).strip(), m.group(3).strip()))
     if return_code != 0 and overall == "OK":
         overall = "FAIL"
 
+    counts = {status: 0 for status in ("OK", "WARN", "FAIL")}
+    for status, _, _ in parsed_checks:
+        counts[status] = counts.get(status, 0) + 1
+    description = f"{counts['OK']} OK, {counts['WARN']} WARN, {counts['FAIL']} FAIL."
+    if counts["WARN"] or counts["FAIL"]:
+        description += " Showing only checks that need attention."
+    else:
+        description += " All checks passed."
+
     embed = discord_module.Embed(
         title=title_line,
+        description=description,
         color=_result_color(overall),
     )
-    for line in lines:
-        m = _CHECK_RE.match(line)
-        if not m:
-            continue
-        status, name, detail = m.group(1), m.group(2).strip(), m.group(3).strip()
+    problem_checks = [check for check in parsed_checks if check[0] != "OK"]
+    for status, name, detail in problem_checks[:_HEALTH_EMBED_MAX_PROBLEM_FIELDS]:
         icon = _STATUS_ICON.get(status, "•")
-        embed.add_field(name=f"{icon} {name}", value=detail[:1024], inline=False)
+        embed.add_field(name=f"{icon} {name}", value=detail[:_HEALTH_EMBED_FIELD_LIMIT], inline=False)
+    overflow = len(problem_checks) - _HEALTH_EMBED_MAX_PROBLEM_FIELDS
+    if overflow > 0:
+        embed.add_field(name="More checks", value=f"{overflow} additional WARN/FAIL check(s) not shown.", inline=False)
     embed.set_footer(text=f"Overall: {overall}")
     embed.timestamp = dt.datetime.now(dt.timezone.utc)
     return embed

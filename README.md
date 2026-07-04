@@ -376,6 +376,7 @@ python .\growatt_power_guard.py weather-threshold
 python .\growatt_power_guard.py validate-schedule
 python .\growatt_power_guard.py health-check
 python .\growatt_power_guard.py health-check --notify
+python .\growatt_power_guard.py ops-review --days 7
 python .\growatt_power_guard.py battery-alert
 python .\growatt_power_guard.py runtime-alert
 python .\growatt_power_guard.py auto-topup-check
@@ -480,6 +481,7 @@ Test it:
 .venv/bin/python growatt_power_guard.py validate-schedule
 .venv/bin/python growatt_power_guard.py health-check
 .venv/bin/python growatt_power_guard.py health-check --notify
+.venv/bin/python growatt_power_guard.py ops-review --days 7
 .venv/bin/python growatt_power_guard.py battery-alert
 .venv/bin/python growatt_power_guard.py runtime-alert
 .venv/bin/python growatt_power_guard.py auto-topup-check
@@ -564,6 +566,16 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py health-check
 .venv/bin/python growatt_power_guard.py health-check --notify
 ```
+
+Review the last week of local operations data:
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py ops-review --days 7
+.venv/bin/python growatt_power_guard.py ops-review --days 7 --notify
+```
+
+`ops-review` summarizes the latest dashboard snapshot, sunrise plan, mode audit rows, topup activity, estimated grid charge, completed-topup efficiency, failures, automation state, last mode change, and recommended follow-up. It is read-only unless `--notify` is used, which posts the same review to Discord.
 
 Run the emergency battery alert check manually:
 
