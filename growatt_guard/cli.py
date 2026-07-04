@@ -85,6 +85,12 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("daily-summary", help="Post/print a daily Growatt and automation summary.")
     subparsers.add_parser("weekly-summary", help="Post/print a weekly automation performance summary.")
     subparsers.add_parser("monthly-summary", help="Post/print a 30-day automation performance summary.")
+    ops_review_parser = subparsers.add_parser(
+        "ops-review",
+        help="Print a local operations review from dashboard, audit, and state files.",
+    )
+    ops_review_parser.add_argument("--days", type=int, default=7, help="Number of audit days to review (default 7).")
+    ops_review_parser.add_argument("--notify", action="store_true", help="Post the review summary to Discord.")
     subparsers.add_parser("rotate-logs", help="Delete old generated probe/log files according to LOG_RETENTION_DAYS.")
     subparsers.add_parser("prune-audit", help="Remove audit CSV rows older than AUDIT_RETENTION_DAYS (default 90).")
     subparsers.add_parser("weather-threshold", help="Print the current weather-aware preserve-battery threshold.")
@@ -291,6 +297,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_weekly_summary(config)
         if command == "monthly-summary":
             return app.command_monthly_summary(config)
+        if command == "ops-review":
+            return app.command_ops_review(config, args.days, args.notify)
         if command == "rotate-logs":
             return app.command_rotate_logs(config)
         if command == "prune-audit":

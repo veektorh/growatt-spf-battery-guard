@@ -53,6 +53,21 @@ class ScheduleTests(unittest.TestCase):
 
         self.assertEqual(schedule["jobs"][0]["args"], ["--notify"])
 
+    def test_validate_schedule_accepts_ops_review_notify_arg(self):
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "schedule.json"
+            path.write_text(
+                (
+                    '{"timezone":"Africa/Lagos","jobs":[{"id":"ops-review",'
+                    '"cron":"0 21 * * 0","command":"ops-review","args":["--notify"]}]}'
+                ),
+                encoding="utf-8",
+            )
+
+            schedule = validate_schedule(path)
+
+        self.assertEqual(schedule["jobs"][0]["args"], ["--notify"])
+
     def test_validate_schedule_accepts_observability_refresh(self):
         with TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "schedule.json"

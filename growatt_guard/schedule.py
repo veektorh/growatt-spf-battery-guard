@@ -23,6 +23,7 @@ SCHEDULE_COMMANDS = {
     "watchdog-sbu",
     "daily-summary",
     "monthly-summary",
+    "ops-review",
     "rotate-logs",
     "prune-audit",
     "health-check",
@@ -38,6 +39,7 @@ SCHEDULE_COMMANDS = {
 }
 SCHEDULE_COMMAND_ARGS = {
     "health-check": {"--notify"},
+    "ops-review": {"--notify"},
 }
 GROWATT_READ_COMMANDS = {
     "battery-alert",
