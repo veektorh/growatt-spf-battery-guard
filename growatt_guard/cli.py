@@ -35,7 +35,9 @@ def setup_logging(verbose: bool) -> None:
 
     root = logging.getLogger()
     root.setLevel(level)
-    root.handlers.clear()
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+        handler.close()
 
     file_handler = logging.handlers.RotatingFileHandler(
         LOG_FILE,

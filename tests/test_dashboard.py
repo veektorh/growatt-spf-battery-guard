@@ -28,6 +28,7 @@ from growatt_guard.dashboard import (
     build_dashboard_history_payload,
     build_dashboard_html,
     build_dashboard_next_action,
+    build_tonight_risk,
     build_dashboard_schedule_timeline,
     dashboard_asset_for_path,
     extract_dashboard_metric_sources,
@@ -339,6 +340,26 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(pv_item["baseline"], 0.0)
         self.assertIsNone(pv_item["delta_pct"])
         self.assertIn("zero average", pv_item["detail"])
+
+    def test_tonight_risk_can_start_from_projected_sunset_soc(self):
+        live = {"soc": 90.0, "battery_net_w": -2500.0, "load_w": 1200.0}
+
+        with patch("growatt_guard.dashboard.read_discharge_rate_history", return_value=[{"rate_w": 1700}, {"rate_w": 1700}]):
+            risk = build_tonight_risk(
+                live,
+                battery_capacity_wh=30000,
+                battery_bms_cutoff_soc=25,
+                hours_to_sunrise=16,
+                battery_charge_rate_w=2400,
+                projection_start_soc=100,
+                projection_hours=12,
+                projection_basis="projected sunset SOC",
+            )
+
+        self.assertEqual(risk["level"], "watch")
+        self.assertEqual(risk["projected_sunrise_soc"], 32.0)
+        self.assertEqual(risk["topup_minutes"], 0.0)
+        self.assertEqual(risk["projection_basis"], "projected sunset SOC")
 
     def test_dashboard_topup_estimate_shows_short_topup_skip(self):
         status = {

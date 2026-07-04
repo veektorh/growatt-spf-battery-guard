@@ -123,6 +123,32 @@ class GrowattPowerGuardTests(unittest.TestCase):
                     handler.close()
                 logging.getLogger().handlers.clear()
 
+    def test_setup_logging_replaces_existing_handlers(self):
+        class DummyHandler(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.closed_by_setup = False
+
+            def close(self):
+                self.closed_by_setup = True
+                super().close()
+
+        dummy = DummyHandler()
+        root = logging.getLogger()
+        root.addHandler(dummy)
+        try:
+            with TemporaryDirectory() as tmpdir, patch("growatt_guard.cli.LOG_DIR", Path(tmpdir)), patch(
+                "growatt_guard.cli.LOG_FILE", Path(tmpdir) / "growatt_power_guard.log"
+            ):
+                setup_logging(verbose=False)
+                self.assertTrue(dummy.closed_by_setup)
+                self.assertNotIn(dummy, logging.getLogger().handlers)
+                self.assertEqual(len(logging.getLogger().handlers), 2)
+        finally:
+            for handler in list(logging.getLogger().handlers):
+                handler.close()
+            logging.getLogger().handlers.clear()
+
     def test_validate_schedule_command_is_available(self):
         args = build_parser().parse_args(["validate-schedule"])
 
@@ -605,6 +631,28 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertIn("Recommendations:", summary)
         self.assertIn("LOW_BATTERY_SOC", summary)
+
+    def test_weekly_summary_ignores_dry_run_topups(self):
+        from growatt_power_guard import build_weekly_summary
+
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"):
+            audit_path = Path(tmpdir) / "mode_decisions.csv"
+            audit_path.write_text(
+                "\n".join(
+                    [
+                        "timestamp,command,soc,threshold,weather_category,previous_mode,action,dry_run,result,note",
+                        "2026-06-19T00:00:00,auto-topup-check,40,,,SBU priority [0],auto-topup-started,true,ok,80min test",
+                        "2026-06-19T01:00:00,auto-topup-check,38,,,SBU priority [0],auto-topup-started,false,ok,20min test",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            summary = build_weekly_summary(dt.datetime(2026, 6, 20, 12, 0), charge_rate_w=3000)
+
+        self.assertIn("Audit rows: 1", summary)
+        self.assertIn("Auto-topups: 1 (20 min grid charging", summary)
+        self.assertNotIn("100 min", summary)
 
     def test_weekly_summary_uses_audit_rows(self):
         with TemporaryDirectory() as tmpdir, patch("growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"):

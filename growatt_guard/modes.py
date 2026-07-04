@@ -782,9 +782,9 @@ def command_battery_alert(config: Config) -> int:
 
     soc, path = soc_result
     previous_mode = describe_status_output_source(status) or "unknown"
-    bypass = detect_unexpected_grid_bypass(status)
-    bypass_state = read_bypass_alert_state()
     bypass_threshold = config.bypass_alert_soc
+    bypass = detect_unexpected_grid_bypass(status, recovery_soc=bypass_threshold)
+    bypass_state = read_bypass_alert_state()
     utility_ownership = utility_hold_ownership()
     intentional_utility_hold = utility_ownership in {"owned", "adopted"} or topup_is_active()
     if bypass_threshold > 0 and bypass["detected"] and soc > bypass_threshold and intentional_utility_hold:

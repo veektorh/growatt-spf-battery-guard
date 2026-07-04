@@ -570,6 +570,20 @@ class ExtractMetricsTests(unittest.TestCase):
         self.assertTrue(result["expected_utility"])
         self.assertEqual(result["reason"], "")
 
+    def test_detect_unexpected_grid_bypass_ignores_low_soc_sbu_recovery(self):
+        status = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "0", "pAcInPut": 900},
+                "storageDetailBean": {"bmsSoc": 35, "statusText": "AC charge and Bypass", "pCharge": 131, "pDischarge": 0},
+            }
+        }
+
+        result = detect_unexpected_grid_bypass(status, recovery_soc=40)
+
+        self.assertFalse(result["detected"])
+        self.assertTrue(result["expected_recovery"])
+        self.assertEqual(result["reason"], "")
+
     def test_detect_unexpected_grid_bypass_flags_sbu_bypass(self):
         status = {
             "storage_params": {

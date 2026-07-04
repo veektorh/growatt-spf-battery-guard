@@ -560,21 +560,32 @@ def detect_grid_bypass(data: dict[str, Any], min_power_w: float = 100.0) -> dict
     }
 
 
-def detect_unexpected_grid_bypass(data: dict[str, Any], min_power_w: float = 100.0) -> dict[str, Any]:
+def detect_unexpected_grid_bypass(
+    data: dict[str, Any],
+    min_power_w: float = 100.0,
+    recovery_soc: float = 40.0,
+) -> dict[str, Any]:
     """Detect grid bypass that conflicts with SBU priority.
 
     Growatt reports normal Utility operation as "Bypass" because the grid is
     feeding the load. For alerts/dashboard warnings, only treat it as bypass
     when the configured output source is SBU and the live power path still
-    shows grid bypass or grid charging.
+    shows grid bypass or grid charging above the low-SOC recovery band.
     """
     result = detect_grid_bypass(data, min_power_w=min_power_w)
     output_label = str(result.get("output_label") or "").lower()
     output_raw = str(result.get("output_raw") or "")
     sbu_configured = "sbu" in output_label or output_raw == "0"
-    result["detected"] = bool(result.get("detected")) and sbu_configured
-    result["expected_utility"] = bool(result.get("reason")) and not sbu_configured
-    if result["expected_utility"] and not result["detected"]:
+    soc_result = extract_soc(data)
+    soc = soc_result[0] if soc_result else None
+    low_soc_recovery = isinstance(soc, (int, float)) and recovery_soc > 0 and soc <= recovery_soc
+    raw_detected = bool(result.get("detected"))
+    result["detected"] = raw_detected and sbu_configured and not low_soc_recovery
+    result["expected_utility"] = raw_detected and not sbu_configured
+    result["expected_recovery"] = raw_detected and sbu_configured and low_soc_recovery
+    result["soc"] = soc
+    result["recovery_soc"] = recovery_soc
+    if (result["expected_utility"] or result["expected_recovery"]) and not result["detected"]:
         result["reason"] = ""
     return result
 
