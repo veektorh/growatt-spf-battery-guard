@@ -76,6 +76,9 @@ if command -v systemctl >/dev/null 2>&1 && systemctl cat growatt-discord-control
   sudo systemctl restart growatt-discord-control.service
 fi
 
+echo "Refreshing dashboard once..."
+"${PYTHON_BIN}" growatt_power_guard.py dashboard-refresh --once || echo "  (dashboard refresh non-fatal - see log above)"
+
 echo "Running post-deploy smoke checks..."
 "${PYTHON_BIN}" growatt_power_guard.py service-status --json
 if [[ "${RUN_PV_METRIC_PROBE:-false}" == "true" ]]; then

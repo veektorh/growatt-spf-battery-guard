@@ -2102,6 +2102,85 @@ def _render_timeline_items(items: list[dict[str, Any]]) -> str:
     return rendered or '<li class="timeline-item muted">No automation jobs scheduled today.</li>'
 
 
+
+def _render_energy_outlook(view: dict[str, Any]) -> str:
+    cards = "\n".join(
+        '<div class="card">'
+        f'<div class="label">{esc(label)}</div>'
+        f'<div class="value">{esc(value)}</div>'
+        f'<div class="muted small">{esc(detail)}</div>'
+        '</div>'
+        for label, value, detail in view["cards"]
+    )
+    return f"""
+    <div class="section-head" id="forecast">
+      <div>
+        <h2>Energy Outlook</h2>
+        <div class="muted">Predictive view of generation, reserve, grid use, and weather impact.</div>
+      </div>
+      {_inline_badge('Confidence: ' + str(view['confidence']), 'badge-neutral')}
+    </div>
+    <section class="grid ops-grid" aria-label="Energy outlook">
+      {cards}
+    </section>"""
+
+
+def _render_daily_mix(view: dict[str, Any]) -> str:
+    def _bar(primary_width: str, neutral_width: str, label: str) -> str:
+        return (
+            f'<div class="mix-bar" aria-label="{esc(label)}">'
+            f'<span class="mix-segment primary" style="width:{esc(primary_width)}%"></span>'
+            f'<span class="mix-segment neutral" style="width:{esc(neutral_width)}%"></span>'
+            '</div>'
+        )
+
+    def _panel(title: str, total: str, bar_html: str, rows: list[tuple[str, str]]) -> str:
+        legend = "".join(f'<div><span>{esc(label)}</span><strong>{esc(value)}</strong></div>' for label, value in rows)
+        return f"""
+        <div class="mix-panel">
+          <div class="mix-row-head"><strong>{esc(title)}</strong><span>{esc(total)}</span></div>
+          {bar_html}
+          <div class="mix-legend">{legend}</div>
+        </div>"""
+
+    panels = "\n".join(
+        [
+            _panel(
+                "Supply",
+                view["supply_total_display"],
+                _bar(view["pv_supply_width"], view["grid_supply_width"], "PV and grid supply mix"),
+                [("PV", view["pv_supply_label"]), ("Grid", view["grid_supply_label"])],
+            ),
+            _panel(
+                "Demand",
+                view["demand_total_display"],
+                _bar(view["load_demand_width"], view["charge_demand_width"], "Load and battery charging demand mix"),
+                [("House load", view["load_demand_label"]), ("Stored", view["charge_demand_label"])],
+            ),
+            _panel(
+                "Battery",
+                view["battery_activity_display"],
+                _bar(view["charge_battery_width"], view["discharge_battery_width"], "Battery charge and discharge mix"),
+                [(view["battery_net_title"], view["battery_net_display"]), ("Discharged", view["discharge_battery_label"])],
+            ),
+        ]
+    )
+    return f"""
+    <section class="daily-mix card" aria-label="Today energy mix">
+      <div class="mix-header">
+        <div>
+          <div class="label">Today Mix</div>
+          <div class="muted small">Where energy came from, where it went, and the battery net position.</div>
+        </div>
+        {_inline_badge('Reported counters', view['quality_badge_class'])}
+      </div>
+      <div class="mix-grid">
+        {panels}
+      </div>
+    </section>
+"""
+
+
 def _render_night_view(view: dict[str, Any]) -> str:
     solar_now_level = "night" if (view.get("pv_w") or 0) < 20 else "active"
     solar_detail = (
@@ -2529,34 +2608,6 @@ def build_dashboard_html(
         for r in recommendations
     )
 
-    if pv_forecast:
-        _tmr = pv_forecast.get("tomorrow_kwh")
-        _rem = pv_forecast.get("today_remaining_kwh")
-        _kwp = pv_forecast.get("panel_kwp", 0)
-        _tmr_str = f"{_tmr:.1f} kWh" if isinstance(_tmr, (int, float)) else "--"
-        _rem_str = f"{_rem:.1f} kWh" if isinstance(_rem, (int, float)) else "--"
-        _kwp_str = _fmt_g(_kwp)
-        pv_forecast_html = f"""
-    <div class="section-head" id="forecast">
-      <div>
-        <h2>Solar Forecast</h2>
-        <div class="muted">Expected PV generation from Open-Meteo irradiance · {esc(_kwp_str)} kWp system.</div>
-      </div>
-    </div>
-    <section class="grid ops-grid" aria-label="Solar forecast">
-      <div class="card">
-        <div class="label">Tomorrow</div>
-        <div class="value">{esc(_tmr_str)}</div>
-        <div class="muted small">Forecast from overnight irradiance data.</div>
-      </div>
-      <div class="card">
-        <div class="label">Today Remaining</div>
-        <div class="value">{esc(_rem_str)}</div>
-        <div class="muted small">Expected generation from now until sunset.</div>
-      </div>
-    </section>"""
-    else:
-        pv_forecast_html = ""
     _tmr_value = energy_outlook.get("tomorrow_kwh")
     _tmr_str = _fmt_kwh(_tmr_value)
     _rem_str = _fmt_kwh(energy_outlook.get("today_remaining_kwh"))
@@ -2597,46 +2648,18 @@ def build_dashboard_html(
     else:
         _forecast_source = "Set PANEL_KWP plus WEATHER_LAT/WEATHER_LON to enable PV kWh forecasts."
         _forecast_short_str = "Needs forecast setup"
-    pv_forecast_html = f"""
-    <div class="section-head" id="forecast">
-      <div>
-        <h2>Energy Outlook</h2>
-        <div class="muted">Predictive view of generation, reserve, grid use, and weather impact.</div>
-      </div>
-      <span class="badge badge-neutral">Confidence: {esc(str(energy_outlook.get("confidence", "Learning")))}</span>
-    </div>
-    <section class="grid ops-grid" aria-label="Energy outlook">
-      <div class="card">
-        <div class="label">Tomorrow PV</div>
-        <div class="value">{esc(_tmr_str)}</div>
-        <div class="muted small">{esc(_forecast_source)}</div>
-      </div>
-      <div class="card">
-        <div class="label">Today Remaining</div>
-        <div class="value">{esc(_rem_str)}</div>
-        <div class="muted small">Expected generation from now until sunset.</div>
-      </div>
-      <div class="card">
-        <div class="label">Battery at Sunset</div>
-        <div class="value">{esc(_sunset_str)}</div>
-        <div class="muted small">Current-flow estimate; improves with more history.</div>
-      </div>
-      <div class="card">
-        <div class="label">Battery at Sunrise</div>
-        <div class="value">{esc(_sunrise_str)}</div>
-        <div class="muted small">Estimate basis: {esc(_sunrise_basis_str)}. {esc(_sunrise_note_str)}</div>
-      </div>
-      <div class="card">
-        <div class="label">Expected Grid Top-up</div>
-        <div class="value">{esc(_grid_forecast_str)}</div>
-        <div class="muted small">Top-up duration: {esc(_topup_duration_str)} from charge-rate config.</div>
-      </div>
-      <div class="card">
-        <div class="label">Weather Impact</div>
-        <div class="value">{esc(_weather_str)}</div>
-        <div class="muted small">{esc(_weather_reason_str)}</div>
-      </div>
-    </section>"""
+    energy_outlook_view = {
+        "confidence": str(energy_outlook.get("confidence", "Learning")),
+        "cards": [
+            ("Tomorrow PV", _tmr_str, _forecast_source),
+            ("Today Remaining", _rem_str, "Expected generation from now until sunset."),
+            ("Battery at Sunset", _sunset_str, "Current-flow estimate; improves with more history."),
+            ("Battery at Sunrise", _sunrise_str, f"Estimate basis: {_sunrise_basis_str}. {_sunrise_note_str}"),
+            ("Expected Grid Top-up", _grid_forecast_str, f"Top-up duration: {_topup_duration_str} from charge-rate config."),
+            ("Weather Impact", _weather_str, _weather_reason_str),
+        ],
+    }
+    pv_forecast_html = _render_energy_outlook(energy_outlook_view)
     quality_badge_class = _status_badge_class(str(data_quality.get("level", "unknown")))
     quality_title = str(data_quality.get("title", "Unknown"))
     quality_score = data_quality.get("score")
@@ -2701,52 +2724,26 @@ def build_dashboard_html(
     battery_net_value = _mix_number("battery_net_kwh")
     battery_net_display = _fmt_kwh(abs(battery_net_value)) if battery_net_value is not None else "--"
     battery_net_title = str(daily_mix.get("battery_net_title", "Battery net unknown"))
-    daily_mix_html = f"""
-    <section class="daily-mix card" aria-label="Today energy mix">
-      <div class="mix-header">
-        <div>
-          <div class="label">Today Mix</div>
-          <div class="muted small">Where energy came from, where it went, and the battery net position.</div>
-        </div>
-        <span class="badge {esc(quality_badge_class)}">Reported counters</span>
-      </div>
-      <div class="mix-grid">
-        <div class="mix-panel">
-          <div class="mix-row-head"><strong>Supply</strong><span>{esc(supply_total_display)}</span></div>
-          <div class="mix-bar" aria-label="PV and grid supply mix">
-            <span class="mix-segment primary" style="width:{esc(_mix_width('pv_supply_pct'))}%"></span>
-            <span class="mix-segment neutral" style="width:{esc(_mix_width('grid_supply_pct'))}%"></span>
-          </div>
-          <div class="mix-legend">
-            <div><span>PV</span><strong>{esc(pv_today_display)} - {esc(_mix_pct_display('pv_supply_pct'))}</strong></div>
-            <div><span>Grid</span><strong>{esc(grid_today_display)} - {esc(_mix_pct_display('grid_supply_pct'))}</strong></div>
-          </div>
-        </div>
-        <div class="mix-panel">
-          <div class="mix-row-head"><strong>Demand</strong><span>{esc(demand_total_display)}</span></div>
-          <div class="mix-bar" aria-label="Load and battery charging demand mix">
-            <span class="mix-segment primary" style="width:{esc(_mix_width('load_demand_pct'))}%"></span>
-            <span class="mix-segment neutral" style="width:{esc(_mix_width('charge_demand_pct'))}%"></span>
-          </div>
-          <div class="mix-legend">
-            <div><span>House load</span><strong>{esc(load_today_display)} - {esc(_mix_pct_display('load_demand_pct'))}</strong></div>
-            <div><span>Stored</span><strong>{esc(charge_today_display)} - {esc(_mix_pct_display('charge_demand_pct'))}</strong></div>
-          </div>
-        </div>
-        <div class="mix-panel">
-          <div class="mix-row-head"><strong>Battery</strong><span>{esc(battery_activity_display)}</span></div>
-          <div class="mix-bar" aria-label="Battery charge and discharge mix">
-            <span class="mix-segment primary" style="width:{esc(_mix_width('charge_battery_pct'))}%"></span>
-            <span class="mix-segment neutral" style="width:{esc(_mix_width('discharge_battery_pct'))}%"></span>
-          </div>
-          <div class="mix-legend">
-            <div><span>{esc(battery_net_title)}</span><strong>{esc(battery_net_display)}</strong></div>
-            <div><span>Discharged</span><strong>{esc(discharge_today_display)} - {esc(_mix_pct_display('discharge_battery_pct'))}</strong></div>
-          </div>
-        </div>
-      </div>
-    </section>
-"""
+    daily_mix_view = {
+        "quality_badge_class": quality_badge_class,
+        "supply_total_display": supply_total_display,
+        "demand_total_display": demand_total_display,
+        "battery_activity_display": battery_activity_display,
+        "battery_net_title": battery_net_title,
+        "battery_net_display": battery_net_display,
+        "pv_supply_width": _mix_width("pv_supply_pct"),
+        "grid_supply_width": _mix_width("grid_supply_pct"),
+        "load_demand_width": _mix_width("load_demand_pct"),
+        "charge_demand_width": _mix_width("charge_demand_pct"),
+        "charge_battery_width": _mix_width("charge_battery_pct"),
+        "discharge_battery_width": _mix_width("discharge_battery_pct"),
+        "pv_supply_label": f"{pv_today_display} - {_mix_pct_display('pv_supply_pct')}",
+        "grid_supply_label": f"{grid_today_display} - {_mix_pct_display('grid_supply_pct')}",
+        "load_demand_label": f"{load_today_display} - {_mix_pct_display('load_demand_pct')}",
+        "charge_demand_label": f"{charge_today_display} - {_mix_pct_display('charge_demand_pct')}",
+        "discharge_battery_label": f"{discharge_today_display} - {_mix_pct_display('discharge_battery_pct')}",
+    }
+    daily_mix_html = _render_daily_mix(daily_mix_view)
     next_action_relative = str(next_action.get("relative") or "none")
     next_action_title = str(next_action.get("title") or "No upcoming jobs")
     next_action_detail = str(next_action.get("detail") or "No scheduled jobs found.")

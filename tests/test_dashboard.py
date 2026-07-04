@@ -113,6 +113,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("night-console", html)
         self.assertIn("night-context-strip", html)
         self.assertNotIn("night-header", html)
+        self.assertEqual(html.count("<h1>"), 1)
+        self.assertEqual(html.count('<div class="hero-kicker">'), 1)
         self.assertIn("Solar Detail", html)
         self.assertIn("PV Lifetime", html)
         self.assertIn("Battery Throughput", html)
