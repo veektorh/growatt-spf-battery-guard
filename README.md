@@ -762,6 +762,8 @@ If the dashboard service is installed, do not run a separate `pvoutput-upload` c
 
 Recommended public URL: a subdomain such as `dashboard.example.com` rather than a root domain, so it does not collide with any main website.
 
+The dashboard is read-only and the Python server binds to `127.0.0.1` by default, but the page and `/dashboard.json` still reveal operational details: battery SOC, output mode, load/grid/PV power, schedule timing, freshness timestamps, PVOutput state, and recent local history. Use the reverse proxy with basic auth for any internet-facing deployment. Only disable basic auth for a deliberately public status page after accepting that exposure.
+
 1. Create a DNS record:
 
 ```text

@@ -190,7 +190,7 @@ Why: local state now matters and outage schedules change.
 - Add local secret scanning command before release/push.
 - Keep docs free of domains, IPs, coordinates, usernames, serials, and webhooks.
 - [x] Add public-safe sample `.env` validation.
-- Document dashboard exposure tradeoffs clearly.
+- [x] Document dashboard exposure tradeoffs clearly.
 
 ## Later / Bigger Ideas
 

@@ -391,6 +391,8 @@ cd ~/automation
 DASHBOARD_DOMAIN=dashboard.example.com DASHBOARD_EMAIL=you@example.com ./install_dashboard_proxy.sh
 ```
 
+Keep basic auth enabled for normal internet-facing deployments. The dashboard is read-only, but it exposes SOC, output mode, load/grid/PV power, schedule timing, freshness timestamps, PVOutput state, and recent local history through both `dashboard.html` and `/dashboard.json`. Disable auth only for a deliberate public status page.
+
 To expose it without basic auth:
 
 ```bash
