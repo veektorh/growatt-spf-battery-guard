@@ -1,6 +1,7 @@
 import os
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -42,6 +43,7 @@ class InstallCloudCronTests(unittest.TestCase):
             fake_crontab.chmod(fake_crontab.stat().st_mode | stat.S_IXUSR)
             env = os.environ.copy()
             env["PATH"] = f"{tmp_path}{os.pathsep}{env['PATH']}"
+            env["PYTHON_BIN"] = sys.executable
 
             completed = subprocess.run(
                 [str(INSTALLER), "--dry-run"],

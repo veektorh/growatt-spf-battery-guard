@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON_BIN="${ROOT}/.venv/bin/python"
+PYTHON_BIN="${PYTHON_BIN:-${ROOT}/.venv/bin/python}"
 SCHEDULE_FILE="${ROOT}/schedule.json"
 CURRENT_CRON="$(mktemp)"
 PROPOSED_CRON="$(mktemp)"
@@ -43,9 +43,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ ! -x "${PYTHON_BIN}" ]]; then
-  echo "Virtual environment not found at ${PYTHON_BIN}"
-  echo "Run: python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt"
+if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+  echo "Python interpreter not found or not executable: ${PYTHON_BIN}"
+  echo "Set PYTHON_BIN to a valid interpreter, or run: python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt"
   exit 1
 fi
 
