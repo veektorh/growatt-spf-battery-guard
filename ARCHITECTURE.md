@@ -101,6 +101,7 @@ serve-discord-bot
 validate-schedule
 pause-status
 schedule-preview
+ops-review --json
 run-scheduled --dry-plan
 ```
 

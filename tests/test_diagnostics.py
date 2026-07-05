@@ -211,3 +211,53 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(payload["plantName"], "[redacted]")
         self.assertEqual(payload["storage_params"]["storageDetailBean"]["epvToday"], 14.9)
         self.assertIn("Redacted probe written", stdout.getvalue())
+
+
+class DeploymentPreflightTests(unittest.TestCase):
+
+    def test_update_server_uses_preflight_without_completing_topup(self):
+        script = (Path(__file__).resolve().parents[1] / "update_server.sh").read_text(encoding="utf-8")
+
+        venv_pos = script.index("python3 -m venv")
+        preflight_pos = script.index("deployment-preflight")
+        pull_pos = script.index("git pull --ff-only")
+        self.assertLess(venv_pos, preflight_pos)
+        self.assertLess(preflight_pos, pull_pos)
+        self.assertNotIn("topup-complete-check", script)
+
+    def test_preflight_allows_clear_state(self):
+        from growatt_guard.diagnostics import build_deployment_preflight_payload, command_deployment_preflight
+
+        with patch("growatt_guard.diagnostics.read_topup_state", return_value=None), \
+            patch("growatt_guard.diagnostics.read_utility_hold_state", return_value=None), \
+            patch("growatt_guard.diagnostics.read_pause_state", return_value=None), \
+            patch("growatt_guard.diagnostics.read_command_lock_state", return_value=None), \
+            patch("growatt_guard.diagnostics.dashboard_freshness", return_value={"stale": False, "reason": "fresh"}) as freshness_mock, \
+            patch("growatt_guard.diagnostics._run", return_value=None):
+            payload = build_deployment_preflight_payload(make_config(dashboard_stale_minutes=45))
+
+        self.assertEqual(payload["result"], "OK")
+        self.assertFalse(payload["topup"]["present"])
+        freshness_mock.assert_called_once()
+        self.assertEqual(freshness_mock.call_args.args[1], 45)
+
+        with patch("growatt_guard.diagnostics.build_deployment_preflight_payload", return_value=payload), redirect_stdout(StringIO()):
+            self.assertEqual(command_deployment_preflight(make_config()), 0)
+
+    def test_preflight_blocks_active_utility_hold(self):
+        from growatt_guard.diagnostics import build_deployment_preflight_payload, command_deployment_preflight
+
+        hold = {"ownership": "owned", "target_soc": 50, "max_expiry": "2026-07-05T07:00:00+00:00"}
+        with patch("growatt_guard.diagnostics.read_topup_state", return_value=None), \
+            patch("growatt_guard.diagnostics.read_utility_hold_state", return_value=hold), \
+            patch("growatt_guard.diagnostics.read_pause_state", return_value=None), \
+            patch("growatt_guard.diagnostics.read_command_lock_state", return_value=None), \
+            patch("growatt_guard.diagnostics.dashboard_freshness", return_value={"stale": False, "reason": "fresh"}), \
+            patch("growatt_guard.diagnostics._run", return_value=None):
+            payload = build_deployment_preflight_payload()
+
+        self.assertEqual(payload["result"], "BLOCKED")
+        self.assertTrue(payload["utility_hold"]["present"])
+
+        with patch("growatt_guard.diagnostics.build_deployment_preflight_payload", return_value=payload), redirect_stdout(StringIO()):
+            self.assertEqual(command_deployment_preflight(make_config()), 1)

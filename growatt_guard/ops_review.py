@@ -163,16 +163,26 @@ def _audit_stats(rows: list[dict[str, str]]) -> dict[str, Any]:
     topup_minutes = [
         minutes for row in topups if (minutes := parse_topup_minutes(row)) is not None
     ]
-    completed_topups = [
-        row for row in rows
-        if row.get("command") == "topup-complete-check"
-        and row.get("action") == "topup-target-reached"
-    ]
-    expired_topups = [
-        row for row in rows
-        if row.get("command") == "topup-complete-check"
-        and row.get("action") == "topup-expired"
-    ]
+    completed_topups: list[dict[str, str]] = []
+    expired_topups: list[dict[str, str]] = []
+    legacy_closed_topups = 0
+    open_topups = 0
+    for row in rows:
+        action = row.get("action", "")
+        command = row.get("command", "")
+        if action == "auto-topup-started":
+            open_topups += 1
+        elif command == "topup-complete-check" and action == "topup-target-reached":
+            completed_topups.append(row)
+            if open_topups > 0:
+                open_topups -= 1
+        elif command == "topup-complete-check" and action == "topup-expired":
+            expired_topups.append(row)
+            if open_topups > 0:
+                open_topups -= 1
+        elif open_topups > 0 and ((command == "return-sbu" and action in {"switch-to-sbu", "no-change"}) or action == "repair-sbu"):
+            legacy_closed_topups += 1
+            open_topups -= 1
     completion_notes = [
         _parse_topup_completion_note(row.get("note", ""))
         for row in completed_topups
@@ -185,7 +195,7 @@ def _audit_stats(rows: list[dict[str, str]]) -> dict[str, Any]:
     implied_rates = [
         values["implied_rate_w"] for values in completion_notes if "implied_rate_w" in values
     ]
-    unclosed_topups = max(0, len(topups) - len(completed_topups) - len(expired_topups))
+    unclosed_topups = open_topups
     return {
         "rows": len(rows),
         "preserve_checks": len(preserve_rows),
@@ -199,6 +209,7 @@ def _audit_stats(rows: list[dict[str, str]]) -> dict[str, Any]:
         "avg_topup_soc": average(topup_socs),
         "completed_topups": len(completed_topups),
         "expired_topups": len(expired_topups),
+        "legacy_closed_topups": legacy_closed_topups,
         "unclosed_topups": unclosed_topups,
         "avg_topup_soc_gain": average(soc_gains),
         "avg_implied_charge_rate_w": average(implied_rates),
@@ -358,7 +369,8 @@ def build_ops_review(
         ),
         (
             f"  Topup closures: {stats['completed_topups']} target reached, "
-            f"{stats['expired_topups']} expired, {stats['unclosed_topups']} unclosed/legacy; "
+            f"{stats['expired_topups']} expired, {stats['legacy_closed_topups']} legacy, "
+            f"{stats['unclosed_topups']} unclosed; "
             f"avg SOC gain {_fmt_value(stats['avg_topup_soc_gain'], '%')}; "
             f"avg implied charge {_fmt_w(stats['avg_implied_charge_rate_w'])}"
         ),
@@ -413,6 +425,16 @@ def build_ops_review(
     return OpsReview("\n".join(lines), recommendations, severity, metrics)
 
 
+
+def build_ops_review_payload(review: OpsReview) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "text": review.text,
+        "recommendations": review.recommendations,
+        "severity": review.severity,
+        "metrics": review.metrics,
+    }
+
 def build_ops_review_embed(review: OpsReview) -> dict[str, Any]:
     color = _COLOR_FAIL if review.severity == "fail" else (_COLOR_WARN if review.severity == "warn" else _COLOR_OK)
     metrics = review.metrics
@@ -433,12 +455,15 @@ def build_ops_review_embed(review: OpsReview) -> dict[str, Any]:
     }
 
 
-def command_ops_review(config: Config, days: int = 7, notify: bool = False) -> int:
+def command_ops_review(config: Config, days: int = 7, notify: bool = False, json_output: bool = False) -> int:
     review = build_ops_review(config, days=days)
     if notify:
         if not config.discord_webhook_url:
             raise GrowattGuardError("DISCORD_WEBHOOK_URL must be configured for ops-review --notify.")
         if not send_discord_embed(config, build_ops_review_embed(review)):
             raise GrowattGuardError("Ops review could not be sent to Discord.")
-    print(review.text)
+    if json_output:
+        print(json.dumps(build_ops_review_payload(review), indent=2, sort_keys=True))
+    else:
+        print(review.text)
     return 0

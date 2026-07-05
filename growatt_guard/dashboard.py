@@ -1073,6 +1073,18 @@ def _project_sunset_soc(
     return _clamp_pct(soc - (battery_net_w * hours_to_sunset / battery_capacity_wh) * 100.0)
 
 
+def _should_use_projected_sunset_start(
+    now: dt.datetime,
+    hours_to_sunset: float | None,
+    hours_to_sunrise: float | None,
+) -> bool:
+    if hours_to_sunset is None or hours_to_sunrise is None:
+        return False
+    if hours_to_sunset <= 0 or hours_to_sunrise <= hours_to_sunset:
+        return False
+    return now.hour >= 12 or hours_to_sunset <= 6
+
+
 def _dashboard_greeting(now: dt.datetime) -> str:
     if now.hour < 12:
         return "Good morning"
@@ -1604,8 +1616,12 @@ def build_dashboard_data_payload(
     daily_insights = build_dashboard_daily_insights(live_metrics, metric_history, now=now)
     projected_sunset_soc = _project_sunset_soc(live_metrics, battery_capacity_wh, hours_to_sunset)
     overnight_hours = None
-    if projected_sunset_soc is not None and hours_to_sunrise and hours_to_sunset and hours_to_sunrise > hours_to_sunset:
-        overnight_hours = hours_to_sunrise - hours_to_sunset
+    risk_start_soc = None
+    risk_basis = ""
+    if projected_sunset_soc is not None and _should_use_projected_sunset_start(now, hours_to_sunset, hours_to_sunrise):
+        overnight_hours = float(hours_to_sunrise or 0) - float(hours_to_sunset or 0)
+        risk_start_soc = projected_sunset_soc
+        risk_basis = "projected sunset SOC"
     risk = build_tonight_risk(
         live_metrics,
         battery_capacity_wh,
@@ -1614,9 +1630,9 @@ def build_dashboard_data_payload(
         battery_charge_rate_w,
         auto_topup_target_soc,
         auto_topup_solar_skip_min_margin_minutes,
-        projection_start_soc=projected_sunset_soc,
+        projection_start_soc=risk_start_soc,
         projection_hours=overnight_hours,
-        projection_basis="projected sunset SOC" if projected_sunset_soc is not None else "",
+        projection_basis=risk_basis,
     )
     battery_net_w = _numeric_metric(live_metrics.get("battery_net_w")) or 0.0
     battery_flow_dir = "discharging" if battery_net_w > 0 else ("charging" if battery_net_w < 0 else "standby")
@@ -2433,8 +2449,12 @@ def build_dashboard_html(
     pv_total_text = str(live_metrics.get("pv_total") or "").strip()
     projected_sunset_soc = _project_sunset_soc(live_metrics, battery_capacity_wh, hours_to_sunset)
     overnight_hours = None
-    if projected_sunset_soc is not None and hours_to_sunrise and hours_to_sunset and hours_to_sunrise > hours_to_sunset:
-        overnight_hours = hours_to_sunrise - hours_to_sunset
+    risk_start_soc = None
+    risk_basis = ""
+    if projected_sunset_soc is not None and _should_use_projected_sunset_start(now, hours_to_sunset, hours_to_sunrise):
+        overnight_hours = float(hours_to_sunrise or 0) - float(hours_to_sunset or 0)
+        risk_start_soc = projected_sunset_soc
+        risk_basis = "projected sunset SOC"
     tonight_risk = build_tonight_risk(
         live_metrics,
         battery_capacity_wh,
@@ -2443,9 +2463,9 @@ def build_dashboard_html(
         battery_charge_rate_w,
         auto_topup_target_soc,
         auto_topup_solar_skip_min_margin_minutes,
-        projection_start_soc=projected_sunset_soc,
+        projection_start_soc=risk_start_soc,
         projection_hours=overnight_hours,
-        projection_basis="projected sunset SOC" if projected_sunset_soc is not None else "",
+        projection_basis=risk_basis,
     )
     tonight_badge_class = _status_badge_class(str(tonight_risk.get("level", "unknown")))
     tonight_title = str(tonight_risk.get("title", "Unknown"))

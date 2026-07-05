@@ -37,6 +37,7 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py health-check
 .venv/bin/python growatt_power_guard.py health-check --notify
 .venv/bin/python growatt_power_guard.py ops-review --days 7
+.venv/bin/python growatt_power_guard.py ops-review --days 7 --json
 .venv/bin/python growatt_power_guard.py battery-alert
 .venv/bin/python growatt_power_guard.py runtime-alert
 .venv/bin/python growatt_power_guard.py auto-topup-check
@@ -56,7 +57,7 @@ cd ~/automation
 audit rows, including lowest SOC, near-cutoff readings, and auto-topup behavior.
 `ops-review --days 7` is a read-only operational review of the latest dashboard
 snapshot, sunrise plan, mode audit rows, topup activity, estimated grid charge,
-target-reached, expired, and unclosed/legacy topup closures, failures, current
+target-reached, expired, legacy, and unclosed topup closures, failures, current
 automation state, and last mode change. Add `--notify` to post the review to Discord; delivery
 failure exits with an error.
 
@@ -259,6 +260,8 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py dashboard-stale-alert
 .venv/bin/python growatt_power_guard.py service-status
 .venv/bin/python growatt_power_guard.py service-status --json
+.venv/bin/python growatt_power_guard.py deployment-preflight
+.venv/bin/python growatt_power_guard.py deployment-preflight --json
 .venv/bin/python growatt_power_guard.py diagnostic-bundle
 .venv/bin/python growatt_power_guard.py diagnostic-bundle --include-cloud
 .venv/bin/python growatt_power_guard.py pv-metric-probe
@@ -272,7 +275,7 @@ cd ~/automation
 ./update_server.sh
 ```
 
-`update_server.sh` prints a preflight summary before pulling code. If an
+`update_server.sh` runs `deployment-preflight` and prints a preflight summary before pulling code. If an
 auto-topup or Utility hold is active, the script refuses to continue until the
 hold completes or is cancelled, to avoid interrupting return-to-SBU automation
 during deploys.

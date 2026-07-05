@@ -373,6 +373,44 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(risk["topup_minutes"], 0.0)
         self.assertEqual(risk["projection_basis"], "projected sunset SOC")
 
+
+    def test_dashboard_payload_morning_projection_does_not_start_from_sunset(self):
+        status = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {
+                    "bmsSoc": 44,
+                    "pDischarge": 1300,
+                    "pCharge": 0,
+                    "ppv": 225,
+                    "outPutPower": 1400,
+                },
+            }
+        }
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+
+        with patch("growatt_guard.dashboard.read_discharge_rate_history", return_value=[{"rate_w": 400}, {"rate_w": 400}]), \
+            patch("growatt_guard.dashboard.read_pause_state", return_value=None), \
+            patch("growatt_guard.dashboard.read_battery_alert_state", return_value=None), \
+            patch("growatt_guard.dashboard.read_growatt_cloud_failure_state", return_value=None), \
+            patch("growatt_guard.dashboard.read_pvoutput_state", return_value=None):
+            payload = build_dashboard_data_payload(
+                status,
+                schedule,
+                {"dates": {}},
+                ThresholdDecision(50, "fixed threshold"),
+                battery_capacity_wh=30000,
+                battery_bms_cutoff_soc=25,
+                hours_to_sunrise=22,
+                battery_charge_rate_w=2100,
+                hours_to_sunset=10,
+                now=dt.datetime(2026, 7, 5, 8, 0),
+            )
+
+        outlook = payload["planner"]["outlook"]
+        self.assertGreater(outlook["projected_sunrise_soc"], 10)
+        self.assertNotIn("projected sunset SOC", outlook["sunrise_basis"])
+
     def test_dashboard_topup_estimate_shows_short_topup_skip(self):
         status = {
             "storage_params": {

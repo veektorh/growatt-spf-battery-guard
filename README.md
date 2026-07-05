@@ -572,10 +572,11 @@ Review the last week of local operations data:
 ```bash
 cd ~/automation
 .venv/bin/python growatt_power_guard.py ops-review --days 7
+.venv/bin/python growatt_power_guard.py ops-review --days 7 --json
 .venv/bin/python growatt_power_guard.py ops-review --days 7 --notify
 ```
 
-`ops-review` summarizes the latest dashboard snapshot, sunrise plan, mode audit rows, topup activity, estimated grid charge, target-reached, expired, and unclosed/legacy topup closures, failures, automation state, last mode change, and recommended follow-up. It is read-only unless `--notify` is used, which posts the same review to Discord and exits with an error if delivery fails.
+`ops-review` summarizes the latest dashboard snapshot, sunrise plan, mode audit rows, topup activity, estimated grid charge, target-reached, expired, legacy, and unclosed topup closures, failures, automation state, last mode change, and recommended follow-up. It is read-only unless `--notify` is used, which posts the same review to Discord and exits with an error if delivery fails.
 
 Run the emergency battery alert check manually:
 
@@ -654,6 +655,8 @@ Check service status:
 ```bash
 .venv/bin/python growatt_power_guard.py service-status
 .venv/bin/python growatt_power_guard.py service-status --json
+.venv/bin/python growatt_power_guard.py deployment-preflight
+.venv/bin/python growatt_power_guard.py deployment-preflight --json
 sudo systemctl status growatt-dashboard-refresh.service
 sudo systemctl status growatt-dashboard-server.service
 sudo systemctl status growatt-dashboard-stale-alert.timer
@@ -822,7 +825,7 @@ cd ~/automation
 ./update_server.sh
 ```
 
-`update_server.sh` prints a preflight summary and refuses to continue while `state/topup_active.json` or `state/utility_hold.json` exists, so deploy after active Utility holds complete. Use `./update_server.sh --no-notify` if you want the health check printed only in the terminal.
+`update_server.sh` runs `deployment-preflight`, prints the same preflight summary, and refuses to continue while `state/topup_active.json` or `state/utility_hold.json` exists, so deploy after active Utility holds complete. Use `./update_server.sh --no-notify` if you want the health check printed only in the terminal.
 
 Pause the cloud schedule:
 

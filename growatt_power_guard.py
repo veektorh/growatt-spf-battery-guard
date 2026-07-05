@@ -55,6 +55,7 @@ from growatt_guard.diagnostics import (
     build_pv_metric_probe_payload,
     build_service_status,
     build_service_status_payload,
+    command_deployment_preflight,
     command_diagnostic_bundle,
     command_pv_metric_probe,
     command_redact_probe,
@@ -136,6 +137,7 @@ from growatt_guard.ops_review import (
     OpsReview,
     build_ops_review,
     build_ops_review_embed,
+    build_ops_review_payload,
     command_ops_review,
 )
 from growatt_guard.notifications import (

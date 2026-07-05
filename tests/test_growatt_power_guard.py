@@ -74,11 +74,18 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertEqual(args.command, "monthly-summary")
 
     def test_ops_review_command_is_available(self):
-        args = build_parser().parse_args(["ops-review", "--days", "3", "--notify"])
+        args = build_parser().parse_args(["ops-review", "--days", "3", "--notify", "--json"])
 
         self.assertEqual(args.command, "ops-review")
         self.assertEqual(args.days, 3)
         self.assertTrue(args.notify)
+        self.assertTrue(args.json)
+
+    def test_deployment_preflight_command_is_available(self):
+        args = build_parser().parse_args(["deployment-preflight", "--json"])
+
+        self.assertEqual(args.command, "deployment-preflight")
+        self.assertTrue(args.json)
 
     def test_rotate_logs_command_is_available(self):
         args = build_parser().parse_args(["rotate-logs"])

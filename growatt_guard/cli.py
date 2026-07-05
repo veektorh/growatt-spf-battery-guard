@@ -10,6 +10,7 @@ from typing import Any
 from growatt_guard.config import Config, load_config, validate_config
 from growatt_guard.dashboard import DASHBOARD_FILE, MIN_DASHBOARD_REFRESH_MINUTES
 from growatt_guard.diagnostics import (
+    command_deployment_preflight,
     command_diagnostic_bundle,
     command_pv_metric_probe,
     command_redact_probe,
@@ -91,6 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ops_review_parser.add_argument("--days", type=int, default=7, help="Number of audit days to review (default 7).")
     ops_review_parser.add_argument("--notify", action="store_true", help="Post the review summary to Discord.")
+    ops_review_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     subparsers.add_parser("rotate-logs", help="Delete old generated probe/log files according to LOG_RETENTION_DAYS.")
     subparsers.add_parser("prune-audit", help="Remove audit CSV rows older than AUDIT_RETENTION_DAYS (default 90).")
     subparsers.add_parser("weather-threshold", help="Print the current weather-aware preserve-battery threshold.")
@@ -104,6 +106,8 @@ def build_parser() -> argparse.ArgumentParser:
     health_parser.add_argument("--notify", action="store_true", help="Post the health report to Discord.")
     service_parser = subparsers.add_parser("service-status", help="Show local cron, systemd, dashboard, pause, and topup status.")
     service_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    preflight_parser = subparsers.add_parser("deployment-preflight", help="Check whether it is safe to deploy/update now.")
+    preflight_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     bundle_parser = subparsers.add_parser("diagnostic-bundle", help="Print a redacted local diagnostics bundle.")
     bundle_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     bundle_parser.add_argument("--include-cloud", action="store_true", help="Include one read-only Growatt cloud summary.")
@@ -298,7 +302,7 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
         if command == "monthly-summary":
             return app.command_monthly_summary(config)
         if command == "ops-review":
-            return app.command_ops_review(config, args.days, args.notify)
+            return app.command_ops_review(config, args.days, args.notify, json_output=args.json)
         if command == "rotate-logs":
             return app.command_rotate_logs(config)
         if command == "prune-audit":
@@ -313,6 +317,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_health_check(config, args.notify)
         if command == "service-status":
             return command_service_status(config, args.json)
+        if command == "deployment-preflight":
+            return command_deployment_preflight(config, args.json)
         if command == "diagnostic-bundle":
             return command_diagnostic_bundle(config, args.json, args.include_cloud)
         if command == "pv-metric-probe":

@@ -32,6 +32,7 @@ from growatt_guard.state import (
     read_command_lock_state,
     read_pause_state,
     read_topup_state,
+    read_utility_hold_state,
 )
 
 
@@ -314,6 +315,72 @@ def command_service_status(config: Any, json_output: bool = False) -> int:
     print(format_diagnostic_items("Growatt service status", items))
     return 1 if payload["result"] == "FAIL" else 0
 
+
+
+def _state_summary_for_preflight(state: dict[str, Any] | None, keys: tuple[str, ...]) -> dict[str, Any]:
+    if not state:
+        return {"present": False}
+    return {"present": True, **{key: state.get(key) for key in keys if state.get(key) not in (None, "")}}
+
+
+def build_deployment_preflight_payload(config: Any | None = None) -> dict[str, Any]:
+    topup = read_topup_state()
+    hold = read_utility_hold_state()
+    pause = read_pause_state()
+    lock = read_command_lock_state()
+    active_hold = topup is not None or hold is not None
+
+    branch_result = _run(["git", "branch", "--show-current"], timeout=5)
+    head_result = _run(["git", "rev-parse", "--short", "HEAD"], timeout=5)
+    branch = (branch_result.stdout.strip() if branch_result and branch_result.returncode == 0 else "unknown")
+    head = (head_result.stdout.strip() if head_result and head_result.returncode == 0 else "unknown")
+
+    stale_minutes = int(getattr(config, "dashboard_stale_minutes", 30) or 30)
+    freshness = dashboard_freshness(DASHBOARD_FILE, stale_minutes)
+    return {
+        "schema_version": 1,
+        "generated_at": _now_iso(),
+        "result": "BLOCKED" if active_hold else "OK",
+        "branch": branch,
+        "head": head,
+        "dashboard": freshness,
+        "topup": _state_summary_for_preflight(topup, ("minutes", "paused_until", "reason", "started_at")),
+        "utility_hold": _state_summary_for_preflight(hold, ("ownership", "target_soc", "max_expiry", "started_at")),
+        "pause": _state_summary_for_preflight(pause, ("paused_until", "reason")),
+        "command_lock": _state_summary_for_preflight(lock, ("command", "created_at")),
+        "blocking_reason": (
+            "Active topup/utility-hold state exists; deploy after return-to-SBU automation completes."
+            if active_hold else "No active topup or utility hold."
+        ),
+    }
+
+
+def format_deployment_preflight(payload: dict[str, Any]) -> str:
+    lines = [
+        "Growatt deployment preflight",
+        f"Result: {payload.get('result')}",
+        f"Branch: {payload.get('branch')}",
+        f"HEAD: {payload.get('head')}",
+        f"Dashboard: {payload.get('dashboard', {}).get('reason', 'unknown')}",
+    ]
+    for key, label in (("topup", "Topup"), ("utility_hold", "Utility hold"), ("pause", "Pause"), ("command_lock", "Command lock")):
+        state = payload.get(key, {})
+        if not state.get("present"):
+            lines.append(f"{label}: clear")
+            continue
+        detail = ", ".join(f"{k}={v}" for k, v in state.items() if k != "present")
+        lines.append(f"{label}: present" + (f" ({detail})" if detail else ""))
+    lines.append(str(payload.get("blocking_reason", "")))
+    return "\n".join(lines)
+
+
+def command_deployment_preflight(config: Any, json_output: bool = False) -> int:
+    payload = build_deployment_preflight_payload(config)
+    if json_output:
+        _print_json(payload)
+    else:
+        print(format_deployment_preflight(payload))
+    return 1 if payload["result"] == "BLOCKED" else 0
 
 def _redacted_config_summary(config: Any) -> list[str]:
     return [
