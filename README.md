@@ -33,6 +33,15 @@ Copy-Item .env.example .env
 notepad .env
 ```
 
+Optional: install the package in editable mode to get the `growatt-guard`
+console script. The existing `growatt_power_guard.py` entry point remains the
+compatibility path used by the cron/service examples.
+
+```powershell
+python -m pip install -e .
+growatt-guard validate-schedule
+```
+
 Fill in:
 
 ```text
@@ -858,6 +867,7 @@ Safe to publish:
 ```text
 growatt_power_guard.py
 growatt_guard/
+pyproject.toml
 requirements.txt
 README.md
 RUNBOOK.md

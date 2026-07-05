@@ -122,6 +122,10 @@ nano schedule.json
 ./install_cloud_cron.sh
 ```
 
+Optional for manual shells: `.venv/bin/python -m pip install -e .` installs the
+`growatt-guard` console script. Cron and service examples continue to use
+`growatt_power_guard.py` for backwards compatibility.
+
 For temporary date changes, copy and edit the ignored override file:
 
 ```bash

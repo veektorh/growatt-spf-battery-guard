@@ -38,6 +38,8 @@ The project already has the main automation shape in place:
   jobs.
 - Public-safe SPF fixtures cover parser, PVOutput, status-summary, and
   Discord dashboard embed regression tests.
+- Package metadata exposes an optional `growatt-guard` console script while
+  preserving `growatt_power_guard.py` as the compatibility shim.
 - Health checks include next-step remediation hints.
 
 ## Next Best Things
@@ -125,8 +127,8 @@ Why: the dashboard is likely checked from a phone first.
 
 Why: the repo is now large enough to benefit from standard Python project shape.
 
-- Add `pyproject.toml` and dependency metadata.
-- Add console script entry point, for example `growatt-guard`.
+- Keep `pyproject.toml`, `requirements.txt`, and the `growatt-guard` console
+  script aligned.
 - Keep `growatt_power_guard.py` as a backwards-compatible shim.
 - Add optional pre-commit checks for whitespace, Python compile, secret-looking
   values, and schedule JSON validation.
@@ -202,5 +204,6 @@ Why: local state now matters and outage schedules change.
 ## Good First Issues
 
 1. Add quiet-hours config and tests for non-critical Discord messages.
-2. Add `pyproject.toml` while preserving the existing script entry point.
+2. Add optional pre-commit checks for compile, tests, schedule validation,
+   and secret-looking values.
 3. Add public-safe fixture files when new Growatt field shapes are observed.
