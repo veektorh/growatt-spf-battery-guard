@@ -76,6 +76,8 @@ def tracked_files() -> list[Path]:
 def find_violations(paths: list[Path]) -> list[HygieneViolation]:
     violations: list[HygieneViolation] = []
     for path in paths:
+        if path == Path(".env.example"):
+            continue
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -84,8 +86,27 @@ def find_violations(paths: list[Path]) -> list[HygieneViolation]:
     return violations
 
 
+def validate_sample_env(path: Path) -> list[HygieneViolation]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [HygieneViolation(str(path), 1, f"sample env file is not readable: {exc}")]
+
+    violations = find_violations_in_text(str(path), text)
+    assigned_sensitive_keys: set[str] = set()
+    for line in text.splitlines():
+        match = ENV_ASSIGNMENT_RE.match(line)
+        if match and match.group(1) in SENSITIVE_ENV_KEYS:
+            assigned_sensitive_keys.add(match.group(1))
+
+    for key in sorted(SENSITIVE_ENV_KEYS - assigned_sensitive_keys):
+        violations.append(HygieneViolation(str(path), 1, f"missing public-safe sample for {key}"))
+    return violations
+
+
 def main() -> int:
     violations = find_violations(tracked_files())
+    violations.extend(validate_sample_env(Path(".env.example")))
     if not violations:
         print("Public hygiene OK: no likely secrets or private identifiers in tracked files.")
         return 0
