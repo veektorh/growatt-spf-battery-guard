@@ -33,8 +33,9 @@ The project already has the main automation shape in place:
 - JSON output for service status, deployment preflight, diagnostic bundles, ops
   review, and schedule previews.
 - Redacted PV metric probing for Growatt field-shape debugging.
-- Schedule lint warnings for duplicate PVOutput pollers, fast polling, and
-  tightly spaced mode-changing jobs.
+- Schedule lint warnings for duplicate PVOutput pollers, duplicate read cron,
+  fast polling, interval mode-changing jobs, and tightly spaced mode-changing
+  jobs.
 - Public-safe SPF fixtures for parser regression tests.
 - Health checks include next-step remediation hints.
 
@@ -172,7 +173,6 @@ Why: local state now matters and outage schedules change.
 
 - Add `.ics` calendar export.
 - Add dry-run cron installer output showing exact crontab changes.
-- Add schedule lint warnings for overlapping jobs and too-frequent writes.
 - Add outage notice parser that proposes schedule overrides but requires manual
   confirmation.
 
@@ -205,5 +205,4 @@ Why: local state now matters and outage schedules change.
 1. Add public-safe fixture files and one parser test per fixture.
 2. Add config-loading tests for `.env` defaults and invalid values.
 3. Add quiet-hours config and tests for non-critical Discord messages.
-4. Add schedule lint warnings for overlapping jobs.
-5. Add `pyproject.toml` while preserving the existing script entry point.
+4. Add `pyproject.toml` while preserving the existing script entry point.

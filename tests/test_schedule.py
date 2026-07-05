@@ -245,6 +245,41 @@ class ScheduleTests(unittest.TestCase):
 
         self.assertTrue(any(item.status == "WARN" and "every 3 min" in item.detail for item in items))
 
+
+    def test_schedule_lint_warns_about_duplicate_read_cron(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "battery", "cron": "*/10 * * * *", "command": "battery-alert"},
+                {"id": "runtime", "cron": "*/10 * * * *", "command": "runtime-alert"},
+            ],
+        }
+
+        items = lint_schedule(schedule)
+
+        self.assertTrue(any(item.status == "WARN" and "share cron" in item.detail for item in items))
+
+    def test_schedule_lint_warns_about_interval_mode_changing_job(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [{"id": "preserve-loop", "cron": "*/10 * * * *", "command": "preserve-battery"}],
+        }
+
+        items = lint_schedule(schedule)
+
+        self.assertTrue(any(item.status == "WARN" and "mode-changing interval job" in item.detail for item in items))
+
+    def test_schedule_lint_ok_message_mentions_risky_mode_jobs(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [{"id": "battery", "cron": "*/30 * * * *", "command": "battery-alert"}],
+        }
+
+        items = lint_schedule(schedule)
+
+        self.assertEqual(items[0].status, "OK")
+        self.assertIn("risky mode-changing", items[0].detail)
+
     def test_schedule_preview_marks_skipped_and_replaced_jobs(self):
         config = make_config()
         schedule = {

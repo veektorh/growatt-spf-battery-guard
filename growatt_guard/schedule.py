@@ -36,6 +36,7 @@ SCHEDULE_COMMANDS = {
     "topup-complete-check",
     "waste-alert-check",
     "runtime-alert",
+    "waste-alert-check",
 }
 SCHEDULE_COMMAND_ARGS = {
     "health-check": {"--notify"},
@@ -395,19 +396,43 @@ def lint_schedule(schedule: dict[str, Any]) -> list[HealthCheckItem]:
             )
         )
 
+    read_jobs_by_cron: dict[str, list[str]] = {}
     for index, job in enumerate(jobs, start=1):
         if not isinstance(job, dict):
             continue
+        job_id = schedule_job_id(job, index)
         command = str(job.get("command", "")).strip()
-        interval = _cron_interval_minutes(str(job.get("cron", "")))
-        if command in GROWATT_READ_COMMANDS and interval is not None and interval < 5:
+        cron = str(job.get("cron", "")).strip()
+        interval = _cron_interval_minutes(cron)
+        if command in GROWATT_READ_COMMANDS:
+            read_jobs_by_cron.setdefault(cron, []).append(job_id)
+            if interval is not None and interval < 5:
+                items.append(
+                    HealthCheckItem(
+                        "Schedule lint",
+                        "WARN",
+                        f"{job_id} polls Growatt every {interval} min; keep read loops at 5+ min.",
+                    )
+                )
+        if command in MODE_CHANGING_COMMANDS and interval is not None:
             items.append(
                 HealthCheckItem(
                     "Schedule lint",
                     "WARN",
-                    f"{schedule_job_id(job, index)} polls Growatt every {interval} min; keep read loops at 5+ min.",
+                    f"{job_id} is a mode-changing interval job ({cron}); use fixed windows to avoid repeated writes.",
                 )
             )
+
+    for cron, job_ids in sorted(read_jobs_by_cron.items()):
+        if len(job_ids) <= 1:
+            continue
+        items.append(
+            HealthCheckItem(
+                "Schedule lint",
+                "WARN",
+                f"Growatt read jobs share cron {cron!r}: {', '.join(job_ids)}; stagger or combine them to reduce bursts.",
+            )
+        )
 
     runs = next_scheduled_runs(schedule, now=dt.datetime.now().replace(second=0, microsecond=0), limit=64)
     previous_mode_run: tuple[dt.datetime, str] | None = None
@@ -431,7 +456,7 @@ def lint_schedule(schedule: dict[str, Any]) -> list[HealthCheckItem]:
         previous_mode_run = (run_at, job_id)
 
     if not items:
-        items.append(HealthCheckItem("Schedule lint", "OK", "no duplicate pollers or close mode-changing jobs found."))
+        items.append(HealthCheckItem("Schedule lint", "OK", "no duplicate pollers, fast pollers, or risky mode-changing jobs found."))
     return items
 
 
