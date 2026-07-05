@@ -36,7 +36,8 @@ The project already has the main automation shape in place:
 - Schedule lint warnings for duplicate PVOutput pollers, duplicate read cron,
   fast polling, interval mode-changing jobs, and tightly spaced mode-changing
   jobs.
-- Public-safe SPF fixtures for parser regression tests.
+- Public-safe SPF fixtures cover parser, PVOutput, status-summary, and
+  Discord dashboard embed regression tests.
 - Health checks include next-step remediation hints.
 
 ## Next Best Things
@@ -56,12 +57,10 @@ should be explicit and reusable.
 Why: Growatt returns duplicate and inconsistent fields. Fixtures make parser
 fixes faster and safer.
 
-- Add more fixture variants:
-  - missing grid import live power
-  - unavailable SOC/output source paths
-- Cover PVOutput extraction, status summary, and Discord dashboard embed parsing
-  with the fixtures.
+- Add more fixture variants when new Growatt payload shapes are observed.
 - Use `redact-probe` when turning raw probe JSON into public-safe fixtures.
+- Keep parser, PVOutput, status-summary, and Discord dashboard embed coverage
+  tied to the fixture set.
 
 ### 3. Health Check Remediation Mode
 
@@ -202,6 +201,6 @@ Why: local state now matters and outage schedules change.
 
 ## Good First Issues
 
-1. Add public-safe fixture files and one parser test per fixture.
-2. Add quiet-hours config and tests for non-critical Discord messages.
-3. Add `pyproject.toml` while preserving the existing script entry point.
+1. Add quiet-hours config and tests for non-critical Discord messages.
+2. Add `pyproject.toml` while preserving the existing script entry point.
+3. Add public-safe fixture files when new Growatt field shapes are observed.
