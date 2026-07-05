@@ -17,6 +17,7 @@ from growatt_guard.audit import (
 )
 from growatt_guard.config import Config
 from growatt_guard.dashboard import DASHBOARD_JSON_FILE
+from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.notifications import send_discord_embed
 from growatt_guard.state import (
     read_battery_alert_state,
@@ -165,7 +166,12 @@ def _audit_stats(rows: list[dict[str, str]]) -> dict[str, Any]:
     completed_topups = [
         row for row in rows
         if row.get("command") == "topup-complete-check"
-        and row.get("action", "").startswith("topup-")
+        and row.get("action") == "topup-target-reached"
+    ]
+    expired_topups = [
+        row for row in rows
+        if row.get("command") == "topup-complete-check"
+        and row.get("action") == "topup-expired"
     ]
     completion_notes = [
         _parse_topup_completion_note(row.get("note", ""))
@@ -191,6 +197,7 @@ def _audit_stats(rows: list[dict[str, str]]) -> dict[str, Any]:
         "topup_minutes": sum(topup_minutes),
         "avg_topup_soc": average(topup_socs),
         "completed_topups": len(completed_topups),
+        "expired_topups": len(expired_topups),
         "avg_topup_soc_gain": average(soc_gains),
         "avg_implied_charge_rate_w": average(implied_rates),
         "lowest_soc": min(socs) if socs else None,
@@ -348,7 +355,8 @@ def build_ops_review(
             f"{_fmt_kwh(stats.get('topup_estimated_grid_kwh'))} est. grid)"
         ),
         (
-            f"  Completed topups: {stats['completed_topups']}; "
+            f"  Completed topups: {stats['completed_topups']} target reached, "
+            f"{stats['expired_topups']} expired; "
             f"avg SOC gain {_fmt_value(stats['avg_topup_soc_gain'], '%')}; "
             f"avg implied charge {_fmt_w(stats['avg_implied_charge_rate_w'])}"
         ),
@@ -426,6 +434,9 @@ def build_ops_review_embed(review: OpsReview) -> dict[str, Any]:
 def command_ops_review(config: Config, days: int = 7, notify: bool = False) -> int:
     review = build_ops_review(config, days=days)
     if notify:
-        send_discord_embed(config, build_ops_review_embed(review))
+        if not config.discord_webhook_url:
+            raise GrowattGuardError("DISCORD_WEBHOOK_URL must be configured for ops-review --notify.")
+        if not send_discord_embed(config, build_ops_review_embed(review)):
+            raise GrowattGuardError("Ops review could not be sent to Discord.")
     print(review.text)
     return 0

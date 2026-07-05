@@ -8,6 +8,7 @@ from unittest.mock import patch
 from contextlib import redirect_stdout
 
 from helpers import make_config
+from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.ops_review import build_ops_review, build_ops_review_embed, command_ops_review
 
 
@@ -145,11 +146,54 @@ class OpsReviewTests(unittest.TestCase):
                 )
 
         self.assertIn("Auto-topups: 1 (60 min total, 3.0 kWh est. grid)", review.text)
-        self.assertIn("Completed topups: 1; avg SOC gain 8%; avg implied charge 2.4 kW", review.text)
+        self.assertIn(
+            "Completed topups: 1 target reached, 0 expired; avg SOC gain 8%; avg implied charge 2.4 kW",
+            review.text,
+        )
         self.assertIn("Last mode change:", review.text)
         self.assertIn("return-sbu switch-to-sbu SOC=48%", review.text)
         self.assertIn("Last audit action:", review.text)
         self.assertIn("10.0 h ago", review.text)
+
+    def test_build_ops_review_counts_expired_topups_separately(self):
+        now = dt.datetime(2026, 7, 4, 12, 0, 0)
+        rows = [
+            {
+                "timestamp": "2026-07-04T01:00:00",
+                "command": "topup-complete-check",
+                "soc": "43",
+                "action": "topup-expired",
+                "dry_run": "false",
+                "result": "ok",
+                "note": (
+                    "actual_min=80, ownership=owned, start_soc=40, "
+                    "end_soc=43, target_soc=48, implied_rate_w=900"
+                ),
+            },
+        ]
+        with TemporaryDirectory() as tmpdir:
+            dashboard_path = Path(tmpdir) / "dashboard.json"
+            dashboard_path.write_text(
+                json.dumps(self.dashboard_payload("2026-07-04T11:50:00")),
+                encoding="utf-8",
+            )
+            with patch("growatt_guard.ops_review.read_mode_audit_rows", return_value=rows), \
+                patch("growatt_guard.ops_review.read_pause_state", return_value=None), \
+                patch("growatt_guard.ops_review.read_topup_state", return_value=None), \
+                patch("growatt_guard.ops_review.read_bypass_alert_state", return_value=None), \
+                patch("growatt_guard.ops_review.read_battery_alert_state", return_value=None), \
+                patch("growatt_guard.ops_review.read_growatt_cloud_failure_state", return_value=None), \
+                patch("growatt_guard.ops_review.read_command_lock_state", return_value=None), \
+                patch("growatt_guard.ops_review.topup_is_active", return_value=False):
+                review = build_ops_review(
+                    make_config(battery_charge_rate_w=3000.0),
+                    days=7,
+                    now=now,
+                    dashboard_path=dashboard_path,
+                )
+
+        self.assertIn("Completed topups: 0 target reached, 1 expired", review.text)
+        self.assertIn("avg SOC gain --", review.text)
 
     def test_build_ops_review_flags_current_bypass(self):
         now = dt.datetime(2026, 7, 4, 12, 0, 0)
@@ -189,6 +233,32 @@ class OpsReviewTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertIn("ops text", output.getvalue())
         send.assert_called_once()
+
+    def test_command_ops_review_notify_requires_webhook(self):
+        review = type("Review", (), {
+            "text": "ops text",
+            "recommendations": ["check"],
+            "severity": "ok",
+            "metrics": {"days": 7},
+        })()
+        with patch("growatt_guard.ops_review.build_ops_review", return_value=review), \
+            patch("growatt_guard.ops_review.send_discord_embed") as send:
+            with self.assertRaisesRegex(GrowattGuardError, "DISCORD_WEBHOOK_URL"):
+                command_ops_review(make_config(discord_webhook_url=""), days=7, notify=True)
+
+        send.assert_not_called()
+
+    def test_command_ops_review_notify_fails_when_webhook_rejects(self):
+        review = type("Review", (), {
+            "text": "ops text",
+            "recommendations": ["check"],
+            "severity": "ok",
+            "metrics": {"days": 7},
+        })()
+        with patch("growatt_guard.ops_review.build_ops_review", return_value=review), \
+            patch("growatt_guard.ops_review.send_discord_embed", return_value=False):
+            with self.assertRaisesRegex(GrowattGuardError, "could not be sent"):
+                command_ops_review(make_config(discord_webhook_url="https://example.invalid/hook"), days=7, notify=True)
 
 
 if __name__ == "__main__":

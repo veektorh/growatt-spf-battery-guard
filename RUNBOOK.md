@@ -56,8 +56,9 @@ cd ~/automation
 audit rows, including lowest SOC, near-cutoff readings, and auto-topup behavior.
 `ops-review --days 7` is a read-only operational review of the latest dashboard
 snapshot, sunrise plan, mode audit rows, topup activity, estimated grid charge,
-completed-topup efficiency, failures, current automation state, and last mode
-change. Add `--notify` to post the review to Discord.
+target-reached versus expired topup closures, failures, current automation state,
+and last mode change. Add `--notify` to post the review to Discord; delivery
+failure exits with an error.
 
 ## Pause Automation
 
