@@ -268,6 +268,10 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py schedule-preview --days 14 --json
 ```
 
+`service-status` is read-only and includes schedule lint, cron checks, dashboard
+and PVOutput freshness, local pause/topup/lock state, and systemd active/enabled
+restart detail where systemd is available.
+
 Update the VPS from GitHub, reinstall cron, and run health check:
 
 ```bash
@@ -325,7 +329,10 @@ Each refresh also writes `dashboard.json` with live metrics, metric source paths
 schedule summary, next automation action, PVOutput state, data-quality status,
 energy-balance status, same-time daily insights, and tonight risk planner data
 for monitors or future apps. The built-in dashboard server serves it at
-`/dashboard.json` without making another Growatt API call.
+`/dashboard.json` without making another Growatt API call. The public read-only
+contract is the top-level `generated_at`, `metrics`, `sources`, `planner`,
+`schedule`, `automation`, `pvoutput`, `quality`, `history`, `assistant`, and
+`freshness` objects.
 
 ```text
 DASHBOARD_STALE_MINUTES=30

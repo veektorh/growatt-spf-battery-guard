@@ -59,6 +59,59 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertIn("Dashboard freshness", names)
         self.assertIn("growatt-dashboard-refresh.service", names)
 
+
+    def test_systemd_status_includes_enabled_and_restart_detail(self):
+        from growatt_guard.diagnostics import _systemd_unit_status
+
+        def fake_run(args, timeout=8):
+            if args[:2] == ["systemctl", "is-active"]:
+                return subprocess.CompletedProcess(args, 0, stdout="active\n", stderr="")
+            if args[:2] == ["systemctl", "is-enabled"]:
+                return subprocess.CompletedProcess(args, 0, stdout="enabled\n", stderr="")
+            if args[:2] == ["systemctl", "show"]:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    stdout=(
+                        "ActiveEnterTimestamp=Sun 2026-07-05 08:00:00 WAT\n"
+                        "NRestarts=2\n"
+                        "Result=success\n"
+                        "SubState=running\n"
+                    ),
+                    stderr="",
+                )
+            self.fail(f"unexpected command: {args}")
+
+        with patch("growatt_guard.diagnostics.os.name", "posix"), patch("growatt_guard.diagnostics._run", side_effect=fake_run):
+            item = _systemd_unit_status("growatt-dashboard-refresh.service")
+
+        self.assertEqual(item.status, "OK")
+        self.assertIn("active", item.detail)
+        self.assertIn("enabled=enabled", item.detail)
+        self.assertIn("restarts=2", item.detail)
+        self.assertIn("result=success", item.detail)
+        self.assertIn("since=Sun 2026-07-05 08:00:00 WAT", item.detail)
+
+    def test_systemd_status_marks_failed_unit_as_fail(self):
+        from growatt_guard.diagnostics import _systemd_unit_status
+
+        def fake_run(args, timeout=8):
+            if args[:2] == ["systemctl", "is-active"]:
+                return subprocess.CompletedProcess(args, 3, stdout="failed\n", stderr="")
+            if args[:2] == ["systemctl", "is-enabled"]:
+                return subprocess.CompletedProcess(args, 0, stdout="enabled\n", stderr="")
+            if args[:2] == ["systemctl", "show"]:
+                return subprocess.CompletedProcess(args, 0, stdout="NRestarts=4\nResult=exit-code\nSubState=failed\n", stderr="")
+            self.fail(f"unexpected command: {args}")
+
+        with patch("growatt_guard.diagnostics.os.name", "posix"), patch("growatt_guard.diagnostics._run", side_effect=fake_run):
+            item = _systemd_unit_status("growatt-dashboard-refresh.service")
+
+        self.assertEqual(item.status, "FAIL")
+        self.assertIn("failed", item.detail)
+        self.assertIn("restarts=4", item.detail)
+        self.assertIn("result=exit-code", item.detail)
+
     def test_command_service_status_prints_report(self):
         config = make_config()
         with patch(

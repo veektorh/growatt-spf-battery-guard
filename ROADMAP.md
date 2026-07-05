@@ -20,16 +20,18 @@ The project already has the main automation shape in place:
 - Private Discord control bot with allowlisted slash commands.
 - Dashboard with live flow, daily energy totals, local metric history, charts,
   freshness badge, stale alerts, PVOutput status, schedule visibility, tonight
-  risk planning, same-time energy insights, JSON export, metric source paths,
-  and system/automation cards.
+  risk planning, same-time energy insights, documented JSON export, metric
+  source paths, and system/automation cards.
 - Shared observability refresh: one Growatt read updates the dashboard and
   PVOutput, avoiding duplicate pollers.
 - PVOutput upload with fallback when extended fields are rejected.
 - Schedule overrides, named outage profiles, dry-plan preview, and safer update
   script gates.
 - Unit tests split by module and a public-repo hygiene guide.
-- Read-only `service-status` and `diagnostic-bundle` commands for VPS support.
-- JSON output for service status, diagnostic bundles, and schedule previews.
+- Read-only `service-status`, `deployment-preflight`, and `diagnostic-bundle`
+  commands for VPS support, including local state and systemd detail.
+- JSON output for service status, deployment preflight, diagnostic bundles, ops
+  review, and schedule previews.
 - Redacted PV metric probing for Growatt field-shape debugging.
 - Schedule lint warnings for duplicate PVOutput pollers, fast polling, and
   tightly spaced mode-changing jobs.
@@ -38,23 +40,17 @@ The project already has the main automation shape in place:
 
 ## Next Best Things
 
-### 1. Dashboard Data Contract And JSON Export
+### 1. Dashboard Data Contract
 
 Why: dashboard values now matter operationally, so the metric extraction layer
 should be explicit and reusable.
 
-- Expand `dashboard.json` into a stable external contract with semantic version
-  notes and documented fields.
 - Add dashboard source-path tooltips for ambiguous values.
 - Add reconciliation checks when PV/grid/load/battery totals do not add up.
+- Add a schema-version field to `dashboard.json` if an external consumer needs
+  strict migration handling.
 
-### 2. Service Status And Diagnostic Bundle
-
-Why: when something looks wrong on the VPS, the next step should be one command.
-
-- Add more systemd detail: enabled/disabled and recent restart count.
-
-### 3. Public-Safe Fixture Library
+### 2. Public-Safe Fixture Library
 
 Why: Growatt returns duplicate and inconsistent fields. Fixtures make parser
 fixes faster and safer.
@@ -66,7 +62,7 @@ fixes faster and safer.
   with the fixtures.
 - Use `redact-probe` when turning raw probe JSON into public-safe fixtures.
 
-### 4. Health Check Remediation Mode
+### 3. Health Check Remediation Mode
 
 Why: `health-check` should not only say WARN/FAIL; it should tell you exactly
 what to do next.
@@ -77,7 +73,7 @@ what to do next.
 - For each failed check, include one suggested command.
 - Add `--discord`/`--notify` output that stays compact enough for mobile.
 
-### 5. Forecast And Load Planner V2
+### 4. Forecast And Load Planner V2
 
 Why: auto-topup is now useful, but the most valuable next step is explaining and
 improving decisions, not adding more writes.
@@ -90,7 +86,7 @@ improving decisions, not adding more writes.
 - Add weekly recommendation text for `AUTO_TOPUP_TARGET_SOC`,
   `BATTERY_CHARGE_RATE_W`, and the topup margin.
 
-### 6. Notification Quiet Hours And Digesting
+### 5. Notification Quiet Hours And Digesting
 
 Why: Discord is useful, but too many routine messages make the important ones
 easier to miss.
@@ -101,7 +97,7 @@ easier to miss.
 - Optionally batch routine overnight auto-topup events into a morning digest.
 - Add per-event toggles for noisy events.
 
-### 7. Safer Discord Control Audit Trail
+### 6. Safer Discord Control Audit Trail
 
 Why: Discord can write to the inverter, so every write should be easy to trace.
 
@@ -114,7 +110,7 @@ Why: Discord can write to the inverter, so every write should be easy to trace.
 - Add a second confirmation path only for longer or riskier manual Utility
   holds.
 
-### 8. Dashboard Mobile Polish
+### 7. Dashboard Mobile Polish
 
 Why: the dashboard is likely checked from a phone first.
 
@@ -125,7 +121,7 @@ Why: the dashboard is likely checked from a phone first.
 - Keep live write buttons out of the public dashboard until auth/CSRF and audit
   are designed properly.
 
-### 9. Packaging And Developer Experience
+### 8. Packaging And Developer Experience
 
 Why: the repo is now large enough to benefit from standard Python project shape.
 
@@ -135,7 +131,7 @@ Why: the repo is now large enough to benefit from standard Python project shape.
 - Add optional pre-commit checks for whitespace, Python compile, secret-looking
   values, and schedule JSON validation.
 
-### 10. Backup, Restore, And Calendar Export
+### 9. Backup, Restore, And Calendar Export
 
 Why: local state now matters and outage schedules change.
 
@@ -158,7 +154,6 @@ Why: local state now matters and outage schedules change.
 
 ### Dashboard And Observability
 
-- Add `dashboard.json`.
 - Add metric source/source-path display for ambiguous values.
 - Add daily import/export/load/PV reconciliation warnings when numbers do not
   add up.
@@ -207,10 +202,8 @@ Why: local state now matters and outage schedules change.
 
 ## Good First Issues
 
-1. Add `dashboard.json` generation from the existing dashboard payload.
-2. Add public-safe fixture files and one parser test per fixture.
-3. Add `service-status` read-only command.
-4. Add config-loading tests for `.env` defaults and invalid values.
-5. Add quiet-hours config and tests for non-critical Discord messages.
-6. Add schedule lint warnings for overlapping jobs.
-7. Add `pyproject.toml` while preserving the existing script entry point.
+1. Add public-safe fixture files and one parser test per fixture.
+2. Add config-loading tests for `.env` defaults and invalid values.
+3. Add quiet-hours config and tests for non-critical Discord messages.
+4. Add schedule lint warnings for overlapping jobs.
+5. Add `pyproject.toml` while preserving the existing script entry point.

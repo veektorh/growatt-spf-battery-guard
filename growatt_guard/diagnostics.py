@@ -178,18 +178,64 @@ def _run(args: list[str], timeout: int = 8) -> subprocess.CompletedProcess[str] 
         return None
 
 
+def _systemctl_text(args: list[str], timeout: int = 8) -> str:
+    result = _run(args, timeout=timeout)
+    if result is None:
+        return ""
+    return (result.stdout or result.stderr or "").strip()
+
+
+def _systemd_show_properties(unit: str) -> dict[str, str]:
+    text = _systemctl_text([
+        "systemctl",
+        "show",
+        unit,
+        "--property=ActiveEnterTimestamp",
+        "--property=NRestarts",
+        "--property=Result",
+        "--property=SubState",
+        "--no-pager",
+    ])
+    properties: dict[str, str] = {}
+    for line in text.splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if value:
+            properties[key] = value
+    return properties
+
+
 def _systemd_unit_status(unit: str) -> DiagnosticItem:
     if os.name == "nt":
         return DiagnosticItem(unit, "SKIP", "systemd is not available on Windows.")
-    result = _run(["systemctl", "is-active", unit])
-    if result is None:
+    active_result = _run(["systemctl", "is-active", unit])
+    if active_result is None:
         return DiagnosticItem(unit, "SKIP", "systemctl is not available.")
-    state = (result.stdout or result.stderr or "").strip() or f"exit {result.returncode}"
+    state = (active_result.stdout or active_result.stderr or "").strip() or f"exit {active_result.returncode}"
+    enabled = _systemctl_text(["systemctl", "is-enabled", unit], timeout=5) or "unknown"
+    properties = _systemd_show_properties(unit)
+
+    details = [state, f"enabled={enabled}"]
+    sub_state = properties.get("SubState")
+    if sub_state and sub_state != state:
+        details.append(f"substate={sub_state}")
+    restarts = properties.get("NRestarts")
+    if restarts not in (None, ""):
+        details.append(f"restarts={restarts}")
+    result = properties.get("Result")
+    if result:
+        details.append(f"result={result}")
+    entered = properties.get("ActiveEnterTimestamp")
+    if entered:
+        details.append(f"since={entered}")
+
+    detail = "; ".join(details)
     if state == "active":
-        return DiagnosticItem(unit, "OK", "active")
+        return DiagnosticItem(unit, "OK", detail)
     if state in {"inactive", "unknown"}:
-        return DiagnosticItem(unit, "WARN", state)
-    return DiagnosticItem(unit, "FAIL", state)
+        return DiagnosticItem(unit, "WARN", detail)
+    return DiagnosticItem(unit, "FAIL", detail)
 
 
 def _state_items() -> list[DiagnosticItem]:

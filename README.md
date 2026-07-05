@@ -629,7 +629,11 @@ contains the same live metrics, metric source paths, freshness metadata, schedul
 summary, next automation action, PVOutput state, data-quality status,
 energy-balance status, same-time daily insights, and tonight risk planner data
 used by the dashboard. The built-in dashboard server exposes it at
-`/dashboard.json` without making another Growatt API call.
+`/dashboard.json` without making another Growatt API call. Treat the top-level
+keys `generated_at`, `metrics`, `sources`, `planner`, `schedule`, `automation`,
+`pvoutput`, `quality`, `history`, `assistant`, and `freshness` as the public
+read-only dashboard contract for monitors and future apps. New keys may be added,
+but existing key meanings should stay backward-compatible.
 
 To use a 30-minute refresh interval instead:
 
@@ -661,6 +665,10 @@ sudo systemctl status growatt-dashboard-refresh.service
 sudo systemctl status growatt-dashboard-server.service
 sudo systemctl status growatt-dashboard-stale-alert.timer
 ```
+
+`service-status` includes schedule lint, cron checks, dashboard/PVOutput
+freshness, local pause/topup/lock state, and systemd active/enabled/restart
+detail when systemd is available.
 
 For support/debugging without exposing secrets:
 
