@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from growatt_guard.dashboard import extract_dashboard_metric_sources, extract_dashboard_metrics
+from growatt_guard.growatt_api import extract_soc, extract_spf_output_source, summarize_status
 from growatt_guard.pvoutput import extract_pvoutput_fields
 
 
@@ -60,3 +61,54 @@ class PublicFixtureTests(unittest.TestCase):
             sources["pv_w"],
             "channel-sum:storage_params.storageDetailBean.ppv,storage_params.storageDetailBean.ppv2",
         )
+
+    def test_missing_grid_live_power_fixture_estimates_grid_import(self):
+        status = load_fixture("spf_missing_grid_live_power.json")
+
+        now = dt.datetime(2026, 6, 27, 11, 15)
+        metrics = extract_dashboard_metrics(status, now=now)
+        sources = extract_dashboard_metric_sources(status)
+        pvoutput_fields = extract_pvoutput_fields(status, now=now)
+        summary = summarize_status(status, battery_capacity_wh=5120, charge_rate_w=2400)
+
+        self.assertEqual(metrics["soc"], 62)
+        self.assertEqual(metrics["mode"], "SBU priority")
+        self.assertEqual(metrics["grid_w"], 1100)
+        self.assertEqual(metrics["grid_source"], "estimated")
+        self.assertEqual(metrics["battery_net_w"], -500)
+        self.assertEqual(sources["grid_w"], "")
+        self.assertEqual(pvoutput_fields["v2"], 300)
+        self.assertEqual(pvoutput_fields["v4"], 900)
+        self.assertEqual(pvoutput_fields["v7"], 62)
+        self.assertEqual(pvoutput_fields["v8"], 500)
+        self.assertIn("soc=62%", summary)
+        self.assertIn("output=SBU priority [0]", summary)
+        self.assertIn("charge_min=233", summary)
+
+    def test_missing_soc_output_fixture_degrades_without_false_values(self):
+        status = load_fixture("spf_missing_soc_output.json")
+
+        now = dt.datetime(2026, 6, 27, 2, 0)
+        metrics = extract_dashboard_metrics(status, now=now)
+        sources = extract_dashboard_metric_sources(status)
+        pvoutput_fields = extract_pvoutput_fields(status, now=now)
+        summary = summarize_status(status, battery_capacity_wh=5120, charge_rate_w=2400, hours_to_sunrise=4)
+
+        self.assertIsNone(extract_soc(status))
+        self.assertIsNone(extract_spf_output_source(status))
+        self.assertIsNone(metrics["soc"])
+        self.assertEqual(metrics["soc_source"], "")
+        self.assertEqual(metrics["mode"], "")
+        self.assertEqual(metrics["mode_source"], "")
+        self.assertEqual(metrics["grid_w"], 0)
+        self.assertEqual(metrics["grid_source"], "api")
+        self.assertEqual(metrics["battery_net_w"], 120)
+        self.assertEqual(sources["soc"], "")
+        self.assertEqual(sources["mode"], "")
+        self.assertNotIn("v7", pvoutput_fields)
+        self.assertEqual(pvoutput_fields["v2"], 0)
+        self.assertEqual(pvoutput_fields["v4"], 120)
+        self.assertEqual(pvoutput_fields["v9"], 120)
+        self.assertIn("soc=not found", summary)
+        self.assertNotIn("output=", summary)
+        self.assertNotIn("runtime_min=", summary)

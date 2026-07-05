@@ -1,0 +1,23 @@
+{
+  "device_sn": "PUBLIC_DEVICE",
+  "device_type": "storage",
+  "plant_id": "PUBLIC_PLANT",
+  "storage_params": {
+    "storageBean": {
+      "eLoadToday": 4.3,
+      "eToUserToday": 1.1,
+      "epvToday": 2.4,
+      "epvTotal": 123.4,
+      "outPutPower": 900,
+      "outputConfig": "0",
+      "ppv": 300
+    },
+    "storageDetailBean": {
+      "bmsSoc": 62,
+      "pCharge": 500,
+      "pDischarge": 0,
+      "statusText": "Charging",
+      "vBat": 53.2
+    }
+  }
+}

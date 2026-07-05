@@ -1,0 +1,19 @@
+{
+  "device_sn": "PUBLIC_DEVICE",
+  "device_type": "storage",
+  "plant_id": "PUBLIC_PLANT",
+  "storage_params": {
+    "storageBean": {
+      "eLoadToday": 0.8,
+      "epvToday": 0,
+      "outPutPower": 120,
+      "pGrid": 0,
+      "ppv": 0
+    },
+    "storageDetailBean": {
+      "pCharge": 0,
+      "pDischarge": 120,
+      "statusText": "Discharging"
+    }
+  }
+}
