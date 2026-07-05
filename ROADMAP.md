@@ -27,7 +27,7 @@ The project already has the main automation shape in place:
 - PVOutput upload with fallback when extended fields are rejected.
 - Schedule overrides, named outage profiles, dry-plan preview, and safer update
   script gates.
-- Unit tests split by module and a public-repo hygiene guide.
+- Unit tests split by module, including config-loading coverage, and a public-repo hygiene guide.
 - Read-only `service-status`, `deployment-preflight`, and `diagnostic-bundle`
   commands for VPS support, including local state and systemd detail.
 - JSON output for service status, deployment preflight, diagnostic bundles, ops
@@ -203,6 +203,5 @@ Why: local state now matters and outage schedules change.
 ## Good First Issues
 
 1. Add public-safe fixture files and one parser test per fixture.
-2. Add config-loading tests for `.env` defaults and invalid values.
-3. Add quiet-hours config and tests for non-critical Discord messages.
-4. Add `pyproject.toml` while preserving the existing script entry point.
+2. Add quiet-hours config and tests for non-critical Discord messages.
+3. Add `pyproject.toml` while preserving the existing script entry point.

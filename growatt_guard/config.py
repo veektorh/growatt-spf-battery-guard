@@ -104,7 +104,10 @@ def str_to_bool(value: str | bool | None, default: bool = False) -> bool:
         return default
     if isinstance(value, bool):
         return value
-    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    normalized = value.strip().lower()
+    if not normalized:
+        return default
+    return normalized in {"1", "true", "yes", "y", "on"}
 
 
 def env(name: str, default: str = "") -> str:
