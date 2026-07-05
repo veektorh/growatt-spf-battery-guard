@@ -26,7 +26,8 @@ def configure_state_dir(path: str | os.PathLike[str]) -> Path:
     global STATE_DIR
     global PAUSE_FILE, BATTERY_ALERT_FILE, BATTERY_ALERT_MUTED_FILE, BYPASS_ALERT_FILE
     global COMMAND_LOCK_FILE, DASHBOARD_STALE_ALERT_FILE, GROWATT_CLOUD_FAILURE_FILE
-    global LOGIN_COOLDOWN_FILE, SESSION_CACHE_FILE, TOPUP_STATE_FILE, TOPUP_SKIP_NOTIFICATION_FILE
+    global LOGIN_COOLDOWN_FILE, SESSION_CACHE_FILE, SESSION_REFRESH_LOCK_FILE
+    global TOPUP_STATE_FILE, TOPUP_SKIP_NOTIFICATION_FILE
     global CHARGE_RATE_HISTORY_FILE, DISCHARGE_RATE_HISTORY_FILE, RUNTIME_ALERT_FILE
     global UTILITY_HOLD_FILE, WASTE_ALERT_FILE
 
@@ -40,6 +41,7 @@ def configure_state_dir(path: str | os.PathLike[str]) -> Path:
     GROWATT_CLOUD_FAILURE_FILE = STATE_DIR / "growatt_cloud_failures.json"
     LOGIN_COOLDOWN_FILE = STATE_DIR / "growatt_login_cooldown.json"
     SESSION_CACHE_FILE = STATE_DIR / "growatt_session.json"
+    SESSION_REFRESH_LOCK_FILE = STATE_DIR / "growatt_session_refresh.lock"
     TOPUP_STATE_FILE = STATE_DIR / "topup_active.json"
     TOPUP_SKIP_NOTIFICATION_FILE = STATE_DIR / "topup_skip_notification.json"
     CHARGE_RATE_HISTORY_FILE = STATE_DIR / "charge_rate_history.json"
@@ -52,6 +54,7 @@ def configure_state_dir(path: str | os.PathLike[str]) -> Path:
 
 STATE_DIR = configure_state_dir(_default_state_dir())
 COMMAND_LOCK_STALE_SECONDS = 45 * 60
+SESSION_REFRESH_LOCK_STALE_SECONDS = 2 * 60
 
 
 def utc_now() -> dt.datetime:
@@ -307,6 +310,52 @@ def login_cooldown_until(now: dt.datetime | None = None) -> dt.datetime | None:
         clear_login_cooldown_state()
         return None
     return retry_after
+
+
+
+def try_acquire_session_refresh_lock(owner: str = "", stale_seconds: int = SESSION_REFRESH_LOCK_STALE_SECONDS) -> bool:
+    SESSION_REFRESH_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    now = utc_now()
+    payload = json.dumps(
+        {
+            "created_at": now.isoformat(),
+            "owner": owner,
+            "pid": os.getpid(),
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    try:
+        fd = os.open(SESSION_REFRESH_LOCK_FILE, flags)
+    except FileExistsError:
+        state = read_json_state(SESSION_REFRESH_LOCK_FILE, "Growatt session refresh lock")
+        created_at = None
+        if state:
+            try:
+                created_at = parse_utc_datetime(str(state.get("created_at", "")))
+            except ValueError:
+                created_at = None
+        if created_at is not None and (now - created_at).total_seconds() < stale_seconds:
+            return False
+        try:
+            SESSION_REFRESH_LOCK_FILE.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            logging.warning("Could not clear stale Growatt session refresh lock: %s", exc)
+            return False
+        try:
+            fd = os.open(SESSION_REFRESH_LOCK_FILE, flags)
+        except FileExistsError:
+            return False
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(payload)
+    return True
+
+
+def release_session_refresh_lock() -> None:
+    clear_state_file(SESSION_REFRESH_LOCK_FILE)
 
 
 def read_session_cache() -> dict[str, Any] | None:

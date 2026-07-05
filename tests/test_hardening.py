@@ -70,6 +70,7 @@ class StateDirectoryIsolationTests(unittest.TestCase):
                     "GROWATT_CLOUD_FAILURE_FILE",
                     "LOGIN_COOLDOWN_FILE",
                     "SESSION_CACHE_FILE",
+                    "SESSION_REFRESH_LOCK_FILE",
                     "TOPUP_STATE_FILE",
                     "TOPUP_SKIP_NOTIFICATION_FILE",
                     "CHARGE_RATE_HISTORY_FILE",

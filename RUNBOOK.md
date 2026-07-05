@@ -211,7 +211,9 @@ GROWATT_MODE_DRIVER=spf5000
 # Growatt sessions have been observed expiring around 60 minutes, so 60 refreshes
 # proactively at about 55 minutes.
 # Enable after the account is healthy, then confirm the log shows
-# "Reusing cached Growatt session" between logins. Set back to 0 to disable.
+# "Reusing cached Growatt session" between logins. Concurrent stale-cache refreshes
+# are coordinated through a local refresh lock so only one process logs in fresh.
+# Set back to 0 to disable.
 GROWATT_SESSION_TTL_MINUTES=60
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 DISCORD_BOT_TOKEN=your_bot_token

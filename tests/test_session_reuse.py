@@ -42,6 +42,7 @@ class SessionReuseTests(unittest.TestCase):
     def _ctx(self, tmpdir, fake):
         return (
             patch.object(state_mod, "SESSION_CACHE_FILE", Path(tmpdir) / "session.json"),
+            patch.object(state_mod, "SESSION_REFRESH_LOCK_FILE", Path(tmpdir) / "session.lock"),
             patch.object(state_mod, "LOGIN_COOLDOWN_FILE", Path(tmpdir) / "cooldown.json"),
             patch("growatt_guard.growatt_api.growattServer", fake),
             patch("growatt_guard.growatt_api.require_dependencies"),
@@ -160,10 +161,91 @@ class SessionReuseTests(unittest.TestCase):
                 for p in patches:
                     p.stop()
 
+
+    def test_stale_cache_refresh_uses_lock_and_releases_after_login(self):
+        config = make_config(growatt_session_ttl_minutes=60)
+        fake = _FakeServer(SUCCESS)
+        with TemporaryDirectory() as tmpdir:
+            patches = self._ctx(tmpdir, fake)
+            for p in patches:
+                p.start()
+            try:
+                saved_at = (state_mod.utc_now() - dt.timedelta(minutes=56)).isoformat()
+                state_mod.write_json_state(
+                    state_mod.SESSION_CACHE_FILE,
+                    {
+                        "cookies": {"JSESSIONID": "old"},
+                        "login_response": {"success": True, "userId": "u1"},
+                        "saved_at": saved_at,
+                    },
+                )
+
+                api, _ = connect(config)
+
+                self.assertEqual(fake.api.login_calls, 1)
+                self.assertEqual(api.session.cookies.get("JSESSIONID"), "tok123")
+                self.assertFalse(state_mod.SESSION_REFRESH_LOCK_FILE.exists())
+            finally:
+                for p in patches:
+                    p.stop()
+
+    def test_stale_cache_waits_for_other_process_refresh(self):
+        config = make_config(growatt_session_ttl_minutes=60)
+        fake = _FakeServer(SUCCESS)
+        with TemporaryDirectory() as tmpdir:
+            patches = self._ctx(tmpdir, fake)
+            for p in patches:
+                p.start()
+            try:
+                old_saved_at = (state_mod.utc_now() - dt.timedelta(minutes=56)).isoformat()
+                state_mod.write_json_state(
+                    state_mod.SESSION_CACHE_FILE,
+                    {
+                        "cookies": {"JSESSIONID": "old"},
+                        "login_response": {"success": True, "userId": "u1"},
+                        "saved_at": old_saved_at,
+                    },
+                )
+
+                def refresh_during_wait(_seconds):
+                    state_mod.write_session_cache({"JSESSIONID": "new"}, {"success": True, "userId": "u1"})
+
+                with patch("growatt_guard.growatt_api.time.sleep", side_effect=refresh_during_wait), \
+                    patch.object(state_mod, "try_acquire_session_refresh_lock", return_value=False):
+                    api, _ = connect(config)
+
+                self.assertEqual(fake.api.login_calls, 0)
+                self.assertEqual(api.session.cookies.get("JSESSIONID"), "new")
+            finally:
+                for p in patches:
+                    p.stop()
+
     def test_session_reuse_age_limit_keeps_buffer_before_ttl(self):
         self.assertEqual(session_reuse_age_limit_minutes(60), 55)
         self.assertEqual(session_reuse_age_limit_minutes(10), 9)
         self.assertEqual(session_reuse_age_limit_minutes(0), 0)
+
+
+    def test_missing_cache_waits_for_other_process_to_create_cache(self):
+        config = make_config(growatt_session_ttl_minutes=60)
+        fake = _FakeServer(SUCCESS)
+        with TemporaryDirectory() as tmpdir:
+            patches = self._ctx(tmpdir, fake)
+            for p in patches:
+                p.start()
+            try:
+                def create_cache_during_wait(_seconds):
+                    state_mod.write_session_cache({"JSESSIONID": "created"}, {"success": True, "userId": "u1"})
+
+                with patch("growatt_guard.growatt_api.time.sleep", side_effect=create_cache_during_wait), \
+                    patch.object(state_mod, "try_acquire_session_refresh_lock", return_value=False):
+                    api, _ = connect(config)
+
+                self.assertEqual(fake.api.login_calls, 0)
+                self.assertEqual(api.session.cookies.get("JSESSIONID"), "created")
+            finally:
+                for p in patches:
+                    p.stop()
 
     def test_ttl_zero_disables_reuse(self):
         config = make_config(growatt_session_ttl_minutes=0)

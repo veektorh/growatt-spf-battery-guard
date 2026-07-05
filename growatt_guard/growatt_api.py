@@ -51,6 +51,8 @@ SPF_OUTPUT_SOURCE = {
 DEVICE_TYPE_PRIORITY = ("storage", "mix", "sph", "tlx", "inverter")
 SESSION_REUSE_SAFETY_CEILING_MINUTES = 23 * 60
 SESSION_REUSE_REFRESH_BUFFER_MINUTES = 5.0
+SESSION_REFRESH_WAIT_SECONDS = 20.0
+SESSION_REFRESH_WAIT_INTERVAL_SECONDS = 0.5
 PV_POWER_CHANNELS = (
     ("pPv1", "ppv1", "pv1Power", "ppv", "ppvText"),
     ("pPv2", "ppv2", "pv2Power"),
@@ -156,13 +158,42 @@ def _minimal_login_response(login_response: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+
+def _api_from_cached_session(config: Any, cached: dict[str, Any], age: float) -> tuple[Any, dict[str, Any]]:
+    api = _build_api(config)
+    api.session.cookies.update(requests.utils.cookiejar_from_dict(cached["cookies"]))
+    logging.info("Reusing cached Growatt session (age %.0f min).", age)
+    return api, cached.get("login_response") or {"success": True}
+
+
+def _wait_for_refreshed_session_cache(
+    config: Any,
+    read_session_cache: Any,
+    session_cache_age_minutes: Any,
+    reuse_limit: float,
+) -> tuple[Any, dict[str, Any]] | None:
+    deadline = time.monotonic() + SESSION_REFRESH_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        time.sleep(SESSION_REFRESH_WAIT_INTERVAL_SECONDS)
+        cached = read_session_cache()
+        if not cached or not isinstance(cached.get("cookies"), dict):
+            continue
+        age = session_cache_age_minutes(cached)
+        if age is not None and age < reuse_limit:
+            logging.info("Using Growatt session refreshed by another process (age %.0f min).", age)
+            return _api_from_cached_session(config, cached, age)
+    return None
+
+
 def connect(config: Any):
     require_dependencies()
     from growatt_guard.state import (
         clear_login_cooldown_state,
         login_cooldown_until,
         read_session_cache,
+        release_session_refresh_lock,
         session_cache_age_minutes,
+        try_acquire_session_refresh_lock,
         utc_now,
         write_login_cooldown_state,
         write_session_cache,
@@ -179,6 +210,8 @@ def connect(config: Any):
         )
 
     ttl = float(getattr(config, "growatt_session_ttl_minutes", 0.0) or 0.0)
+    session_refresh_lock_acquired = False
+    session_refresh_lock_considered = False
 
     # Session reuse: restore the cached server-side session cookies and skip the
     # rate-limited login endpoint entirely. Growatt locks accounts on excessive
@@ -194,39 +227,63 @@ def connect(config: Any):
             # waiting for that rejection creates noisy retry/failure log lines.
             reuse_limit = session_reuse_age_limit_minutes(ttl)
             if age is not None and age < reuse_limit:
-                api = _build_api(config)
-                api.session.cookies.update(requests.utils.cookiejar_from_dict(cached["cookies"]))
-                logging.info("Reusing cached Growatt session (age %.0f min).", age)
-                return api, cached.get("login_response") or {"success": True}
+                return _api_from_cached_session(config, cached, age)
             if age is not None:
                 logging.info(
-                    "Cached Growatt session age %.0f min reached refresh threshold %.0f min; logging in fresh.",
+                    "Cached Growatt session age %.0f min reached refresh threshold %.0f min; refreshing session.",
                     age,
                     reuse_limit,
                 )
+                session_refresh_lock_considered = True
+                if not try_acquire_session_refresh_lock("connect"):
+                    logging.info("Another process is refreshing the Growatt session; waiting for cache update.")
+                    refreshed = _wait_for_refreshed_session_cache(
+                        config, read_session_cache, session_cache_age_minutes, reuse_limit
+                    )
+                    if refreshed is not None:
+                        return refreshed
+                    logging.warning("Timed out waiting for refreshed Growatt session cache; logging in fresh.")
+                else:
+                    session_refresh_lock_acquired = True
+
+    if ttl > 0 and not session_refresh_lock_acquired and not session_refresh_lock_considered:
+        if not try_acquire_session_refresh_lock("connect"):
+            logging.info("Another process is creating the Growatt session cache; waiting for cache update.")
+            refreshed = _wait_for_refreshed_session_cache(
+                config, read_session_cache, session_cache_age_minutes, session_reuse_age_limit_minutes(ttl)
+            )
+            if refreshed is not None:
+                return refreshed
+            logging.warning("Timed out waiting for Growatt session cache; logging in fresh.")
+        else:
+            session_refresh_lock_acquired = True
 
     api = _build_api(config)
     logging.info("Logging into Growatt server %s", config.server_url)
     login_response = api.login(config.username, config.password)
-    if not isinstance(login_response, dict) or not login_response.get("success"):
-        if login_response_is_locked(login_response):
-            hours = parse_lock_hours(login_response.get("lockDuration"))
-            # Add a 15-min buffer for clock skew and the rolling-window edge.
-            retry_after = utc_now() + dt.timedelta(hours=hours) + dt.timedelta(minutes=15)
-            write_login_cooldown_state(retry_after, f"Growatt account locked: {login_response}")
-            logging.error(
-                "Growatt account locked for ~%.0fh; backing off all logins until %s.",
-                hours, retry_after.isoformat(),
-            )
-        raise api_error(f"Growatt login failed: {login_response}")
-    clear_login_cooldown_state()
-    if ttl > 0:
-        try:
-            cookies = requests.utils.dict_from_cookiejar(api.session.cookies)
-            write_session_cache(cookies, _minimal_login_response(login_response))
-        except Exception as exc:  # noqa: BLE001 - caching is best-effort
-            logging.warning("Could not cache Growatt session: %s", exc)
-    return api, login_response
+    try:
+        if not isinstance(login_response, dict) or not login_response.get("success"):
+            if login_response_is_locked(login_response):
+                hours = parse_lock_hours(login_response.get("lockDuration"))
+                # Add a 15-min buffer for clock skew and the rolling-window edge.
+                retry_after = utc_now() + dt.timedelta(hours=hours) + dt.timedelta(minutes=15)
+                write_login_cooldown_state(retry_after, f"Growatt account locked: {login_response}")
+                logging.error(
+                    "Growatt account locked for ~%.0fh; backing off all logins until %s.",
+                    hours, retry_after.isoformat(),
+                )
+            raise api_error(f"Growatt login failed: {login_response}")
+        clear_login_cooldown_state()
+        if ttl > 0:
+            try:
+                cookies = requests.utils.dict_from_cookiejar(api.session.cookies)
+                write_session_cache(cookies, _minimal_login_response(login_response))
+            except Exception as exc:  # noqa: BLE001 - caching is best-effort
+                logging.warning("Could not cache Growatt session: %s", exc)
+        return api, login_response
+    finally:
+        if session_refresh_lock_acquired:
+            release_session_refresh_lock()
 
 
 def normalize_list_response(value: Any) -> list[dict[str, Any]]:
