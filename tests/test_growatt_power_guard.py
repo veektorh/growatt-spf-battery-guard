@@ -250,6 +250,14 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(args.command, "clear-stale-lock")
 
+    def test_schedule_calendar_command_is_available(self):
+        args = build_parser().parse_args(["schedule-calendar", "--days", "21", "--output", "schedule.ics", "--all"])
+
+        self.assertEqual(args.command, "schedule-calendar")
+        self.assertEqual(args.days, 21)
+        self.assertEqual(args.output, "schedule.ics")
+        self.assertTrue(args.all)
+
     def test_schedule_override_list_is_available(self):
         args = build_parser().parse_args(["schedule-override", "list"])
 

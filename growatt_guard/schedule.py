@@ -460,6 +460,155 @@ def lint_schedule(schedule: dict[str, Any]) -> list[HealthCheckItem]:
     return items
 
 
+def _job_fires_on_date(schedule: dict[str, Any], date: dt.date) -> dict[str, list[dt.datetime]]:
+    job_fires: dict[str, list[dt.datetime]] = {}
+    start = dt.datetime.combine(date, dt.time(0, 0))
+    cursor = start
+    while cursor < start + dt.timedelta(days=1):
+        for job in schedule["jobs"]:
+            if cron_matches(str(job["cron"]), cursor):
+                job_id = str(job.get("id", ""))
+                job_fires.setdefault(job_id, []).append(cursor)
+        cursor += dt.timedelta(minutes=1)
+    return job_fires
+
+
+def _ical_escape(value: Any) -> str:
+    text = str(value)
+    return text.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+
+
+def _ical_datetime(value: dt.datetime) -> str:
+    return value.strftime("%Y%m%dT%H%M%S")
+
+
+def _fold_ical_line(line: str) -> list[str]:
+    # RFC 5545 line folding is byte-based; this ASCII-safe approximation keeps
+    # generated files compatible with common calendar clients.
+    if len(line) <= 75:
+        return [line]
+    lines: list[str] = []
+    current = line
+    while len(current) > 75:
+        lines.append(current[:75])
+        current = " " + current[75:]
+    lines.append(current)
+    return lines
+
+
+def _schedule_calendar_events(
+    schedule: dict[str, Any],
+    overrides: dict[str, Any],
+    days: int,
+    today: dt.date,
+    include_all: bool = False,
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for day_offset in range(days):
+        date = today + dt.timedelta(days=day_offset)
+        day_override = overrides.get("dates", {}).get(date.isoformat(), {})
+        skip_all = bool(day_override.get("skip_all", False))
+        skip_ids = set(day_override.get("skip", []))
+        replace_map = day_override.get("replace", {}) if isinstance(day_override.get("replace"), dict) else {}
+        note = str(day_override.get("note", "")).strip()
+        job_fires = _job_fires_on_date(schedule, date)
+
+        for index, job in enumerate(schedule["jobs"], start=1):
+            job_id = schedule_job_id(job, index)
+            if job_id not in job_fires or skip_all or job_id in skip_ids:
+                continue
+            effective_job = replace_map.get(job_id, job) if job_id in replace_map else job
+            command = str(effective_job.get("command", "")).strip()
+            if not include_all and command not in MODE_CHANGING_COMMANDS:
+                continue
+            command_str = " ".join(schedule_job_tokens(effective_job, index))
+            status = "replace" if job_id in replace_map else "scheduled"
+            for fire_at in job_fires[job_id]:
+                events.append({
+                    "job_id": job_id,
+                    "command": command,
+                    "command_str": command_str,
+                    "status": status,
+                    "start": fire_at,
+                    "end": fire_at + dt.timedelta(minutes=5),
+                    "note": note,
+                })
+    events.sort(key=lambda item: (item["start"], item["job_id"]))
+    return events
+
+
+def build_schedule_calendar_ics(
+    schedule: dict[str, Any],
+    overrides: dict[str, Any],
+    days: int,
+    today: dt.date,
+    include_all: bool = False,
+    generated_at: dt.datetime | None = None,
+) -> str:
+    timezone = str(schedule.get("timezone", "")).strip() or "UTC"
+    generated_at = generated_at or dt.datetime.now(dt.timezone.utc)
+    if generated_at.tzinfo is None:
+        generated_at = generated_at.replace(tzinfo=dt.timezone.utc)
+    dtstamp = generated_at.astimezone(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    events = _schedule_calendar_events(schedule, overrides, days, today, include_all=include_all)
+
+    raw_lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Growatt Guard//Schedule Export//EN",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        f"X-WR-CALNAME:{_ical_escape('Growatt Guard schedule')}",
+        f"X-WR-TIMEZONE:{_ical_escape(timezone)}",
+    ]
+    for event in events:
+        start = event["start"]
+        end = event["end"]
+        job_id = str(event["job_id"])
+        command_str = str(event["command_str"])
+        status = str(event["status"])
+        note = str(event.get("note") or "")
+        description_parts = [f"job_id={job_id}", f"command={command_str}", f"status={status}"]
+        if note:
+            description_parts.append(f"note={note}")
+        raw_lines.extend([
+            "BEGIN:VEVENT",
+            f"UID:growatt-{start.strftime('%Y%m%dT%H%M')}-{_ical_escape(job_id)}@growatt-guard",
+            f"DTSTAMP:{dtstamp}",
+            f"DTSTART;TZID={_ical_escape(timezone)}:{_ical_datetime(start)}",
+            f"DTEND;TZID={_ical_escape(timezone)}:{_ical_datetime(end)}",
+            f"SUMMARY:{_ical_escape('Growatt: ' + command_str)}",
+            f"DESCRIPTION:{_ical_escape('; '.join(description_parts))}",
+            "END:VEVENT",
+        ])
+    raw_lines.append("END:VCALENDAR")
+
+    folded: list[str] = []
+    for line in raw_lines:
+        folded.extend(_fold_ical_line(line))
+    return "\r\n".join(folded) + "\r\n"
+
+
+def command_schedule_calendar(
+    config: Any,
+    days: int = 14,
+    output: str = "",
+    include_all: bool = False,
+    today: dt.date | None = None,
+) -> int:
+    _ = config
+    schedule = validate_schedule()
+    overrides = validate_schedule_overrides(schedule)
+    today = today or dt.date.today()
+    content = build_schedule_calendar_ics(schedule, overrides, days, today, include_all=include_all)
+    if output:
+        Path(output).write_text(content, encoding="utf-8", newline="")
+        print(f"Wrote schedule calendar to {output}")
+    else:
+        print(content, end="")
+    return 0
+
+
 def build_schedule_preview_payload(
     schedule: dict[str, Any],
     overrides: dict[str, Any],
@@ -476,15 +625,7 @@ def build_schedule_preview_payload(
         replace_map = day_override.get("replace", {}) if isinstance(day_override.get("replace"), dict) else {}
         note = str(day_override.get("note", "")).strip()
 
-        job_fires: dict[str, list[dt.datetime]] = {}
-        start = dt.datetime.combine(date, dt.time(0, 0))
-        cursor = start
-        while cursor < start + dt.timedelta(days=1):
-            for job in schedule["jobs"]:
-                if cron_matches(str(job["cron"]), cursor):
-                    job_id = job.get("id", "")
-                    job_fires.setdefault(job_id, []).append(cursor)
-            cursor += dt.timedelta(minutes=1)
+        job_fires = _job_fires_on_date(schedule, date)
 
         jobs: list[dict[str, Any]] = []
         for job in [job for job in schedule["jobs"] if job.get("id", "") in job_fires]:
@@ -552,16 +693,7 @@ def command_schedule_preview(
         replace_map = day_override.get("replace", {}) if isinstance(day_override.get("replace"), dict) else {}
         note = str(day_override.get("note", "")).strip()
 
-        # Collect firing times per job across this calendar day
-        job_fires: dict[str, list[dt.datetime]] = {}
-        start = dt.datetime.combine(date, dt.time(0, 0))
-        cursor = start
-        while cursor < start + dt.timedelta(days=1):
-            for job in schedule["jobs"]:
-                if cron_matches(str(job["cron"]), cursor):
-                    job_id = job.get("id", "")
-                    job_fires.setdefault(job_id, []).append(cursor)
-            cursor += dt.timedelta(minutes=1)
+        job_fires = _job_fires_on_date(schedule, date)
 
         jobs_on_day = [job for job in schedule["jobs"] if job.get("id", "") in job_fires]
         if not jobs_on_day:

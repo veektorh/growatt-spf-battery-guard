@@ -713,6 +713,15 @@ The schedule preview also has a JSON form for monitoring or scripts:
 .venv/bin/python growatt_power_guard.py schedule-preview --days 14 --json
 ```
 
+Export upcoming mode-changing jobs to a calendar file without calling Growatt:
+
+```bash
+.venv/bin/python growatt_power_guard.py schedule-calendar --days 14 --output growatt-schedule.ics
+```
+
+`schedule-calendar` applies date overrides and skips replaced mode-changing jobs
+by default. Add `--all` to include read-only monitoring jobs too.
+
 Stale dashboard alerts use Discord when `DISCORD_WEBHOOK_URL` is configured and `DISCORD_NOTIFY_FAILURE=true`:
 
 ```text

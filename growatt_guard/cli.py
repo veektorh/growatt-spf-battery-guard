@@ -19,7 +19,7 @@ from growatt_guard.diagnostics import (
 from growatt_guard.discord_control import command_serve_discord_bot
 from growatt_guard.notifications import notify_failure
 from growatt_guard.pvoutput import command_pvoutput_upload
-from growatt_guard.schedule import command_outage_profile, command_schedule_override, command_validate_schedule
+from growatt_guard.schedule import command_outage_profile, command_schedule_calendar, command_schedule_override, command_validate_schedule
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -164,6 +164,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     preview_parser.add_argument("--days", type=int, default=7, help="Number of days to preview (default 7).")
     preview_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+
+    calendar_parser = subparsers.add_parser(
+        "schedule-calendar", help="Export upcoming scheduled jobs as an iCalendar (.ics) file."
+    )
+    calendar_parser.add_argument("--days", type=int, default=14, help="Number of days to export (default 14).")
+    calendar_parser.add_argument("--output", default="", help="Write to this .ics file instead of stdout.")
+    calendar_parser.add_argument("--all", action="store_true", help="Include monitoring/read-only jobs as well as mode-changing jobs.")
 
     override_parser = subparsers.add_parser(
         "schedule-override", help="Manage temporary date overrides in schedule_overrides.json."
@@ -351,6 +358,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_clear_login_cooldown(config)
         if command == "schedule-preview":
             return app.command_schedule_preview(config, args.days, json_output=args.json)
+        if command == "schedule-calendar":
+            return command_schedule_calendar(config, args.days, args.output, include_all=args.all)
         if command == "schedule-override":
             return command_schedule_override(config, args)
         if command == "outage-profile":

@@ -142,7 +142,7 @@ Why: local state now matters and outage schedules change.
 - Add backup/restore for pause state, alert state, topup state, schedule
   overrides, dashboard metrics, and audit logs.
 - Keep generated backups out of Git.
-- Generate `.ics` calendar events for outage windows and mode-changing jobs.
+- Keep `schedule-calendar` useful for outage windows and mode-changing jobs.
 - Add schedule lint warnings for jobs that are too close together.
 
 ## Area Backlog
@@ -173,7 +173,7 @@ Why: local state now matters and outage schedules change.
 
 ### Scheduling
 
-- Add `.ics` calendar export.
+- Extend `.ics` calendar export if new schedule semantics are added.
 - Add dry-run cron installer output showing exact crontab changes.
 - Add outage notice parser that proposes schedule overrides but requires manual
   confirmation.

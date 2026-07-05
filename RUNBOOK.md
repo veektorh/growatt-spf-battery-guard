@@ -274,6 +274,7 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py diagnostic-bundle --include-cloud
 .venv/bin/python growatt_power_guard.py pv-metric-probe
 .venv/bin/python growatt_power_guard.py schedule-preview --days 14 --json
+.venv/bin/python growatt_power_guard.py schedule-calendar --days 14 --output growatt-schedule.ics
 ```
 
 `service-status` is read-only and includes schedule lint, cron checks, dashboard

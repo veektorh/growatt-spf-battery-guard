@@ -8,8 +8,12 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from helpers import make_config
-from growatt_guard.schedule import command_schedule_preview
-from growatt_guard.schedule import lint_schedule
+from growatt_guard.schedule import (
+    build_schedule_calendar_ics,
+    command_schedule_calendar,
+    command_schedule_preview,
+    lint_schedule,
+)
 from growatt_power_guard import (
     GrowattGuardError,
     build_parser,
@@ -221,6 +225,114 @@ class ScheduleTests(unittest.TestCase):
         payload = json.loads(stdout.getvalue())
         self.assertEqual(payload["schema_version"], 1)
         self.assertEqual(payload["dates"][0]["jobs"][0]["job_id"], "morning-preserve")
+
+    def test_schedule_calendar_exports_mode_changing_jobs_only_by_default(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"},
+                {"id": "battery-alert", "cron": "*/30 * * * *", "command": "battery-alert"},
+            ],
+        }
+
+        ics = build_schedule_calendar_ics(
+            schedule,
+            {"dates": {}},
+            days=1,
+            today=dt.date(2026, 6, 20),
+            generated_at=dt.datetime(2026, 6, 20, 0, 0, tzinfo=dt.timezone.utc),
+        )
+
+        self.assertIn("BEGIN:VCALENDAR", ics)
+        self.assertIn("X-WR-TIMEZONE:Africa/Lagos", ics)
+        self.assertIn("SUMMARY:Growatt: preserve-battery", ics)
+        self.assertIn("DTSTART;TZID=Africa/Lagos:20260620T063000", ics)
+        self.assertIn("UID:growatt-20260620T0630-morning-preserve@growatt-guard", ics)
+        self.assertNotIn("battery-alert", ics)
+
+    def test_schedule_calendar_all_includes_monitoring_jobs(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "battery-alert", "cron": "0 0 * * *", "command": "battery-alert"},
+            ],
+        }
+
+        ics = build_schedule_calendar_ics(
+            schedule,
+            {"dates": {}},
+            days=1,
+            today=dt.date(2026, 6, 20),
+            include_all=True,
+            generated_at=dt.datetime(2026, 6, 20, 0, 0, tzinfo=dt.timezone.utc),
+        )
+
+        self.assertIn("SUMMARY:Growatt: battery-alert", ics)
+
+    def test_schedule_calendar_honors_skip_and_replace_overrides(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"},
+                {"id": "morning-return", "cron": "55 7 * * *", "command": "return-sbu"},
+            ],
+        }
+        overrides = {
+            "dates": {
+                "2026-06-20": {
+                    "skip": ["morning-return"],
+                    "replace": {"morning-preserve": {"command": "health-check", "args": ["--notify"]}},
+                    "note": "maintenance",
+                }
+            }
+        }
+
+        default_ics = build_schedule_calendar_ics(
+            schedule,
+            overrides,
+            days=1,
+            today=dt.date(2026, 6, 20),
+            generated_at=dt.datetime(2026, 6, 20, 0, 0, tzinfo=dt.timezone.utc),
+        )
+        all_ics = build_schedule_calendar_ics(
+            schedule,
+            overrides,
+            days=1,
+            today=dt.date(2026, 6, 20),
+            include_all=True,
+            generated_at=dt.datetime(2026, 6, 20, 0, 0, tzinfo=dt.timezone.utc),
+        )
+
+        unfolded_all_ics = all_ics.replace("\r\n ", "")
+
+        self.assertNotIn("morning-return", default_ics)
+        self.assertNotIn("health-check", default_ics)
+        self.assertIn("SUMMARY:Growatt: health-check --notify", unfolded_all_ics)
+        self.assertIn("status=replace", unfolded_all_ics)
+        self.assertIn("note=maintenance", unfolded_all_ics)
+        self.assertNotIn("morning-return", unfolded_all_ics)
+
+    def test_schedule_calendar_command_writes_output_file(self):
+        config = make_config()
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [{"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"}],
+        }
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.schedule.validate_schedule", return_value=schedule
+        ), patch("growatt_guard.schedule.validate_schedule_overrides", return_value={"dates": {}}), redirect_stdout(
+            StringIO()
+        ) as stdout:
+            output = Path(tmpdir) / "schedule.ics"
+            result = command_schedule_calendar(
+                config, days=1, output=str(output), today=dt.date(2026, 6, 20)
+            )
+
+            self.assertEqual(result, 0)
+            self.assertTrue(output.exists())
+            self.assertIn("BEGIN:VCALENDAR", output.read_text(encoding="utf-8"))
+            self.assertIn("Wrote schedule calendar", stdout.getvalue())
 
     def test_schedule_lint_warns_about_duplicate_pvoutput_poller(self):
         schedule = {

@@ -162,6 +162,8 @@ from growatt_guard.schedule import (
     check_cron_schedule,
     build_schedule_preview_payload,
     command_outage_profile,
+    build_schedule_calendar_ics,
+    command_schedule_calendar,
     command_schedule_override,
     command_schedule_preview,
     command_validate_schedule,
