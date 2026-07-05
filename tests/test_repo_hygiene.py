@@ -22,6 +22,13 @@ class GitignoreHygieneTests(unittest.TestCase):
         ):
             self.assertIn(pattern, ignored)
 
+    def test_local_verification_runs_shell_syntax_check(self):
+        verify_script = (ROOT / "verify_local.sh").read_text(encoding="utf-8")
+
+        self.assertIn('echo "== Shell syntax =="', verify_script)
+        self.assertIn("git ls-files '*.sh'", verify_script)
+        self.assertIn('bash -n "$script"', verify_script)
+
 
 if __name__ == "__main__":
     unittest.main()

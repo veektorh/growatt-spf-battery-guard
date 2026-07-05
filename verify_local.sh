@@ -17,6 +17,11 @@ echo "== Unit tests =="
 echo "== Schedule validation =="
 "$PYTHON_BIN" growatt_power_guard.py validate-schedule
 
+echo "== Shell syntax =="
+while IFS= read -r script; do
+  bash -n "$script"
+done < <(git ls-files '*.sh')
+
 echo "== Whitespace check =="
 git diff --check
 
