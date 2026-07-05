@@ -335,7 +335,8 @@ That refresh service uses one Growatt read for both `dashboard.html` and PVOutpu
 The dashboard page shows a freshness badge, and `growatt-dashboard-stale-alert.timer` sends Discord alerts when `dashboard.html` is older than `DASHBOARD_STALE_MINUTES`.
 Each refresh also writes `dashboard.json` with live metrics, metric source paths,
 schedule summary, next automation action, PVOutput state, data-quality status,
-energy-balance status, same-time daily insights, and tonight risk planner data
+`quality.data.reconciliation` energy-balance status, same-time daily insights,
+and tonight risk planner data
 for monitors or future apps. The built-in dashboard server serves it at
 `/dashboard.json` without making another Growatt API call. The public read-only
 contract is the top-level `generated_at`, `metrics`, `sources`, `planner`,

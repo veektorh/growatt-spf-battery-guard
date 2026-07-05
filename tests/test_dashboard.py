@@ -25,6 +25,7 @@ from growatt_guard.dashboard import (
     build_dashboard_daily_mix,
     build_dashboard_data_payload,
     build_dashboard_data_quality,
+    build_dashboard_energy_reconciliation,
     build_dashboard_history_payload,
     build_dashboard_html,
     build_dashboard_next_action,
@@ -701,6 +702,58 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(quality["score"], 78)
         self.assertIn("load now", quality["missing"])
         self.assertTrue(any("estimated" in item for item in quality["items"]))
+
+    def test_dashboard_energy_reconciliation_balances_daily_counters(self):
+        reconciliation = build_dashboard_energy_reconciliation(
+            {
+                "pv_today_kwh": 1.2,
+                "grid_today_kwh": 13.7,
+                "load_today_kwh": 12.5,
+                "charge_today_kwh": 10.5,
+                "discharge_today_kwh": 8.1,
+            }
+        )
+
+        self.assertEqual(reconciliation["status"], "ok")
+        self.assertEqual(reconciliation["supply_total_kwh"], 23.0)
+        self.assertEqual(reconciliation["demand_total_kwh"], 23.0)
+        self.assertEqual(reconciliation["delta_kwh"], 0.0)
+
+    def test_dashboard_data_quality_warns_on_daily_counter_mismatch(self):
+        quality = build_dashboard_data_quality(
+            {
+                "soc": 70,
+                "mode": "SBU priority",
+                "pv_w": 500,
+                "load_w": 700,
+                "battery_net_w": 100,
+                "pv_today_kwh": 1.0,
+                "grid_today_kwh": 1.0,
+                "load_today_kwh": 10.0,
+                "charge_today_kwh": 2.0,
+                "discharge_today_kwh": 0.0,
+            },
+            {},
+        )
+
+        self.assertEqual(quality["level"], "watch")
+        self.assertEqual(quality["score"], 100)
+        self.assertEqual(quality["reconciliation"]["status"], "watch")
+        self.assertEqual(quality["reconciliation"]["delta_kwh"], -10.0)
+        self.assertTrue(any("do not reconcile" in item for item in quality["items"]))
+
+    def test_dashboard_energy_reconciliation_reports_missing_counters(self):
+        reconciliation = build_dashboard_energy_reconciliation(
+            {
+                "pv_today_kwh": 1.2,
+                "grid_today_kwh": 13.7,
+                "load_today_kwh": 12.5,
+                "charge_today_kwh": 10.5,
+            }
+        )
+
+        self.assertEqual(reconciliation["status"], "unavailable")
+        self.assertEqual(reconciliation["missing"], ["discharge_today_kwh"])
 
     def test_dashboard_daily_mix_summarizes_energy_context(self):
         mix = build_dashboard_daily_mix(

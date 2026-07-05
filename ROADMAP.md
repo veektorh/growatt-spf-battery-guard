@@ -52,7 +52,8 @@ Why: dashboard values now matter operationally, so the metric extraction layer
 should be explicit and reusable.
 
 - Add dashboard source-path tooltips for ambiguous values.
-- Add reconciliation checks when PV/grid/load/battery totals do not add up.
+- Keep daily PV/grid/load/battery reconciliation warnings visible in
+  `quality.data.reconciliation`.
 - Add a schema-version field to `dashboard.json` if an external consumer needs
   strict migration handling.
 
@@ -158,8 +159,7 @@ Why: local state now matters and outage schedules change.
 ### Dashboard And Observability
 
 - Add metric source/source-path display for ambiguous values.
-- Add daily import/export/load/PV reconciliation warnings when numbers do not
-  add up.
+- Extend daily reconciliation if new energy counters become available.
 - Add "last successful Growatt read" and "last successful PVOutput upload"
   timestamps to the top of the dashboard.
 - Add export/download for local dashboard metric history.

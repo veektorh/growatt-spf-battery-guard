@@ -936,6 +936,42 @@ def build_tonight_risk(
     }
 
 
+def build_dashboard_energy_reconciliation(live_metrics: dict[str, Any]) -> dict[str, Any]:
+    """Compare daily source counters against demand counters when available."""
+    pv_kwh = _positive_metric(live_metrics.get("pv_today_kwh"))
+    grid_kwh = _positive_metric(live_metrics.get("grid_today_kwh"))
+    load_kwh = _positive_metric(live_metrics.get("load_today_kwh"))
+    charge_kwh = _positive_metric(live_metrics.get("charge_today_kwh"))
+    discharge_kwh = _positive_metric(live_metrics.get("discharge_today_kwh"))
+    required = {
+        "pv_today_kwh": pv_kwh,
+        "grid_today_kwh": grid_kwh,
+        "load_today_kwh": load_kwh,
+        "charge_today_kwh": charge_kwh,
+        "discharge_today_kwh": discharge_kwh,
+    }
+    missing = [key for key, value in required.items() if value is None]
+    if missing:
+        return {"status": "unavailable", "missing": missing}
+
+    supply_total = (pv_kwh or 0.0) + (grid_kwh or 0.0) + (discharge_kwh or 0.0)
+    demand_total = (load_kwh or 0.0) + (charge_kwh or 0.0)
+    delta = supply_total - demand_total
+    baseline = max(supply_total, demand_total, 0.0)
+    delta_pct = abs(delta) / baseline * 100.0 if baseline > 0 else 0.0
+    tolerance_kwh = max(1.0, baseline * 0.25)
+    status = "ok" if abs(delta) <= tolerance_kwh else "watch"
+    return {
+        "status": status,
+        "supply_total_kwh": round(supply_total, 2),
+        "demand_total_kwh": round(demand_total, 2),
+        "delta_kwh": round(delta, 2),
+        "delta_pct": round(delta_pct, 1),
+        "tolerance_kwh": round(tolerance_kwh, 2),
+        "missing": [],
+    }
+
+
 def build_dashboard_data_quality(
     live_metrics: dict[str, Any],
     sources: dict[str, str],
@@ -976,6 +1012,18 @@ def build_dashboard_data_quality(
         items.append("PV power is using summed PV channel values.")
     if str(sources.get("pv_today_kwh", "")).startswith("channel-sum:"):
         items.append("PV energy today is using summed PV channel values.")
+    reconciliation = build_dashboard_energy_reconciliation(live_metrics)
+    if reconciliation.get("status") == "watch":
+        if level == "good":
+            level = "watch"
+            title = "Watch"
+        items.append(
+            "Daily energy counters do not reconcile: "
+            f"supply {reconciliation['supply_total_kwh']:g} kWh vs "
+            f"demand {reconciliation['demand_total_kwh']:g} kWh "
+            f"(delta {reconciliation['delta_kwh']:+g} kWh)."
+        )
+
     if not items:
         items.append("All key dashboard metrics are present.")
 
@@ -985,8 +1033,8 @@ def build_dashboard_data_quality(
         "score": score,
         "missing": missing,
         "items": items,
+        "reconciliation": reconciliation,
     }
-
 
 
 def _positive_metric(value: Any) -> float | None:

@@ -643,7 +643,8 @@ not add extra Growatt API calls.
 Each refresh also writes `dashboard.json` beside `dashboard.html`. The JSON file
 contains the same live metrics, metric source paths, freshness metadata, schedule
 summary, next automation action, PVOutput state, data-quality status,
-energy-balance status, same-time daily insights, and tonight risk planner data
+`quality.data.reconciliation` energy-balance status, same-time daily insights,
+and tonight risk planner data
 used by the dashboard. The built-in dashboard server exposes it at
 `/dashboard.json` without making another Growatt API call. Treat the top-level
 keys `generated_at`, `metrics`, `sources`, `planner`, `schedule`, `automation`,
