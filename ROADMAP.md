@@ -154,7 +154,7 @@ Why: local state now matters and outage schedules change.
 - Add stricter idempotency audit rows for skipped mode writes.
 - Add emergency SBU-return guard below a configurable SOC, with an explicit
   override for outage realities.
-- Add state migration/versioning for local JSON state files.
+- [x] Add state migration/versioning for local JSON state files.
 
 ### Dashboard And Observability
 

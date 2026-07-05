@@ -55,6 +55,8 @@ def configure_state_dir(path: str | os.PathLike[str]) -> Path:
 STATE_DIR = configure_state_dir(_default_state_dir())
 COMMAND_LOCK_STALE_SECONDS = 45 * 60
 SESSION_REFRESH_LOCK_STALE_SECONDS = 2 * 60
+STATE_SCHEMA_VERSION = 1
+_STATE_METADATA_KEYS = ("_schema_version", "_updated_at")
 
 
 def utc_now() -> dt.datetime:
@@ -68,19 +70,34 @@ def parse_utc_datetime(value: str) -> dt.datetime:
     return parsed.astimezone(dt.timezone.utc)
 
 
+def _strip_state_metadata(state: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in state.items() if key not in _STATE_METADATA_KEYS}
+
+
+def _with_state_metadata(state: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(state)
+    payload["_schema_version"] = STATE_SCHEMA_VERSION
+    payload["_updated_at"] = utc_now().isoformat()
+    return payload
+
+
 def read_json_state(path: Path, description: str) -> dict[str, Any] | None:
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        state = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         logging.warning("Ignoring invalid %s state: %s", description, exc)
         return None
+    if not isinstance(state, dict):
+        logging.warning("Ignoring invalid %s state: expected a JSON object", description)
+        return None
+    return _strip_state_metadata(state)
 
 
 def write_json_state(path: Path, state: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(state, indent=2, sort_keys=True)
+    payload = json.dumps(_with_state_metadata(state), indent=2, sort_keys=True)
     # Atomic write: a crash mid-write must never leave a half-written state
     # file (these control inverter/pause behaviour for scheduled jobs).
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
@@ -105,10 +122,12 @@ def read_pause_state(now: dt.datetime | None = None) -> dict[str, Any] | None:
     if not PAUSE_FILE.exists():
         return None
     now = now or utc_now()
+    state = read_json_state(PAUSE_FILE, "pause")
+    if state is None:
+        return None
     try:
-        state = json.loads(PAUSE_FILE.read_text(encoding="utf-8"))
         until = parse_utc_datetime(str(state["paused_until"]))
-    except (OSError, KeyError, ValueError, json.JSONDecodeError) as exc:
+    except (KeyError, ValueError) as exc:
         logging.warning("Ignoring invalid pause state: %s", exc)
         return None
     if until <= now:
@@ -166,12 +185,12 @@ def command_lock_is_stale() -> bool:
 def acquire_command_lock(command: str) -> str | None:
     COMMAND_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
     token = f"{os.getpid()}-{utc_now().timestamp()}"
-    payload = {
+    payload = _with_state_metadata({
         "token": token,
         "pid": os.getpid(),
         "command": command,
         "created_at": utc_now().isoformat(),
-    }
+    })
 
     for _ in range(2):
         try:
@@ -317,11 +336,11 @@ def try_acquire_session_refresh_lock(owner: str = "", stale_seconds: int = SESSI
     SESSION_REFRESH_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
     now = utc_now()
     payload = json.dumps(
-        {
+        _with_state_metadata({
             "created_at": now.isoformat(),
             "owner": owner,
             "pid": os.getpid(),
-        },
+        }),
         indent=2,
         sort_keys=True,
     )

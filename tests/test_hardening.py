@@ -7,6 +7,7 @@
 """
 import csv
 import datetime as dt
+import json
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -17,7 +18,11 @@ from unittest.mock import patch
 from helpers import make_config
 from growatt_guard.modes import command_topup_complete_check
 from growatt_guard.state import (
+    STATE_SCHEMA_VERSION,
+    acquire_command_lock,
+    read_command_lock_state,
     read_json_state,
+    release_command_lock,
     topup_skip_notification_due,
     write_json_state,
     write_topup_skip_notification_state,
@@ -41,6 +46,49 @@ class AtomicStateWriteTests(unittest.TestCase):
             write_json_state(target, {"v": 1})
             write_json_state(target, {"v": 2})
             self.assertEqual(read_json_state(target, "test"), {"v": 2})
+
+    def test_state_files_include_version_metadata_on_disk(self):
+        with TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "state.json"
+            write_json_state(target, {"value": 42})
+
+            raw = json.loads(target.read_text(encoding="utf-8"))
+
+        self.assertEqual(raw["_schema_version"], STATE_SCHEMA_VERSION)
+        self.assertIn("_updated_at", raw)
+        self.assertEqual(raw["value"], 42)
+
+    def test_read_json_state_strips_metadata_and_accepts_legacy_files(self):
+        with TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "state.json"
+            target.write_text(
+                json.dumps({"_schema_version": 1, "_updated_at": "2026-07-05T00:00:00+00:00", "value": 42}),
+                encoding="utf-8",
+            )
+            self.assertEqual(read_json_state(target, "test"), {"value": 42})
+
+            legacy = Path(tmpdir) / "legacy.json"
+            legacy.write_text(json.dumps({"value": 7}), encoding="utf-8")
+            self.assertEqual(read_json_state(legacy, "legacy"), {"value": 7})
+
+    def test_command_lock_files_include_version_metadata(self):
+        from growatt_guard import state as state_mod
+
+        original = state_mod.COMMAND_LOCK_FILE
+        with TemporaryDirectory() as tmpdir:
+            try:
+                state_mod.COMMAND_LOCK_FILE = Path(tmpdir) / "mode_command.lock"
+                token = acquire_command_lock("test-command")
+                self.assertIsNotNone(token)
+
+                raw = json.loads(state_mod.COMMAND_LOCK_FILE.read_text(encoding="utf-8"))
+
+                self.assertEqual(raw["_schema_version"], STATE_SCHEMA_VERSION)
+                self.assertEqual(read_command_lock_state()["command"], "test-command")
+                release_command_lock(str(token))
+                self.assertFalse(state_mod.COMMAND_LOCK_FILE.exists())
+            finally:
+                state_mod.COMMAND_LOCK_FILE = original
 
 
 class StateDirectoryIsolationTests(unittest.TestCase):
