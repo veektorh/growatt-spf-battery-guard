@@ -4,7 +4,44 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_BIN="${ROOT}/.venv/bin/python"
 SCHEDULE_FILE="${ROOT}/schedule.json"
-CRON_FILE="$(mktemp)"
+CURRENT_CRON="$(mktemp)"
+PROPOSED_CRON="$(mktemp)"
+DRY_RUN=false
+
+cleanup() {
+  rm -f "${CURRENT_CRON}" "${PROPOSED_CRON}"
+}
+trap cleanup EXIT
+
+usage() {
+  cat <<EOF
+Usage: ./install_cloud_cron.sh [--dry-run]
+
+Install the Growatt cloud cron schedule from schedule.json.
+
+Options:
+  -n, --dry-run  Print the exact crontab diff without installing it.
+  -h, --help     Show this help text.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -n|--dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
 
 if [[ ! -x "${PYTHON_BIN}" ]]; then
   echo "Virtual environment not found at ${PYTHON_BIN}"
@@ -17,11 +54,12 @@ if [[ ! -f "${SCHEDULE_FILE}" ]]; then
   exit 1
 fi
 
-crontab -l 2>/dev/null \
-  | grep -v "# growatt-power-guard" \
-  | grep -v "^CRON_TZ=Africa/Lagos$" > "${CRON_FILE}" || true
+crontab -l > "${CURRENT_CRON}" 2>/dev/null || true
 
-"${PYTHON_BIN}" - "${SCHEDULE_FILE}" "${ROOT}" "${PYTHON_BIN}" >> "${CRON_FILE}" <<'PY'
+grep -v "# growatt-power-guard" "${CURRENT_CRON}" \
+  | grep -v "^CRON_TZ=Africa/Lagos$" > "${PROPOSED_CRON}" || true
+
+"${PYTHON_BIN}" - "${SCHEDULE_FILE}" "${ROOT}" "${PYTHON_BIN}" >> "${PROPOSED_CRON}" <<'PYCRON'
 import json
 import shlex
 import sys
@@ -54,10 +92,21 @@ for job in jobs:
         f"growatt_power_guard.py run-scheduled {shlex.quote(job_id)} >> "
         f"{shlex.quote(str(Path(root) / 'logs' / 'cron.log'))} 2>&1 # growatt-power-guard"
     )
-PY
+PYCRON
 
-crontab "${CRON_FILE}"
-rm -f "${CRON_FILE}"
+if [[ "${DRY_RUN}" == "true" ]]; then
+  echo "Dry run only. No crontab changes were installed."
+  echo "Proposed crontab diff:"
+  if command -v diff >/dev/null 2>&1; then
+    diff -u --label current-crontab "${CURRENT_CRON}" --label proposed-crontab "${PROPOSED_CRON}" || true
+  else
+    echo "diff command not found; full proposed crontab follows:"
+    cat "${PROPOSED_CRON}"
+  fi
+  exit 0
+fi
+
+crontab "${PROPOSED_CRON}"
 
 mkdir -p "${ROOT}/logs"
 echo "Installed Growatt cron schedule from ${SCHEDULE_FILE}."

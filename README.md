@@ -374,6 +374,7 @@ The cloud cron installer reads these jobs from [schedule.json](schedule.json). C
 ```bash
 cd ~/automation
 .venv/bin/python growatt_power_guard.py validate-schedule
+./install_cloud_cron.sh --dry-run
 ./install_cloud_cron.sh
 ```
 
@@ -523,10 +524,11 @@ cd ~/automation
 
 Pause state is stored locally under `state/`, which should not be committed.
 
-After the dry-run output is correct, set `DRY_RUN=false`, then install the cloud cron schedule:
+After the command dry-run output is correct, set `DRY_RUN=false`, then preview and install the cloud cron schedule:
 
 ```bash
 .venv/bin/python growatt_power_guard.py validate-schedule
+./install_cloud_cron.sh --dry-run
 ./install_cloud_cron.sh
 ```
 

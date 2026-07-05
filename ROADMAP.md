@@ -174,7 +174,7 @@ Why: local state now matters and outage schedules change.
 ### Scheduling
 
 - Extend `.ics` calendar export if new schedule semantics are added.
-- Add dry-run cron installer output showing exact crontab changes.
+- [x] Add dry-run cron installer output showing exact crontab changes.
 - Add outage notice parser that proposes schedule overrides but requires manual
   confirmation.
 

@@ -119,6 +119,7 @@ Edit `schedule.json`, then validate and reinstall:
 cd ~/automation
 nano schedule.json
 .venv/bin/python growatt_power_guard.py validate-schedule
+./install_cloud_cron.sh --dry-run
 ./install_cloud_cron.sh
 ```
 
@@ -135,6 +136,7 @@ cd ~/automation
 cp schedule_overrides.example.json schedule_overrides.json
 nano schedule_overrides.json
 .venv/bin/python growatt_power_guard.py validate-schedule
+./install_cloud_cron.sh --dry-run
 ./install_cloud_cron.sh
 ```
 
