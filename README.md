@@ -42,6 +42,13 @@ python -m pip install -e .
 growatt-guard validate-schedule
 ```
 
+Before committing local changes on Linux/macOS, run the offline verification
+helper:
+
+```bash
+./verify_local.sh
+```
+
 Fill in:
 
 ```text
@@ -869,6 +876,7 @@ growatt_power_guard.py
 growatt_guard/
 pyproject.toml
 requirements.txt
+verify_local.sh
 README.md
 RUNBOOK.md
 .env.example

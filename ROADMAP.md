@@ -40,6 +40,8 @@ The project already has the main automation shape in place:
   Discord dashboard embed regression tests.
 - Package metadata exposes an optional `growatt-guard` console script while
   preserving `growatt_power_guard.py` as the compatibility shim.
+- `verify_local.sh` runs compile, quiet tests, schedule validation, whitespace
+  checks, and the public secret-pattern scan before commits or pushes.
 - Health checks include next-step remediation hints.
 
 ## Next Best Things
@@ -130,8 +132,7 @@ Why: the repo is now large enough to benefit from standard Python project shape.
 - Keep `pyproject.toml`, `requirements.txt`, and the `growatt-guard` console
   script aligned.
 - Keep `growatt_power_guard.py` as a backwards-compatible shim.
-- Add optional pre-commit checks for whitespace, Python compile, secret-looking
-  values, and schedule JSON validation.
+- Extend `verify_local.sh` if new mandatory local checks are added.
 
 ### 9. Backup, Restore, And Calendar Export
 
@@ -204,6 +205,5 @@ Why: local state now matters and outage schedules change.
 ## Good First Issues
 
 1. Add quiet-hours config and tests for non-critical Discord messages.
-2. Add optional pre-commit checks for compile, tests, schedule validation,
-   and secret-looking values.
+2. Add stricter public-hygiene classification for the secret-pattern scan.
 3. Add public-safe fixture files when new Growatt field shapes are observed.
