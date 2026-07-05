@@ -14,6 +14,7 @@ from growatt_power_guard import (
     apply_season_adjustment,
     choose_preserve_threshold,
     current_season,
+    GrowattGuardError,
 )
 from growatt_guard.weather import apply_load_adjustment
 
@@ -106,6 +107,59 @@ class WeatherTests(unittest.TestCase):
             mock_requests.get.assert_called_once()
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
             self.assertEqual(cached["forecast"], forecast)
+
+
+    def test_fetch_weather_forecast_uses_stale_cache_on_request_failure(self):
+        import requests
+        from growatt_guard.weather import fetch_weather_forecast
+
+        stale_forecast = {"hourly": {"time": [], "cloud_cover": [], "precipitation": []}}
+        stale_payload = {
+            "fetched_at": (dt.datetime.now() - dt.timedelta(hours=1)).isoformat(),
+            "forecast": stale_forecast,
+        }
+        with TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / "weather_cache.json"
+            cache_path.write_text(json.dumps(stale_payload), encoding="utf-8")
+            with patch(
+                "growatt_guard.weather.WEATHER_CACHE_FILE",
+                cache_path,
+            ), patch(
+                "growatt_guard.weather.requests.get",
+                side_effect=requests.exceptions.RequestException(
+                    "https://api.open-meteo.com/v1/forecast?latitude=6.5&longitude=3.4"
+                ),
+            ) as mock_requests, patch("growatt_guard.weather.logging.warning") as mock_warning:
+                result = fetch_weather_forecast(make_config(weather_lat=6.5, weather_lon=3.4))
+
+        self.assertEqual(result, stale_forecast)
+        mock_requests.assert_called_once()
+        self.assertEqual(
+            mock_warning.call_args.args[0],
+            "Open-Meteo forecast unavailable; using stale weather cache (age %d min).",
+        )
+        self.assertIsInstance(mock_warning.call_args.args[1], int)
+
+    def test_fetch_weather_forecast_raises_when_no_stale_cache_exists(self):
+        from requests.exceptions import RequestException
+        from growatt_guard.weather import fetch_weather_forecast
+
+        with TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / "weather_cache.json"
+            with patch("growatt_guard.weather.WEATHER_CACHE_FILE", cache_path), patch(
+                "growatt_guard.weather.requests.get",
+                side_effect=RequestException(
+                    "https://api.open-meteo.com/v1/forecast?latitude=6.5&longitude=3.4"
+                ),
+            ):
+                with self.assertRaises(GrowattGuardError) as context:
+                    fetch_weather_forecast(make_config(weather_lat=6.5, weather_lon=3.4))
+
+        message = str(context.exception)
+        self.assertEqual(message, "Open-Meteo forecast unavailable and no cached weather data is available.")
+        self.assertNotIn("api.open-meteo.com", message.lower())
+        self.assertNotIn("latitude", message.lower())
+        self.assertNotIn("longitude", message.lower())
 
 
 class SeasonProfileTests(unittest.TestCase):

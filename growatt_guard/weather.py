@@ -14,6 +14,7 @@ from growatt_guard.state import STATE_DIR
 
 WEATHER_CACHE_FILE = STATE_DIR / "weather_cache.json"
 WEATHER_CACHE_TTL_SECONDS = 15 * 60
+WEATHER_STALE_CACHE_TTL_SECONDS = 6 * 3600
 
 SUNRISE_CACHE_FILE = STATE_DIR / "sunrise_cache.json"
 SUNRISE_CACHE_TTL_SECONDS = 6 * 3600
@@ -112,20 +113,23 @@ def parse_forecast_time(value: str) -> dt.datetime:
     return parsed
 
 
-def _read_weather_cache() -> dict[str, Any] | None:
+def _read_weather_cache_entry(max_age_seconds: int = WEATHER_CACHE_TTL_SECONDS) -> tuple[dict[str, Any] | None, float | None]:
     if not WEATHER_CACHE_FILE.exists():
-        return None
+        return None, None
     try:
         data = json.loads(WEATHER_CACHE_FILE.read_text(encoding="utf-8"))
         fetched_at = dt.datetime.fromisoformat(str(data["fetched_at"]))
         age = (dt.datetime.now() - fetched_at).total_seconds()
-        if age > WEATHER_CACHE_TTL_SECONDS:
-            return None
-        return data.get("forecast")
+        if age > max_age_seconds:
+            return None, age
+        return data.get("forecast"), age
     except (OSError, KeyError, ValueError, json.JSONDecodeError):
-        return None
+        return None, None
 
 
+def _read_weather_cache(max_age_seconds: int = WEATHER_CACHE_TTL_SECONDS) -> dict[str, Any] | None:
+    forecast, _ = _read_weather_cache_entry(max_age_seconds)
+    return forecast
 def _write_weather_cache(forecast: dict[str, Any]) -> None:
     try:
         WEATHER_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -236,23 +240,29 @@ def fetch_weather_forecast(config: Any) -> dict[str, Any]:
         logging.debug("Using cached weather forecast (age < %d min).", WEATHER_CACHE_TTL_SECONDS // 60)
         return cached
 
-    response = requests.get(
-        "https://api.open-meteo.com/v1/forecast",
-        params={
-            "latitude": config.weather_lat,
-            "longitude": config.weather_lon,
-            "hourly": "precipitation,cloud_cover,shortwave_radiation",
-            "forecast_days": 2,
-            "timezone": config.weather_timezone,
-        },
-        timeout=10,
-    )
-    response.raise_for_status()
-    forecast = response.json()
-    _write_weather_cache(forecast)
-    return forecast
-
-
+    try:
+        response = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude": config.weather_lat,
+                "longitude": config.weather_lon,
+                "hourly": "precipitation,cloud_cover,shortwave_radiation",
+                "forecast_days": 2,
+                "timezone": config.weather_timezone,
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        forecast = response.json()
+        _write_weather_cache(forecast)
+        return forecast
+    except requests.exceptions.RequestException:
+        stale_cached, age = _read_weather_cache_entry(max_age_seconds=WEATHER_STALE_CACHE_TTL_SECONDS)
+        if stale_cached is not None:
+            stale_age_min = 0 if age is None else int(age // 60)
+            logging.warning("Open-Meteo forecast unavailable; using stale weather cache (age %d min).", stale_age_min)
+            return stale_cached
+        raise weather_error("Open-Meteo forecast unavailable and no cached weather data is available.")
 def get_tomorrow_solar_kwh_m2(config: Any, now: dt.datetime | None = None) -> float | None:
     """Return forecasted total solar irradiance (kWh/m²) for the next calendar day.
 
