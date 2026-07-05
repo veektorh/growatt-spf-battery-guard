@@ -143,7 +143,7 @@ Why: local state now matters and outage schedules change.
   overrides, dashboard metrics, and audit logs.
 - [x] Keep generated backups out of Git.
 - Keep `schedule-calendar` useful for outage windows and mode-changing jobs.
-- Add schedule lint warnings for jobs that are too close together.
+- [x] Add schedule lint warnings for jobs that are too close together.
 
 ## Area Backlog
 
