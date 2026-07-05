@@ -43,13 +43,19 @@ SCHEDULE_COMMAND_ARGS = {
     "ops-review": {"--notify"},
 }
 GROWATT_READ_COMMANDS = {
+    "auto-topup-check",
     "battery-alert",
     "dashboard-stale-alert",
+    "health-check",
     "observability-refresh",
     "pvoutput-upload",
     "runtime-alert",
+    "topup-complete-check",
+    "waste-alert-check",
 }
 MODE_CHANGING_COMMANDS = {"preserve-battery", "utility-check", "morning-check", "return-sbu", "watchdog-sbu"}
+GROWATT_API_COMMANDS = GROWATT_READ_COMMANDS | MODE_CHANGING_COMMANDS
+GROWATT_API_DAILY_WARNING_THRESHOLD = 200
 
 
 @dataclass(frozen=True)
@@ -382,6 +388,40 @@ def _cron_interval_minutes(cron: str) -> int | None:
     return value if value > 0 else None
 
 
+def estimate_growatt_api_runs_per_day(
+    schedule: dict[str, Any],
+    *,
+    today: dt.date | None = None,
+    days: int = 14,
+) -> tuple[int, dt.date, dict[str, int]]:
+    today = today or dt.date.today()
+    max_total = 0
+    max_date = today
+    max_by_job: dict[str, int] = {}
+    jobs = schedule.get("jobs", [])
+    for day_offset in range(max(1, days)):
+        date = today + dt.timedelta(days=day_offset)
+        start = dt.datetime.combine(date, dt.time(0, 0))
+        cursor = start
+        by_job: dict[str, int] = {}
+        while cursor < start + dt.timedelta(days=1):
+            for index, job in enumerate(jobs, start=1):
+                if not isinstance(job, dict):
+                    continue
+                command = str(job.get("command", "")).strip()
+                if command not in GROWATT_API_COMMANDS:
+                    continue
+                if cron_matches(str(job.get("cron", "")), cursor):
+                    job_id = schedule_job_id(job, index)
+                    by_job[job_id] = by_job.get(job_id, 0) + 1
+            cursor += dt.timedelta(minutes=1)
+        total = sum(by_job.values())
+        if total > max_total:
+            max_total = total
+            max_date = date
+            max_by_job = by_job
+    return max_total, max_date, max_by_job
+
 def lint_schedule(schedule: dict[str, Any]) -> list[HealthCheckItem]:
     items: list[HealthCheckItem] = []
     jobs = schedule.get("jobs", [])
@@ -455,8 +495,32 @@ def lint_schedule(schedule: dict[str, Any]) -> list[HealthCheckItem]:
                 break
         previous_mode_run = (run_at, job_id)
 
+    api_runs, api_run_date, api_runs_by_job = estimate_growatt_api_runs_per_day(schedule)
+    if api_runs > GROWATT_API_DAILY_WARNING_THRESHOLD:
+        top_jobs = sorted(api_runs_by_job.items(), key=lambda item: item[1], reverse=True)[:3]
+        top_summary = ", ".join(f"{job_id} x{count}" for job_id, count in top_jobs)
+        items.append(
+            HealthCheckItem(
+                "Schedule lint",
+                "WARN",
+                (
+                    f"estimated Growatt API runs peak at {api_runs}/day on {api_run_date.isoformat()} "
+                    f"(threshold {GROWATT_API_DAILY_WARNING_THRESHOLD}); busiest jobs: {top_summary}."
+                ),
+            )
+        )
+
     if not items:
-        items.append(HealthCheckItem("Schedule lint", "OK", "no duplicate pollers, fast pollers, or risky mode-changing jobs found."))
+        items.append(
+            HealthCheckItem(
+                "Schedule lint",
+                "OK",
+                (
+                    f"estimated Growatt API runs peak at {api_runs}/day; "
+                    "no duplicate pollers, fast pollers, or risky mode-changing jobs found."
+                ),
+            )
+        )
     return items
 
 

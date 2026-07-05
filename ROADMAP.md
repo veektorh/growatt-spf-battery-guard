@@ -149,7 +149,7 @@ Why: local state now matters and outage schedules change.
 
 ### Safety And Reliability
 
-- Add local API call accounting and warnings when a schedule would increase
+- [x] Add local API call accounting and warnings when a schedule would increase
   Growatt polling too much.
 - Add stricter idempotency audit rows for skipped mode writes.
 - Add emergency SBU-return guard below a configurable SOC, with an explicit

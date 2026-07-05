@@ -12,6 +12,7 @@ from growatt_guard.schedule import (
     build_schedule_calendar_ics,
     command_schedule_calendar,
     command_schedule_preview,
+    estimate_growatt_api_runs_per_day,
     lint_schedule,
 )
 from growatt_power_guard import (
@@ -370,6 +371,53 @@ class ScheduleTests(unittest.TestCase):
         items = lint_schedule(schedule)
 
         self.assertTrue(any(item.status == "WARN" and "share cron" in item.detail for item in items))
+
+    def test_schedule_lint_ok_message_includes_api_run_estimate(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [{"id": "battery", "cron": "*/30 * * * *", "command": "battery-alert"}],
+        }
+
+        items = lint_schedule(schedule)
+
+        self.assertEqual(items[0].status, "OK")
+        self.assertIn("estimated Growatt API runs peak at 48/day", items[0].detail)
+
+    def test_estimate_growatt_api_runs_counts_busy_day_by_job(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "battery", "cron": "*/30 * * * *", "command": "battery-alert"},
+                {"id": "logs", "cron": "*/5 * * * *", "command": "rotate-logs"},
+                {"id": "preserve", "cron": "30 6 * * *", "command": "preserve-battery"},
+            ],
+        }
+
+        total, date, by_job = estimate_growatt_api_runs_per_day(schedule, today=dt.date(2026, 6, 20), days=1)
+
+        self.assertEqual(date, dt.date(2026, 6, 20))
+        self.assertEqual(total, 49)
+        self.assertEqual(by_job, {"battery": 48, "preserve": 1})
+
+    def test_schedule_lint_warns_when_api_run_estimate_is_high(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "battery", "cron": "*/5 * * * *", "command": "battery-alert"},
+                {"id": "runtime", "cron": "*/5 * * * *", "command": "runtime-alert"},
+            ],
+        }
+
+        items = lint_schedule(schedule)
+
+        self.assertTrue(
+            any(
+                item.status == "WARN"
+                and "estimated Growatt API runs peak at 576/day" in item.detail
+                and "threshold 200" in item.detail
+                for item in items
+            )
+        )
 
     def test_schedule_lint_warns_about_interval_mode_changing_job(self):
         schedule = {
