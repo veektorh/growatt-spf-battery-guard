@@ -72,7 +72,7 @@ fixes faster and safer.
 Why: `health-check` should not only say WARN/FAIL; it should tell you exactly
 what to do next.
 
-- Include next scheduled runs and cron job count.
+- Keep next scheduled runs and cron job count visible in health/service checks.
 - Include `DRY_RUN`, pause/topup state, dashboard freshness, PVOutput freshness,
   and service states.
 - For each failed check, include one suggested command.

@@ -284,7 +284,7 @@ topup-complete-check resumes automation after topup, with SOC delta and implied 
 daily-summary posts the end-of-day summary
 weekly-summary posts the weekly performance report
 monthly-summary posts the 30-day performance summary
-health-check --notify posts readiness diagnostics
+health-check --notify posts readiness diagnostics, including the next scheduled jobs
 battery-alert detects or clears an emergency SOC episode
 runtime-alert sends and clears a low-runtime warning
 Growatt cloud failures alert after repeated consecutive failures

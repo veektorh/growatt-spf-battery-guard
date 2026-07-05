@@ -412,7 +412,19 @@ class GrowattPowerGuardTests(unittest.TestCase):
     def test_command_health_check_reports_ok_when_everything_is_available(self):
         config = make_config(dry_run=False, discord_webhook_url="https://discord.com/api/webhooks/example")
         status = {"device": {"capacity": "50%"}, "storage_params": {"outputConfig": "0"}}
-        schedule = {"timezone": "Africa/Lagos", "jobs": [{"cron": "30 6 * * *", "command": "preserve-battery"}]}
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"},
+                {"id": "morning-return", "cron": "55 7 * * *", "command": "return-sbu"},
+                {"id": "morning-watchdog", "cron": "1 8 * * *", "command": "watchdog-sbu"},
+            ],
+        }
+        next_runs = [
+            (dt.datetime(2026, 7, 5, 6, 30), schedule["jobs"][0]),
+            (dt.datetime(2026, 7, 5, 7, 55), schedule["jobs"][1]),
+            (dt.datetime(2026, 7, 5, 8, 1), schedule["jobs"][2]),
+        ]
 
         with TemporaryDirectory() as tmpdir, patch("growatt_guard.state.PAUSE_FILE", Path(tmpdir) / "pause.json"), patch(
             "growatt_guard.state.COMMAND_LOCK_FILE", Path(tmpdir) / "mode_command.lock"
@@ -428,8 +440,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
             "growatt_guard.health.validate_schedule_overrides", return_value={"dates": {}}
         ), patch(
             "growatt_guard.health.check_cron_schedule",
-            return_value=[HealthCheckItem("Cron jobs", "OK", "1 scheduled job installed.")],
-        ), patch(
+            return_value=[HealthCheckItem("Cron jobs", "OK", "3 scheduled jobs installed.")],
+        ), patch("growatt_guard.health.next_scheduled_runs", return_value=next_runs), patch(
             "growatt_guard.health.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
         ), patch(
@@ -439,8 +451,13 @@ class GrowattPowerGuardTests(unittest.TestCase):
             (Path(tmpdir) / "dashboard.html").write_text("<html></html>", encoding="utf-8")
             exit_code = command_health_check(config)
 
+        output = stdout.getvalue()
         self.assertEqual(exit_code, 0)
-        self.assertIn("Result: OK", stdout.getvalue())
+        self.assertIn("Result: OK", output)
+        self.assertIn("[OK] Next jobs:", output)
+        self.assertIn("morning-preserve", output)
+        self.assertIn("morning-return", output)
+        self.assertIn("morning-watchdog", output)
 
     def test_health_check_pings_betterstack_heartbeat_when_configured(self):
         config = make_config(

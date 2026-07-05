@@ -277,7 +277,7 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py schedule-calendar --days 14 --output growatt-schedule.ics
 ```
 
-`service-status` is read-only and includes schedule lint, cron checks, dashboard
+`health-check` reports readiness plus the next scheduled jobs. `service-status` is read-only and includes schedule lint, cron checks, dashboard
 and PVOutput freshness, local pause/topup/lock state, and systemd active/enabled
 restart detail where systemd is available.
 

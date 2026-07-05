@@ -253,16 +253,18 @@ def command_health_check(config: Config, notify: bool = False) -> int:
         checks.extend(check_cron_schedule(schedule))
 
         now = dt.datetime.now()
-        next_runs = next_scheduled_runs(schedule, now=now, limit=1)
+        next_runs = next_scheduled_runs(schedule, now=now, limit=3)
         if next_runs:
-            run_at, job = next_runs[0]
-            job_id = str(job.get("id", "?"))
-            minutes_away = int((run_at - now).total_seconds() // 60)
+            run_details: list[str] = []
+            for run_at, job in next_runs:
+                job_id = str(job.get("id", "?"))
+                minutes_away = max(0, int((run_at - now).total_seconds() // 60))
+                run_details.append(f"{job_id} at {run_at.strftime('%a %H:%M')} (in {minutes_away} min)")
             checks.append(
                 HealthCheckItem(
-                    "Next job",
+                    "Next jobs",
                     "OK",
-                    f"{job_id} at {run_at.strftime('%H:%M')} (in {minutes_away} min).",
+                    "; ".join(run_details) + ".",
                 )
             )
 
