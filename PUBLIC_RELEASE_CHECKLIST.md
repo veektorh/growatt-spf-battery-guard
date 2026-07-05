@@ -27,6 +27,7 @@ Run the tracked-file public hygiene checker before publishing:
 
 ```bash
 python scripts/check_public_hygiene.py
+python growatt_power_guard.py public-hygiene
 ```
 
 Search for real Growatt values before publishing:

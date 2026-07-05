@@ -47,6 +47,7 @@ helper:
 
 ```bash
 ./verify_local.sh
+.venv/bin/python growatt_power_guard.py public-hygiene
 ```
 
 Fill in:

@@ -17,6 +17,7 @@ from growatt_guard.cli import (
     LOG_MAX_BYTES,
     build_parser,
     dispatch_command,
+    command_public_hygiene,
     main,
     parse_command_tokens,
     setup_logging,

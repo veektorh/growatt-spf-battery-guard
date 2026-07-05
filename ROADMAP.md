@@ -187,7 +187,7 @@ Why: local state now matters and outage schedules change.
 
 ### Security And Public Repo Hygiene
 
-- Add local secret scanning command before release/push.
+- [x] Add local secret scanning command before release/push.
 - Keep docs free of domains, IPs, coordinates, usernames, serials, and webhooks.
 - [x] Add public-safe sample `.env` validation.
 - [x] Document dashboard exposure tradeoffs clearly.

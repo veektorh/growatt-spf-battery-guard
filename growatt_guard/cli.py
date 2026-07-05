@@ -98,6 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("weather-threshold", help="Print the current weather-aware preserve-battery threshold.")
     subparsers.add_parser("battery-alert", help="Send a Discord alert if battery SOC is below EMERGENCY_SOC.")
     subparsers.add_parser("validate-schedule", help="Validate schedule.json.")
+    subparsers.add_parser("public-hygiene", help="Check tracked files and .env.example for public-safe values.")
     subparsers.add_parser("test-discord", help="Send a test Discord webhook message.")
     run_parser = subparsers.add_parser("run-scheduled", help="Run a schedule job by id, applying date overrides first.")
     run_parser.add_argument("job_id", help="Schedule job id from schedule.json.")
@@ -281,6 +282,12 @@ def parse_command_tokens(tokens: list[str]) -> argparse.Namespace:
     return build_parser().parse_args(tokens)
 
 
+def command_public_hygiene() -> int:
+    from scripts.check_public_hygiene import main as hygiene_main
+
+    return hygiene_main()
+
+
 def dispatch_command(config: Config, args: argparse.Namespace) -> int:
     app = app_module()
     command = args.command
@@ -405,6 +412,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "validate-schedule":
             return command_validate_schedule()
+        if args.command == "public-hygiene":
+            return command_public_hygiene()
         if args.command == "redact-probe":
             return command_redact_probe(args.input, args.output)
         config = load_config()

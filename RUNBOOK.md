@@ -127,7 +127,9 @@ Optional for manual shells: `.venv/bin/python -m pip install -e .` installs the
 `growatt-guard` console script. Cron and service examples continue to use
 `growatt_power_guard.py` for backwards compatibility. Run `./verify_local.sh`
 before pushing local changes; it performs compile, quiet tests, schedule
-validation, whitespace checks, and the public hygiene check.
+validation, shell syntax, whitespace checks, and the public hygiene check. You
+can also run `.venv/bin/python growatt_power_guard.py public-hygiene` by itself
+before publishing docs or examples.
 
 For temporary date changes, copy and edit the ignored override file:
 

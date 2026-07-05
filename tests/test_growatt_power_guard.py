@@ -23,8 +23,10 @@ from growatt_power_guard import (
     command_battery_alert,
     command_estimate_charge_rate,
     command_health_check,
+    command_public_hygiene,
     command_rotate_logs,
     format_health_report,
+    main,
     setup_logging,
 )
 from growatt_guard.schedule import HealthCheckItem as ScheduleHealthCheckItem
@@ -168,6 +170,25 @@ class GrowattPowerGuardTests(unittest.TestCase):
         args = build_parser().parse_args(["validate-schedule"])
 
         self.assertEqual(args.command, "validate-schedule")
+
+    def test_public_hygiene_command_is_available(self):
+        args = build_parser().parse_args(["public-hygiene"])
+
+        self.assertEqual(args.command, "public-hygiene")
+
+    def test_public_hygiene_command_uses_shared_checker(self):
+        with patch("scripts.check_public_hygiene.main", return_value=0) as checker:
+            self.assertEqual(command_public_hygiene(), 0)
+
+        checker.assert_called_once_with()
+
+    def test_public_hygiene_main_does_not_load_config(self):
+        with patch("growatt_guard.cli.setup_logging"), patch(
+            "growatt_guard.cli.load_config", side_effect=AssertionError("config should not load")
+        ), patch("scripts.check_public_hygiene.main", return_value=0) as checker:
+            self.assertEqual(main(["public-hygiene"]), 0)
+
+        checker.assert_called_once_with()
 
     def test_weather_threshold_command_is_available(self):
         args = build_parser().parse_args(["weather-threshold"])
