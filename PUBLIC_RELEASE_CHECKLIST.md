@@ -13,6 +13,10 @@ growatt-probe-*.json
 state/
 schedule_overrides.json
 dashboard.html
+dashboard.json
+growatt-schedule.ics
+backups/
+*.backup.json
 .venv/
 __pycache__/
 ```

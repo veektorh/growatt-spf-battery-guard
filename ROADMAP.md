@@ -141,7 +141,7 @@ Why: local state now matters and outage schedules change.
 
 - Add backup/restore for pause state, alert state, topup state, schedule
   overrides, dashboard metrics, and audit logs.
-- Keep generated backups out of Git.
+- [x] Keep generated backups out of Git.
 - Keep `schedule-calendar` useful for outage windows and mode-changing jobs.
 - Add schedule lint warnings for jobs that are too close together.
 

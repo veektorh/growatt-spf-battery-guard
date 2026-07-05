@@ -917,6 +917,10 @@ state/
 growatt-probe-*.json
 schedule_overrides.json
 dashboard.html
+dashboard.json
+growatt-schedule.ics
+backups/
+*.backup.json
 ```
 
 Before pushing, check for private values:
