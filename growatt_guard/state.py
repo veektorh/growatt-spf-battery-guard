@@ -4,20 +4,53 @@ import datetime as dt
 import json
 import logging
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-STATE_DIR = BASE_DIR / "state"
-PAUSE_FILE = STATE_DIR / "automation_pause.json"
-BATTERY_ALERT_FILE = STATE_DIR / "battery_alert.json"
-BATTERY_ALERT_MUTED_FILE = STATE_DIR / "battery_alert_muted.json"
-BYPASS_ALERT_FILE = STATE_DIR / "bypass_alert.json"
-COMMAND_LOCK_FILE = STATE_DIR / "mode_command.lock"
-DASHBOARD_STALE_ALERT_FILE = STATE_DIR / "dashboard_stale_alert.json"
-GROWATT_CLOUD_FAILURE_FILE = STATE_DIR / "growatt_cloud_failures.json"
+
+
+def _default_state_dir() -> Path:
+    env_dir = os.environ.get("GROWATT_GUARD_STATE_DIR")
+    if env_dir:
+        return Path(env_dir)
+    if "unittest" in sys.modules:
+        return Path(tempfile.gettempdir()) / f"growatt_guard_test_state_{os.getpid()}"
+    return BASE_DIR / "state"
+
+
+def configure_state_dir(path: str | os.PathLike[str]) -> Path:
+    global STATE_DIR
+    global PAUSE_FILE, BATTERY_ALERT_FILE, BATTERY_ALERT_MUTED_FILE, BYPASS_ALERT_FILE
+    global COMMAND_LOCK_FILE, DASHBOARD_STALE_ALERT_FILE, GROWATT_CLOUD_FAILURE_FILE
+    global LOGIN_COOLDOWN_FILE, SESSION_CACHE_FILE, TOPUP_STATE_FILE, TOPUP_SKIP_NOTIFICATION_FILE
+    global CHARGE_RATE_HISTORY_FILE, DISCHARGE_RATE_HISTORY_FILE, RUNTIME_ALERT_FILE
+    global UTILITY_HOLD_FILE, WASTE_ALERT_FILE
+
+    STATE_DIR = Path(path)
+    PAUSE_FILE = STATE_DIR / "automation_pause.json"
+    BATTERY_ALERT_FILE = STATE_DIR / "battery_alert.json"
+    BATTERY_ALERT_MUTED_FILE = STATE_DIR / "battery_alert_muted.json"
+    BYPASS_ALERT_FILE = STATE_DIR / "bypass_alert.json"
+    COMMAND_LOCK_FILE = STATE_DIR / "mode_command.lock"
+    DASHBOARD_STALE_ALERT_FILE = STATE_DIR / "dashboard_stale_alert.json"
+    GROWATT_CLOUD_FAILURE_FILE = STATE_DIR / "growatt_cloud_failures.json"
+    LOGIN_COOLDOWN_FILE = STATE_DIR / "growatt_login_cooldown.json"
+    SESSION_CACHE_FILE = STATE_DIR / "growatt_session.json"
+    TOPUP_STATE_FILE = STATE_DIR / "topup_active.json"
+    TOPUP_SKIP_NOTIFICATION_FILE = STATE_DIR / "topup_skip_notification.json"
+    CHARGE_RATE_HISTORY_FILE = STATE_DIR / "charge_rate_history.json"
+    DISCHARGE_RATE_HISTORY_FILE = STATE_DIR / "discharge_rate_history.json"
+    RUNTIME_ALERT_FILE = STATE_DIR / "runtime_alert.json"
+    UTILITY_HOLD_FILE = STATE_DIR / "utility_hold.json"
+    WASTE_ALERT_FILE = STATE_DIR / "waste_alert.json"
+    return STATE_DIR
+
+
+STATE_DIR = configure_state_dir(_default_state_dir())
 COMMAND_LOCK_STALE_SECONDS = 45 * 60
 
 
@@ -236,9 +269,6 @@ def clear_growatt_cloud_failure_state() -> None:
     clear_state_file(GROWATT_CLOUD_FAILURE_FILE)
 
 
-LOGIN_COOLDOWN_FILE = STATE_DIR / "growatt_login_cooldown.json"
-
-
 def read_login_cooldown_state() -> dict[str, Any] | None:
     return read_json_state(LOGIN_COOLDOWN_FILE, "Growatt login cooldown")
 
@@ -279,9 +309,6 @@ def login_cooldown_until(now: dt.datetime | None = None) -> dt.datetime | None:
     return retry_after
 
 
-SESSION_CACHE_FILE = STATE_DIR / "growatt_session.json"
-
-
 def read_session_cache() -> dict[str, Any] | None:
     return read_json_state(SESSION_CACHE_FILE, "Growatt session cache")
 
@@ -312,10 +339,6 @@ def session_cache_age_minutes(state: dict[str, Any], now: dt.datetime | None = N
         return None
     now = now or utc_now()
     return (now - saved).total_seconds() / 60.0
-
-
-TOPUP_STATE_FILE = STATE_DIR / "topup_active.json"
-TOPUP_SKIP_NOTIFICATION_FILE = STATE_DIR / "topup_skip_notification.json"
 
 
 def read_topup_state() -> dict[str, Any] | None:
@@ -404,7 +427,6 @@ def topup_is_active(now: dt.datetime | None = None) -> bool:
     return False
 
 
-CHARGE_RATE_HISTORY_FILE = STATE_DIR / "charge_rate_history.json"
 _CHARGE_RATE_MAX_READINGS = 10
 
 
@@ -426,7 +448,6 @@ def append_charge_rate_reading(rate_w: float) -> list[dict]:
     return readings
 
 
-DISCHARGE_RATE_HISTORY_FILE = STATE_DIR / "discharge_rate_history.json"
 _DISCHARGE_RATE_MAX_READINGS = 10
 
 
@@ -448,9 +469,6 @@ def append_discharge_rate_reading(rate_w: float) -> list[dict]:
     return readings
 
 
-RUNTIME_ALERT_FILE = STATE_DIR / "runtime_alert.json"
-
-
 def read_runtime_alert_state() -> dict[str, Any] | None:
     return read_json_state(RUNTIME_ALERT_FILE, "runtime alert")
 
@@ -470,9 +488,6 @@ def clear_runtime_alert_state() -> None:
 # ---------------------------------------------------------------------------
 # Utility hold — tracks owned/adopted Utility state for auto-return logic
 # ---------------------------------------------------------------------------
-
-UTILITY_HOLD_FILE = STATE_DIR / "utility_hold.json"
-
 
 def read_utility_hold_state() -> dict[str, Any] | None:
     return read_json_state(UTILITY_HOLD_FILE, "utility hold")
@@ -532,9 +547,6 @@ def utility_hold_is_active(now: dt.datetime | None = None) -> bool:
 # ---------------------------------------------------------------------------
 # Waste alert — throttles avoidable-waste notifications + snooze
 # ---------------------------------------------------------------------------
-
-WASTE_ALERT_FILE = STATE_DIR / "waste_alert.json"
-
 
 def read_waste_alert_state() -> dict[str, Any] | None:
     return read_json_state(WASTE_ALERT_FILE, "waste alert")

@@ -185,6 +185,7 @@ def _audit_stats(rows: list[dict[str, str]]) -> dict[str, Any]:
     implied_rates = [
         values["implied_rate_w"] for values in completion_notes if "implied_rate_w" in values
     ]
+    unclosed_topups = max(0, len(topups) - len(completed_topups) - len(expired_topups))
     return {
         "rows": len(rows),
         "preserve_checks": len(preserve_rows),
@@ -198,6 +199,7 @@ def _audit_stats(rows: list[dict[str, str]]) -> dict[str, Any]:
         "avg_topup_soc": average(topup_socs),
         "completed_topups": len(completed_topups),
         "expired_topups": len(expired_topups),
+        "unclosed_topups": unclosed_topups,
         "avg_topup_soc_gain": average(soc_gains),
         "avg_implied_charge_rate_w": average(implied_rates),
         "lowest_soc": min(socs) if socs else None,
@@ -355,8 +357,8 @@ def build_ops_review(
             f"{_fmt_kwh(stats.get('topup_estimated_grid_kwh'))} est. grid)"
         ),
         (
-            f"  Completed topups: {stats['completed_topups']} target reached, "
-            f"{stats['expired_topups']} expired; "
+            f"  Topup closures: {stats['completed_topups']} target reached, "
+            f"{stats['expired_topups']} expired, {stats['unclosed_topups']} unclosed/legacy; "
             f"avg SOC gain {_fmt_value(stats['avg_topup_soc_gain'], '%')}; "
             f"avg implied charge {_fmt_w(stats['avg_implied_charge_rate_w'])}"
         ),

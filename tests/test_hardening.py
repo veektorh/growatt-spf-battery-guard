@@ -43,6 +43,46 @@ class AtomicStateWriteTests(unittest.TestCase):
             self.assertEqual(read_json_state(target, "test"), {"v": 2})
 
 
+class StateDirectoryIsolationTests(unittest.TestCase):
+    def test_unittest_default_state_dir_is_not_live_repo_state(self):
+        from growatt_guard import state as state_mod
+
+        live_state_dir = state_mod.BASE_DIR / "state"
+        self.assertNotEqual(state_mod.STATE_DIR.resolve(), live_state_dir.resolve())
+        self.assertTrue(str(state_mod.STATE_DIR).startswith("/tmp/"), state_mod.STATE_DIR)
+
+    def test_configure_state_dir_updates_all_state_paths(self):
+        from growatt_guard import state as state_mod
+
+        original = state_mod.STATE_DIR
+        with TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "state"
+            try:
+                state_mod.configure_state_dir(target)
+                self.assertEqual(state_mod.STATE_DIR, target)
+                for name in (
+                    "PAUSE_FILE",
+                    "BATTERY_ALERT_FILE",
+                    "BATTERY_ALERT_MUTED_FILE",
+                    "BYPASS_ALERT_FILE",
+                    "COMMAND_LOCK_FILE",
+                    "DASHBOARD_STALE_ALERT_FILE",
+                    "GROWATT_CLOUD_FAILURE_FILE",
+                    "LOGIN_COOLDOWN_FILE",
+                    "SESSION_CACHE_FILE",
+                    "TOPUP_STATE_FILE",
+                    "TOPUP_SKIP_NOTIFICATION_FILE",
+                    "CHARGE_RATE_HISTORY_FILE",
+                    "DISCHARGE_RATE_HISTORY_FILE",
+                    "RUNTIME_ALERT_FILE",
+                    "UTILITY_HOLD_FILE",
+                    "WASTE_ALERT_FILE",
+                ):
+                    self.assertEqual(getattr(state_mod, name).parent, target, name)
+            finally:
+                state_mod.configure_state_dir(original)
+
+
 class TopupSkipNotificationThrottleTests(unittest.TestCase):
     def test_repeated_same_key_is_throttled(self):
         from growatt_guard import state as state_mod

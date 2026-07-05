@@ -56,8 +56,8 @@ cd ~/automation
 audit rows, including lowest SOC, near-cutoff readings, and auto-topup behavior.
 `ops-review --days 7` is a read-only operational review of the latest dashboard
 snapshot, sunrise plan, mode audit rows, topup activity, estimated grid charge,
-target-reached versus expired topup closures, failures, current automation state,
-and last mode change. Add `--notify` to post the review to Discord; delivery
+target-reached, expired, and unclosed/legacy topup closures, failures, current
+automation state, and last mode change. Add `--notify` to post the review to Discord; delivery
 failure exits with an error.
 
 ## Pause Automation
@@ -272,9 +272,10 @@ cd ~/automation
 ./update_server.sh
 ```
 
-If an auto-topup is active, the update script refuses to continue until the
-topup completes or is cancelled, to avoid leaving the inverter on Utility during
-deploys.
+`update_server.sh` prints a preflight summary before pulling code. If an
+auto-topup or Utility hold is active, the script refuses to continue until the
+hold completes or is cancelled, to avoid interrupting return-to-SBU automation
+during deploys.
 
 If Discord reports `Schedule job ... has unsupported command` after an update, the VPS is running a stale Python process or mismatched files. Run:
 

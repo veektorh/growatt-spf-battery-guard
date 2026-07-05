@@ -179,6 +179,7 @@ from growatt_guard.state import (
     clear_topup_state,
     clear_waste_alert_mute,
     command_lock_is_stale,
+    configure_state_dir,
     format_local_time,
     pause_message,
     read_battery_alert_state,
