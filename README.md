@@ -649,8 +649,10 @@ used by the dashboard. The built-in dashboard server exposes it at
 `/dashboard.json` without making another Growatt API call. Treat the top-level
 keys `generated_at`, `metrics`, `sources`, `planner`, `schedule`, `automation`,
 `pvoutput`, `quality`, `history`, `assistant`, and `freshness` as the public
-read-only dashboard contract for monitors and future apps. New keys may be added,
-but existing key meanings should stay backward-compatible.
+read-only dashboard contract for monitors and future apps. `freshness` includes
+`last_successful_growatt_read_at` and `last_successful_pvoutput_upload_at` for
+integration health checks. New keys may be added, but existing key meanings
+should stay backward-compatible.
 
 To use a 30-minute refresh interval instead:
 

@@ -342,7 +342,9 @@ for monitors or future apps. The built-in dashboard server serves it at
 `/dashboard.json` without making another Growatt API call. The public read-only
 contract is the top-level `generated_at`, `metrics`, `sources`, `planner`,
 `schedule`, `automation`, `pvoutput`, `quality`, `history`, `assistant`, and
-`freshness` objects.
+`freshness` objects. `freshness.last_successful_growatt_read_at` is the
+latest dashboard source read, and `freshness.last_successful_pvoutput_upload_at`
+is copied from the last successful PVOutput upload state when available.
 
 ```text
 DASHBOARD_STALE_MINUTES=30

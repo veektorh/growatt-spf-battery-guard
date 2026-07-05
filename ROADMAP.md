@@ -160,8 +160,8 @@ Why: local state now matters and outage schedules change.
 
 - Add metric source/source-path display for ambiguous values.
 - Extend daily reconciliation if new energy counters become available.
-- Add "last successful Growatt read" and "last successful PVOutput upload"
-  timestamps to the top of the dashboard.
+- Keep explicit Growatt read and PVOutput upload timestamps available in
+  dashboard `freshness`.
 - Add export/download for local dashboard metric history.
 
 ### Forecasting And Optimization

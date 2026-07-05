@@ -1731,7 +1731,15 @@ def build_dashboard_data_payload(
     return {
         "schema_version": 1,
         "generated_at": now.isoformat(timespec="seconds"),
-        "freshness": {"stale_after_minutes": stale_after_minutes},
+        "freshness": {
+            "stale_after_minutes": stale_after_minutes,
+            "last_successful_growatt_read_at": now.isoformat(timespec="seconds"),
+            "last_successful_pvoutput_upload_at": (
+                str(pvoutput_state.get("uploaded_at"))
+                if isinstance(pvoutput_state, dict) and pvoutput_state.get("uploaded_at")
+                else None
+            ),
+        },
         "live": live_metrics,
         "sources": sources,
         "quality": {"data": data_quality},

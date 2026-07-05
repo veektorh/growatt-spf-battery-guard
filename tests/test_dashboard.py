@@ -177,6 +177,11 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("50%", html)
         self.assertIn("SBU priority", html)
         self.assertEqual(dashboard_json["schema_version"], 1)
+        self.assertEqual(
+            dashboard_json["freshness"]["last_successful_growatt_read_at"],
+            dashboard_json["generated_at"],
+        )
+        self.assertIn("last_successful_pvoutput_upload_at", dashboard_json["freshness"])
         self.assertEqual(dashboard_json["live"]["grid_today_kwh"], 13.7)
         self.assertEqual(dashboard_json["sources"]["load_today_kwh"], "storage_energy_overview.useEnergyToday")
         self.assertEqual(dashboard_json["quality"]["data"]["level"], "poor")
@@ -411,6 +416,34 @@ class DashboardTests(unittest.TestCase):
         outlook = payload["planner"]["outlook"]
         self.assertGreater(outlook["projected_sunrise_soc"], 10)
         self.assertNotIn("projected sunset SOC", outlook["sunrise_basis"])
+
+    def test_dashboard_payload_includes_last_successful_pvoutput_upload(self):
+        status = {
+            "device": {"capacity": "50%"},
+            "storage_params": {
+                "storageBean": {"outputConfig": "0", "ppv": 0, "outPutPower": 500},
+                "storageDetailBean": {"bmsSoc": 50, "pDischarge": 200, "pCharge": 0},
+            },
+        }
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+        now = dt.datetime(2026, 6, 25, 8, 0)
+
+        with patch("growatt_guard.dashboard.read_discharge_rate_history", return_value=[]), patch(
+            "growatt_guard.dashboard.read_pause_state", return_value=None
+        ), patch("growatt_guard.dashboard.read_battery_alert_state", return_value=None), patch(
+            "growatt_guard.dashboard.read_growatt_cloud_failure_state", return_value={}
+        ), patch(
+            "growatt_guard.dashboard.read_pvoutput_state",
+            return_value={"uploaded_at": "2026-06-25T07:55:00", "fields": {"v1": 1200}},
+        ), patch("growatt_guard.dashboard.read_mode_audit_rows", return_value=[]), patch(
+            "growatt_guard.dashboard.build_chart_data", return_value={"labels": [], "soc": []}
+        ):
+            payload = build_dashboard_data_payload(
+                status, schedule, {"dates": {}}, ThresholdDecision(50, "test"), now=now
+            )
+
+        self.assertEqual(payload["freshness"]["last_successful_growatt_read_at"], "2026-06-25T08:00:00")
+        self.assertEqual(payload["freshness"]["last_successful_pvoutput_upload_at"], "2026-06-25T07:55:00")
 
     def test_dashboard_topup_estimate_shows_short_topup_skip(self):
         status = {
