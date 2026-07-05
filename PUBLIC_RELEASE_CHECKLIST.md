@@ -19,6 +19,12 @@ __pycache__/
 
 ## Check For Device Identifiers
 
+Run the tracked-file public hygiene checker before publishing:
+
+```bash
+python scripts/check_public_hygiene.py
+```
+
 Search for real Growatt values before publishing:
 
 ```bash
@@ -59,7 +65,10 @@ These are safe to publish after the checks above:
 ```text
 growatt_power_guard.py
 growatt_guard/
+pyproject.toml
 requirements.txt
+verify_local.sh
+scripts/
 README.md
 RUNBOOK.md
 AGENTS.md

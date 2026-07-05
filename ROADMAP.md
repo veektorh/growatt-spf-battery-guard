@@ -41,7 +41,7 @@ The project already has the main automation shape in place:
 - Package metadata exposes an optional `growatt-guard` console script while
   preserving `growatt_power_guard.py` as the compatibility shim.
 - `verify_local.sh` runs compile, quiet tests, schedule validation, whitespace
-  checks, and the public secret-pattern scan before commits or pushes.
+  checks, and the public hygiene check before commits or pushes.
 - Health checks include next-step remediation hints.
 
 ## Next Best Things
@@ -205,5 +205,5 @@ Why: local state now matters and outage schedules change.
 ## Good First Issues
 
 1. Add quiet-hours config and tests for non-critical Discord messages.
-2. Add stricter public-hygiene classification for the secret-pattern scan.
+2. Add public hygiene checks for new sensitive config keys.
 3. Add public-safe fixture files when new Growatt field shapes are observed.
