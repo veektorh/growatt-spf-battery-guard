@@ -163,6 +163,21 @@ def _topup_max_expiry(eta_min: float) -> tuple[float, dt.datetime]:
     return max_min, utc_now() + dt.timedelta(minutes=max_min)
 
 
+def _topup_completion_target_soc(
+    reserve_soc: float,
+    load_w: float,
+    capacity_wh: float,
+    hours_to_horizon: float,
+    topup_minutes: float,
+) -> float:
+    """SOC needed when Utility topup ends to preserve reserve_soc at horizon."""
+    if capacity_wh <= 0:
+        return reserve_soc
+    remaining_hours = max(0.0, hours_to_horizon - topup_minutes / 60.0)
+    remaining_drain_soc_pct = load_w * remaining_hours / capacity_wh * 100.0
+    return min(100.0, reserve_soc + remaining_drain_soc_pct)
+
+
 def _effective_scheduled_command(job: dict, index: int, override: dict) -> str | None:
     if override.get("skip_all"):
         return None
@@ -1137,9 +1152,24 @@ def command_auto_topup_check(config: Config) -> int:
         clear_pause_state()
         raise
 
-    # Compute the current SOC target (what we need to reach NOW to have effective_target_soc at sunrise).
-    drain_soc_pct = load_w * hrs / config.battery_capacity_wh * 100.0 if config.battery_capacity_wh > 0 else 0.0
-    current_soc_target = min(100.0, effective_target_soc + drain_soc_pct)
+    # Completion target is the SOC needed when the planned Utility window ends,
+    # not the SOC needed right now. The topup period itself avoids discharge.
+    current_soc_target = _topup_completion_target_soc(
+        effective_target_soc,
+        load_w,
+        config.battery_capacity_wh,
+        hrs,
+        topup_min,
+    )
+    if margin_minutes > 0:
+        margin_target = _topup_completion_target_soc(
+            config.battery_bms_cutoff_soc,
+            load_w,
+            config.battery_capacity_wh,
+            hrs + margin_minutes / 60.0,
+            topup_min,
+        )
+        current_soc_target = max(current_soc_target, margin_target)
 
     write_topup_state(topup_min, reason, paused_until, start_soc=soc, start_load_w=load_w)
     write_utility_hold_state(
