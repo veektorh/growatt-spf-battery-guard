@@ -2078,13 +2078,29 @@ def _stat_block(label: Any, value: Any, detail: Any = "", class_name: str = "") 
     )
 
 
-def _quick_metric(class_name: str, label: Any, value: Any, detail: Any) -> str:
+def _glance_card(
+    class_name: str,
+    title: Any,
+    value: Any,
+    badge_text: Any,
+    badge_class: str,
+    rows: list[tuple[Any, Any]],
+    detail: Any = "",
+) -> str:
+    row_html = "".join(
+        f"<div><span>{esc(label)}</span><strong>{esc(row_value)}</strong></div>"
+        for label, row_value in rows
+    )
+    detail_html = f'<p class="glance-detail">{esc(detail)}</p>' if detail else ""
     return (
-        f'<div class="quick-metric {esc(class_name)}">'
-        f"<span>{esc(label)}</span>"
-        f"<strong>{esc(value)}</strong>"
-        f"<em>{esc(detail)}</em>"
-        "</div>"
+        f'<article class="glance-card {esc(class_name)}">'
+        '<div class="glance-head">'
+        f'<div><div class="label">{esc(title)}</div><div class="glance-value">{esc(value)}</div></div>'
+        f'{_inline_badge(badge_text, badge_class)}'
+        '</div>'
+        f'{detail_html}'
+        f'<div class="glance-stats">{row_html}</div>'
+        '</article>'
     )
 
 
@@ -2773,11 +2789,62 @@ def build_dashboard_html(
     if isinstance(live_metrics.get("charge_today_kwh"), (int, float)) and isinstance(live_metrics.get("discharge_today_kwh"), (int, float)):
         battery_throughput = float(live_metrics["charge_today_kwh"]) + float(live_metrics["discharge_today_kwh"])
     battery_throughput_display = _fmt_kwh(battery_throughput)
-    quick_metric_cards = "\n".join(
+    utility_badge_class = bypass_badge_class if bypass_detected else mode_badge_class
+    utility_badge_label = "Bypass" if bypass_detected else ("Utility" if "utility" in mode.lower() else "SBU")
+    glance_cards = "\n".join(
         [
-            _quick_metric("quick-pv", "Current PV Power", pv_power_display, f"House load {load_power_display}"),
-            _quick_metric("quick-soc", "Battery SOC", soc, battery_context),
-            _quick_metric("quick-total", "Total PV Today", pv_today_display, "Generated since midnight"),
+            _glance_card(
+                "glance-battery",
+                "Battery",
+                soc,
+                soc_health,
+                soc_health_class,
+                [
+                    ("Flow", f"{battery_power_label} {battery_flow_display}"),
+                    ("Usable", usable_kwh_display),
+                    ("Runtime", est_runtime),
+                ],
+                battery_context,
+            ),
+            _glance_card(
+                "glance-solar",
+                "Solar",
+                pv_power_display,
+                "Active" if (live_metrics.get("pv_w") or 0) >= 20 else "Low",
+                "badge-ok" if (live_metrics.get("pv_w") or 0) >= 20 else "badge-warn",
+                [
+                    ("Today", pv_today_display),
+                    ("Cover", pv_cover_display),
+                    ("Tomorrow", _tmr_str),
+                ],
+                _forecast_short_str,
+            ),
+            _glance_card(
+                "glance-utility",
+                "Utility",
+                grid_power_display,
+                utility_badge_label,
+                utility_badge_class,
+                [
+                    ("Today", grid_today_display),
+                    ("Mode", mode),
+                    ("Bypass", bypass_badge_label),
+                ],
+                grid_status_text,
+            ),
+            _glance_card(
+                "glance-risk",
+                "Tonight Risk",
+                tonight_title,
+                home_tonight_title,
+                home_tonight_badge_class,
+                [
+                    ("Sunrise", tonight_projection_display),
+                    ("Top-up", topup_needed_display),
+                    ("Target", reserve_target_display),
+                ],
+                tonight_detail,
+            ),
         ]
     )
     flow_solar_class = "active" if (live_metrics.get("pv_w") or 0) > 0 else ""
@@ -3028,8 +3095,8 @@ def build_dashboard_html(
     </div>
     <div class="dashboard-view dashboard-current">
 
-    <section class="quick-metrics" aria-label="Immediate energy snapshot">
-      {quick_metric_cards}
+    <section class="glance-grid" aria-label="Key details at a glance">
+      {glance_cards}
     </section>
 
     <section class="battery-overview card" aria-label="Battery reserve and overnight plan">

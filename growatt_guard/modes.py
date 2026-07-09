@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import time
 from pathlib import Path
 
 from growatt_guard.audit import (
@@ -233,6 +234,29 @@ def _record_preserve_utility_hold(config: Config, soc: float, threshold: float) 
     )
 
 
+def _set_preserve_utility_mode(api, config: Config, device) -> tuple[dict, int]:
+    max_attempts = max(1, int(getattr(config, "preserve_utility_max_attempts", 2)))
+    retry_delay = max(0.0, float(getattr(config, "preserve_utility_retry_delay_seconds", 30.0)))
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return set_mode(api, config, device, "utility"), attempt
+        except Exception as exc:  # noqa: BLE001 - retry transient Growatt mode-write failures
+            if attempt >= max_attempts:
+                raise
+            logging.warning(
+                "preserve-battery: Utility switch attempt %s/%s failed: %s; retrying in %.0fs.",
+                attempt,
+                max_attempts,
+                exc,
+                retry_delay,
+            )
+            if retry_delay > 0:
+                time.sleep(retry_delay)
+
+    raise GrowattGuardError("Preserve-battery Utility switch retry loop exited unexpectedly.")
+
+
 _MODE_CHANGING_COMMANDS = {
     "preserve-battery",
     "utility-check",
@@ -375,7 +399,7 @@ def command_preserve_battery(config: Config) -> int:
             return 0
         logging.info("Battery SOC %.1f%% from %s is below %.1f%%; switching to Utility.", soc, path, threshold)
         try:
-            result = set_mode(api, config, device, "utility")
+            result, attempts_used = _set_preserve_utility_mode(api, config, device)
         except Exception as exc:  # noqa: BLE001 - audit failed mode decisions before re-raising
             append_mode_audit(
                 config,
@@ -386,9 +410,10 @@ def command_preserve_battery(config: Config) -> int:
                 previous_mode=previous_mode,
                 action="switch-to-utility-failed",
                 result="error",
-                note=str(exc),
+                note=f"{str(exc)}; attempts={max(1, int(getattr(config, 'preserve_utility_max_attempts', 2)))}",
             )
             raise
+        retry_note = f"; attempts={attempts_used}" if attempts_used > 1 else ""
         append_mode_audit(
             config,
             "preserve-battery",
@@ -398,7 +423,7 @@ def command_preserve_battery(config: Config) -> int:
             previous_mode=previous_mode,
             action="switch-to-utility",
             result=result,
-            note=f"SOC from {path}",
+            note=f"SOC from {path}{retry_note}",
         )
         if config.discord_notify_success and not config.dry_run:
             send_discord_embed(config, embed_mode_switch_utility(
@@ -1139,19 +1164,6 @@ def command_auto_topup_check(config: Config) -> int:
         reason += f" (target {effective_target_soc:g}% SOC at sunrise)"
     paused_until = utc_now() + dt.timedelta(minutes=topup_min)
 
-    command_pause(config, topup_min / 60.0, reason)
-
-    try:
-        result = set_mode(api, config, device, "utility")
-    except Exception as exc:  # noqa: BLE001
-        append_mode_audit(
-            config, "auto-topup-check", soc=soc, previous_mode=previous_mode,
-            action="utility-failed", result="error", note=str(exc),
-        )
-        from growatt_guard.state import clear_pause_state
-        clear_pause_state()
-        raise
-
     # Completion target is the SOC needed when the planned Utility window ends,
     # not the SOC needed right now. The topup period itself avoids discharge.
     current_soc_target = _topup_completion_target_soc(
@@ -1171,6 +1183,20 @@ def command_auto_topup_check(config: Config) -> int:
         )
         current_soc_target = max(current_soc_target, margin_target)
 
+    reason += f" (topup target {current_soc_target:.0f}% SOC)"
+    command_pause(config, topup_min / 60.0, reason)
+
+    try:
+        result = set_mode(api, config, device, "utility")
+    except Exception as exc:  # noqa: BLE001
+        append_mode_audit(
+            config, "auto-topup-check", soc=soc, previous_mode=previous_mode,
+            action="utility-failed", result="error", note=str(exc),
+        )
+        from growatt_guard.state import clear_pause_state
+        clear_pause_state()
+        raise
+
     write_topup_state(topup_min, reason, paused_until, start_soc=soc, start_load_w=load_w)
     write_utility_hold_state(
         ownership="owned",
@@ -1185,7 +1211,14 @@ def command_auto_topup_check(config: Config) -> int:
     )
     target_soc_arg = effective_target_soc if effective_target_soc > config.battery_bms_cutoff_soc else None
     if config.discord_notify_success and not config.dry_run:
-        send_discord_embed(config, embed_auto_topup_started(soc, topup_min, hrs, load_w, target_soc=target_soc_arg))
+        send_discord_embed(config, embed_auto_topup_started(
+            soc,
+            topup_min,
+            hrs,
+            load_w,
+            target_soc=target_soc_arg,
+            completion_target_soc=current_soc_target,
+        ))
 
     target_note = f", target {effective_target_soc:g}% SOC" if target_soc_arg else ""
     print(f"Auto-topup started: {topup_min}min on Utility (SOC={soc:.0f}%, {hrs:.1f}h to sunrise{target_note}).")

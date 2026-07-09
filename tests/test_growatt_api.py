@@ -144,6 +144,41 @@ class IdempotencyTests(unittest.TestCase):
         self.assertEqual(result, 0)
         mock_set.assert_not_called()
 
+    def test_preserve_battery_retries_failed_utility_switch(self):
+        from growatt_guard.exceptions import GrowattGuardError
+        from growatt_guard.modes import command_preserve_battery
+        from growatt_guard.weather import ThresholdDecision
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from tempfile import TemporaryDirectory
+
+        config = make_config(
+            dry_run=False,
+            preserve_utility_max_attempts=2,
+            preserve_utility_retry_delay_seconds=0,
+        )
+        status = {
+            "device": {"capacity": "31%"},
+            "storage_params": {"storageBean": {"outputConfig": "0"}},
+        }
+        with TemporaryDirectory() as tmpdir:
+            with (
+                self._audit_patch(tmpdir)[0],
+                self._audit_patch(tmpdir)[1],
+                patch("growatt_guard.modes.load_context", return_value=(None, DeviceRef("p", "s", "storage", {}), status)),
+                patch("growatt_guard.modes.choose_preserve_threshold", return_value=ThresholdDecision(45, "rainy/cloudy", "rainy/cloudy")),
+                patch("growatt_guard.modes.set_mode", side_effect=[GrowattGuardError("temporary failure"), {"success": True}]) as mock_set,
+                patch("growatt_guard.modes.verify_mode_switch", return_value=True),
+                patch("growatt_guard.modes.write_utility_hold_state"),
+                redirect_stdout(StringIO()),
+            ):
+                result = command_preserve_battery(config)
+            content = (Path(tmpdir) / "mode_decisions.csv").read_text(encoding="utf-8")
+
+        self.assertEqual(result, 0)
+        self.assertEqual(mock_set.call_count, 2)
+        self.assertIn("attempts=2", content)
+
     def test_return_sbu_skips_when_already_sbu(self):
         from growatt_guard.modes import command_return_sbu
         from contextlib import redirect_stdout
@@ -922,6 +957,51 @@ class AutoTopupTargetSocTests(unittest.TestCase):
                   redirect_stdout(buf)):
                 command_auto_topup_check(cfg)
         self.assertIn("target 35%", buf.getvalue())
+
+    def test_pause_reason_and_embed_include_topup_target(self):
+        from growatt_guard.modes import command_auto_topup_check
+        from growatt_guard import state as state_mod
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        status = {
+            "datalogSn": "SN1", "deviceSn": "SN1",
+            "data": {"soc": 26.0, "pDischarge": 1682.4, "outputConfig": "0"},
+        }
+        cfg = make_config(
+            auto_topup_enabled=True,
+            battery_capacity_wh=30000.0,
+            battery_charge_rate_w=3000.0,
+            battery_bms_cutoff_soc=25.0,
+            auto_topup_solar_skip_min_margin_minutes=60.0,
+            discord_notify_success=True,
+            dry_run=False,
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            with (patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "t.json"),
+                  patch.object(state_mod, "PAUSE_FILE", tmp / "p.json"),
+                  patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", tmp / "dr.json"),
+                  patch("growatt_guard.modes.read_pause_state", return_value=None),
+                  patch("growatt_guard.modes.topup_is_active", return_value=False),
+                  patch("growatt_guard.modes.hours_until_next_sunrise", return_value=8.6),
+                  patch("growatt_guard.modes.load_context", return_value=(None, None, status)),
+                  patch("growatt_guard.modes.set_mode", return_value={"success": True}),
+                  patch("growatt_guard.modes.command_pause", return_value=0) as pause_mock,
+                  patch("growatt_guard.modes.write_topup_state"),
+                  patch("growatt_guard.modes.write_utility_hold_state"),
+                  patch("growatt_guard.modes.append_mode_audit"),
+                  patch("growatt_guard.modes.send_discord_embed", return_value=True) as send_mock,
+                  redirect_stdout(StringIO())):
+                command_auto_topup_check(cfg)
+
+        self.assertIn("topup target", pause_mock.call_args.args[2])
+        embed = send_mock.call_args.args[1]
+        field_names = [field["name"] for field in embed["fields"]]
+        self.assertIn("Topup target", field_names)
 
 
 class AutoTopupMinMinutesTests(unittest.TestCase):

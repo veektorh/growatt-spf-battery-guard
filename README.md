@@ -86,6 +86,8 @@ Your SPF 6000 ES PLUS uses Growatt's SPF5000 storage setting command:
 GROWATT_MODE_DRIVER=spf5000
 ```
 
+`preserve-battery` retries transient Utility-switch failures twice by default (`PRESERVE_UTILITY_MAX_ATTEMPTS=2`, `PRESERVE_UTILITY_RETRY_DELAY_SECONDS=30`).
+
 The script sends `storage_spf5000_ac_output_source` through Growatt's `storageSPF5000Set` action on `tcpSet.do`:
 
 ```text
@@ -205,6 +207,8 @@ Requires `BATTERY_CAPACITY_WH`, `BATTERY_CHARGE_RATE_W`, `WEATHER_LAT`, and `WEA
 `AUTO_TOPUP_MIN_MINUTES` skips tiny topups: if the calculated charge duration is below this value, the inverter stays in SBU. Set to `0` to allow any positive topup duration.
 
 `AUTO_TOPUP_TARGET_SOC` is an optional reserve target for sunrise. `AUTO_TOPUP_SOLAR_SKIP_KWH_M2` may skip only optional reserve topups on sunny forecasts; it will not skip topups needed to reach sunrise plus `AUTO_TOPUP_SOLAR_SKIP_MIN_MARGIN_MINUTES`.
+
+Auto-topup pause and start notifications include the computed topup target SOC so you can see the stop target, not just the duration.
 
 The bundled schedule uses 20-minute start checks and 10-minute completion checks:
 
@@ -358,6 +362,7 @@ The automation should therefore:
 ```text
 06:10 daily       post Discord health report
 06:30 daily       preserve-battery if SOC is below 50%
+06:40 daily       retry preserve-battery if the first Utility switch failed
 07:55 daily       return to SBU before the 08:00 outage
 08:01 daily       verify SBU and retry once if needed
 14:30 weekdays    preserve-battery if SOC is below 50%
@@ -427,6 +432,7 @@ Or create them manually:
 ```powershell
 schtasks /Create /F /TN "Growatt Morning Health Report" /SC DAILY /ST 06:10 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-health"
 schtasks /Create /F /TN "Growatt Utility Check Morning" /SC DAILY /ST 06:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-preserve"
+schtasks /Create /F /TN "Growatt Utility Check Morning Retry" /SC DAILY /ST 06:40 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-preserve-retry"
 schtasks /Create /F /TN "Growatt SBU Before Morning Outage" /SC DAILY /ST 07:55 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-return-sbu"
 schtasks /Create /F /TN "Growatt SBU Watchdog Morning" /SC DAILY /ST 08:01 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-watchdog"
 schtasks /Create /F /TN "Growatt Utility Check Afternoon" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-preserve"

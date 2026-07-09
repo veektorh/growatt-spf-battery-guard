@@ -20,6 +20,7 @@ from growatt_guard.notifications import (
     embed_mode_not_confirmed,
     embed_mode_switch_sbu,
     embed_mode_switch_utility,
+    embed_auto_topup_started,
     embed_preserve_skipped,
     embed_summary,
     embed_watchdog_failed,
@@ -129,6 +130,19 @@ class NotificationsTests(unittest.TestCase):
 class EmbedBuilderTests(unittest.TestCase):
     def _field_names(self, embed):
         return [f["name"] for f in embed["fields"]]
+
+    def test_auto_topup_started_includes_completion_target(self):
+        embed = embed_auto_topup_started(
+            soc=26,
+            topup_min=210,
+            hours_to_sunrise=8.6,
+            load_w=1682.4,
+            completion_target_soc=53.6,
+        )
+
+        self.assertIn("Topup target", self._field_names(embed))
+        target_field = next(field for field in embed["fields"] if field["name"] == "Topup target")
+        self.assertEqual(target_field["value"], "54%")
 
     def test_embed_mode_switch_utility_color_and_fields(self):
         embed = embed_mode_switch_utility(soc=45.0, previous_mode="SBU priority")

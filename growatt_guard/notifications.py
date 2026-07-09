@@ -303,6 +303,7 @@ def embed_auto_topup_started(
     hours_to_sunrise: float,
     load_w: float,
     target_soc: float | None = None,
+    completion_target_soc: float | None = None,
 ) -> dict:
     from growatt_guard.growatt_api import format_duration_minutes
     fields = [
@@ -311,6 +312,8 @@ def embed_auto_topup_started(
         _f("Sunrise in", format_duration_minutes(hours_to_sunrise * 60)),
         _f("Load", f"{load_w:g} W"),
     ]
+    if completion_target_soc is not None:
+        fields.append(_f("Topup target", f"{completion_target_soc:.0f}%"))
     if target_soc is not None:
         fields.append(_f("Target SOC at sunrise", f"{target_soc:g}%"))
     return _embed("⚡ Auto-topup started", _COLOR_WARN, fields)

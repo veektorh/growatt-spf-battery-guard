@@ -163,17 +163,19 @@ DASHBOARD_CSS = r'''
       font-weight: 620;
       white-space: nowrap;
     }
-    .quick-metrics {
+    .glance-grid {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 12px;
       margin: 0 0 16px;
     }
-    .quick-metric {
+    .glance-card {
       min-width: 0;
+      min-height: 188px;
       display: grid;
-      gap: 6px;
-      padding: 16px 18px;
+      gap: 12px;
+      align-content: space-between;
+      padding: 16px;
       border-radius: var(--radius);
       background: var(--panel);
       border: 1px solid var(--border);
@@ -181,32 +183,30 @@ DASHBOARD_CSS = r'''
       position: relative;
       overflow: hidden;
     }
-    .quick-metric::before {
-      content: "";
-      position: absolute;
-      inset: 0 auto 0 0;
-      width: 3px;
-      background: var(--accent);
-    }
-    .quick-pv::before, .quick-pv strong { color: var(--solar); background: var(--solar); }
-    .quick-soc::before, .quick-soc strong { color: var(--battery); background: var(--battery); }
-    .quick-total::before, .quick-total strong { color: var(--solar); background: var(--solar); }
-    .quick-metric span {
-      color: var(--muted);
-      font-size: 11px;
-      font-weight: 740;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-    }
-    .quick-metric strong {
-      background: transparent !important;
-      font-size: clamp(26px, 3vw, 36px);
+    .glance-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--accent); }
+    .glance-battery::before { background: var(--battery); }
+    .glance-solar::before { background: var(--solar); }
+    .glance-utility::before { background: var(--grid-c); }
+    .glance-risk::before { background: var(--warn); }
+    .glance-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; min-width: 0; }
+    .glance-value {
+      margin-top: 6px;
+      font-size: clamp(24px, 2.5vw, 34px);
       line-height: 1;
       font-weight: 780;
       font-variant-numeric: tabular-nums;
+      color: var(--ink);
       overflow-wrap: anywhere;
     }
-    .quick-metric em { color: var(--muted); font-size: 13px; font-style: normal; line-height: 1.35; overflow-wrap: anywhere; }
+    .glance-battery .glance-value { color: var(--battery); }
+    .glance-solar .glance-value { color: var(--solar); }
+    .glance-utility .glance-value { color: var(--grid-c); }
+    .glance-risk .glance-value { color: var(--warn); font-size: clamp(20px, 2vw, 28px); line-height: 1.08; }
+    .glance-detail { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+    .glance-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .glance-stats div { min-width: 0; padding: 9px 10px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--border); }
+    .glance-stats span { display: block; color: var(--muted); font-size: 11px; font-weight: 720; letter-spacing: 0.06em; text-transform: uppercase; }
+    .glance-stats strong { display: block; margin-top: 4px; color: var(--ink); font-size: 13px; line-height: 1.2; font-weight: 720; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
     .flow-stage, .card, .detail-panel {
       background: var(--panel);
       box-shadow: 0 1px 3px rgba(0,0,0,0.28), 0 0 0 1px rgba(255,255,255,0.05);
@@ -663,6 +663,7 @@ DASHBOARD_CSS = r'''
       .night-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .night-flow-arrow { display: none; }
       .night-totals { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .glance-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 1040px) {
       .app-shell { grid-template-columns: 1fr; }
@@ -675,7 +676,7 @@ DASHBOARD_CSS = r'''
       .sidebar-brand { margin-bottom: 18px; }
       .sidebar-nav { grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }
       .sidebar-status { margin-top: 18px; }
-      .quick-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .glance-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .chart-grid, .planner-grid, .status-activity-grid, .mix-grid { grid-template-columns: 1fr; }
       .flow-map { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); column-gap: 10px; }
       .flow-chain { grid-template-columns: 1fr; }
@@ -695,7 +696,7 @@ DASHBOARD_CSS = r'''
       .battery-overview, .flow-stage { padding: 16px; }
       .battery-panel-head { flex-direction: column; }
       .reserve-badges { justify-content: flex-start; }
-      .quick-metrics, .battery-stats, .battery-outlook, .flow-main-row, .flow-support-row { grid-template-columns: 1fr; }
+      .glance-grid, .glance-stats, .battery-stats, .battery-outlook, .flow-main-row, .flow-support-row { grid-template-columns: 1fr; }
       .energy-map { min-height: auto; display: grid; gap: 10px; padding: 0; border: 0; background: transparent; }
       .energy-lines { display: none; }
       .energy-node, .energy-node.solar, .energy-node.inverter, .energy-node.battery, .energy-node.grid-source, .energy-node.load {

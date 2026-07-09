@@ -64,6 +64,8 @@ class Config:
     battery_charge_rate_w: float = 0.0
     load_aware_threshold: bool = False
     battery_charge_target_soc: float = 0.0
+    preserve_utility_max_attempts: int = 2
+    preserve_utility_retry_delay_seconds: float = 30.0
     auto_topup_enabled: bool = False
     auto_topup_min_hours_to_sunrise: float = 4.0
     auto_topup_min_minutes: float = 0.0
@@ -212,6 +214,8 @@ def load_config() -> Config:
         battery_charge_rate_w=float(env("BATTERY_CHARGE_RATE_W", "0")),
         load_aware_threshold=str_to_bool(env("LOAD_AWARE_THRESHOLD"), default=False),
         battery_charge_target_soc=float(env("BATTERY_CHARGE_TARGET_SOC", "0")),
+        preserve_utility_max_attempts=int(env("PRESERVE_UTILITY_MAX_ATTEMPTS", "2")),
+        preserve_utility_retry_delay_seconds=float(env("PRESERVE_UTILITY_RETRY_DELAY_SECONDS", "30")),
         auto_topup_enabled=str_to_bool(env("AUTO_TOPUP_ENABLED"), default=False),
         auto_topup_min_hours_to_sunrise=float(env("AUTO_TOPUP_MIN_HOURS_TO_SUNRISE", "4")),
         auto_topup_min_minutes=float(env("AUTO_TOPUP_MIN_MINUTES", "0")),

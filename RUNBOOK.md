@@ -215,6 +215,10 @@ GROWATT_CLOUD_FAILURE_ALERT_THRESHOLD=3
 DASHBOARD_STALE_MINUTES=30
 GROWATT_MODE_DRIVER=spf5000
 
+# Preserve-battery retries for transient Growatt mode-write failures
+PRESERVE_UTILITY_MAX_ATTEMPTS=2
+PRESERVE_UTILITY_RETRY_DELAY_SECONDS=30
+
 # Session reuse: cache the Growatt session and reuse it until shortly before the
 # configured TTL (0 = disabled, log in every run). Reduces logins from ~250/day
 # to a handful and is the main defence against the 24h account lock (507).

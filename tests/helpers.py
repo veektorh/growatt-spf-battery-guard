@@ -47,6 +47,8 @@ def make_config(**overrides):
         "battery_charge_rate_w": 0.0,
         "load_aware_threshold": False,
         "battery_charge_target_soc": 0.0,
+        "preserve_utility_max_attempts": 2,
+        "preserve_utility_retry_delay_seconds": 30.0,
         "auto_topup_enabled": False,
         "auto_topup_min_hours_to_sunrise": 4.0,
         "auto_topup_min_minutes": 0.0,
