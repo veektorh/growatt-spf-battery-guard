@@ -259,6 +259,8 @@ RUNTIME_ALERT_MINUTES=0
 RUNTIME_ALERT_CLEAR_MINUTES=0
 ```
 
+If SOC is at or below `BATTERY_BMS_CUTOFF_SOC` and Growatt does not report grid bypass or AC charging, `battery-alert` escalates to "Low battery and utility not detected". Treat that as an immediate utility-input/breaker/charger check, because the expected low-SOC transfer/charging did not appear.
+
 ## Diagnostics
 
 Run a read-only health check:

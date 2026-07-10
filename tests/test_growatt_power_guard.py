@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 import logging.handlers
 import os
 import subprocess
@@ -575,6 +576,85 @@ class GrowattPowerGuardTests(unittest.TestCase):
             self.assertEqual(command_battery_alert(config), 0)
 
         self.assertEqual(send_mock.call_count, 1)
+
+    def test_battery_alert_does_not_call_utility_missing_above_cutoff(self):
+        config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example", battery_bms_cutoff_soc=25)
+        status = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {"bmsSoc": 29, "pCharge": 0, "pDischarge": 700, "statusText": "Discharging"},
+            }
+        }
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.state.BATTERY_ALERT_FILE", Path(tmpdir) / "battery_alert.json"
+        ), patch(
+            "growatt_guard.state.BYPASS_ALERT_FILE", Path(tmpdir) / "bypass_alert.json"
+        ), patch(
+            "growatt_guard.modes.load_context",
+            return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
+        ), patch("growatt_guard.modes.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()):
+            self.assertEqual(command_battery_alert(config), 0)
+            state = json.loads((Path(tmpdir) / "battery_alert.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(send_mock.call_count, 1)
+        self.assertEqual(send_mock.call_args.args[1]["title"], "🔋 Emergency: low battery")
+        self.assertNotIn("utility_unavailable", state)
+
+    def test_battery_alert_calls_out_missing_utility_when_low(self):
+        config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example")
+        status = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {"bmsSoc": 24, "pCharge": 0, "pDischarge": 700, "statusText": "Discharging"},
+            }
+        }
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.state.BATTERY_ALERT_FILE", Path(tmpdir) / "battery_alert.json"
+        ), patch(
+            "growatt_guard.state.BYPASS_ALERT_FILE", Path(tmpdir) / "bypass_alert.json"
+        ), patch(
+            "growatt_guard.modes.load_context",
+            return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
+        ), patch("growatt_guard.modes.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()) as stdout:
+            self.assertEqual(command_battery_alert(config), 0)
+            self.assertEqual(command_battery_alert(config), 0)
+            state = json.loads((Path(tmpdir) / "battery_alert.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(send_mock.call_count, 1)
+        embed = send_mock.call_args.args[1]
+        self.assertEqual(embed["title"], "❌ Low battery and utility not detected")
+        self.assertTrue(state["utility_unavailable"])
+        self.assertIn("Utility/charging not detected", stdout.getvalue())
+
+    def test_battery_alert_escalates_active_low_alert_when_utility_missing(self):
+        config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example")
+        status = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {"bmsSoc": 24, "pCharge": 0, "pDischarge": 700},
+            }
+        }
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.state.BATTERY_ALERT_FILE", Path(tmpdir) / "battery_alert.json"
+        ), patch(
+            "growatt_guard.state.BYPASS_ALERT_FILE", Path(tmpdir) / "bypass_alert.json"
+        ), patch(
+            "growatt_guard.modes.load_context",
+            return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
+        ), patch("growatt_guard.modes.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()):
+            (Path(tmpdir) / "battery_alert.json").write_text(
+                json.dumps({"active": True, "last_soc": 29, "last_alert_at": "2026-07-10T12:00:00+00:00"}),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(command_battery_alert(config), 0)
+            self.assertEqual(command_battery_alert(config), 0)
+
+        self.assertEqual(send_mock.call_count, 1)
+        self.assertEqual(send_mock.call_args.args[1]["title"], "❌ Low battery and utility not detected")
 
     def test_battery_alert_suppresses_bypass_during_owned_topup(self):
         config = make_config(discord_webhook_url="https://discord.com/api/webhooks/example", bypass_alert_soc=40)

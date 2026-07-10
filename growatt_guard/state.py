@@ -224,12 +224,14 @@ def read_battery_alert_state() -> dict[str, Any] | None:
     return read_json_state(BATTERY_ALERT_FILE, "battery alert")
 
 
-def write_battery_alert_state(soc: float) -> None:
+def write_battery_alert_state(soc: float, utility_unavailable: bool = False) -> None:
     state = {
         "active": True,
         "last_soc": soc,
         "last_alert_at": utc_now().isoformat(),
     }
+    if utility_unavailable:
+        state["utility_unavailable"] = True
     write_json_state(BATTERY_ALERT_FILE, state)
 
 

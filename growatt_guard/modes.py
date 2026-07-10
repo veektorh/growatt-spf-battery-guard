@@ -17,6 +17,7 @@ from growatt_guard.config import Config
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import (
     describe_status_output_source,
+    detect_grid_bypass,
     detect_unexpected_grid_bypass,
     estimate_runtime,
     estimate_topup_for_sunrise,
@@ -50,6 +51,7 @@ from growatt_guard.notifications import (
     embed_preserve_skipped,
     embed_runtime_alert,
     embed_runtime_alert_cleared,
+    embed_utility_unavailable_alert,
     embed_summary,
     embed_watchdog_failed,
     embed_watchdog_repaired,
@@ -811,6 +813,29 @@ def command_weather_threshold(config: Config) -> int:
     return 0
 
 
+def _low_soc_utility_missing_reason(status: dict, soc: float, threshold: float) -> str | None:
+    if soc > threshold:
+        return None
+
+    bypass = detect_grid_bypass(status)
+    if bypass.get("detected"):
+        return None
+
+    evidence = ["no grid bypass or AC charge detected"]
+    for label, key in (
+        ("charge_w", "charge_w"),
+        ("grid_w", "grid_w"),
+        ("discharge_w", "discharge_w"),
+    ):
+        value = bypass.get(key)
+        if isinstance(value, (int, float)):
+            evidence.append(f"{label}={value:g}")
+    battery_status = str(bypass.get("battery_status") or "").strip()
+    if battery_status:
+        evidence.append(f"status={battery_status}")
+    return "; ".join(evidence)
+
+
 def command_battery_alert(config: Config) -> int:
     if battery_alert_is_muted():
         print("Battery alert is muted.")
@@ -860,9 +885,26 @@ def command_battery_alert(config: Config) -> int:
 
     state = read_battery_alert_state()
     recovery_soc = max(config.emergency_soc_recovery, config.emergency_soc)
+    utility_expected_soc = config.battery_bms_cutoff_soc if config.battery_bms_cutoff_soc > 0 else config.emergency_soc
+    utility_missing_reason = _low_soc_utility_missing_reason(status, soc, utility_expected_soc)
+    utility_missing = utility_missing_reason is not None
 
     if soc < config.emergency_soc:
         if state and state.get("active"):
+            if utility_missing and not state.get("utility_unavailable"):
+                if not config.discord_webhook_url:
+                    raise GrowattGuardError("DISCORD_WEBHOOK_URL must be configured for emergency battery alerts.")
+                if not send_discord_embed(
+                    config,
+                    embed_utility_unavailable_alert(soc, utility_expected_soc, previous_mode, utility_missing_reason),
+                ):
+                    raise GrowattGuardError("Low battery utility-missing alert could not be sent to Discord.")
+                write_battery_alert_state(soc, utility_unavailable=True)
+                print(
+                    f"Low battery utility-missing alert sent: SOC {soc:g}% <= "
+                    f"{utility_expected_soc:g}% ({utility_missing_reason})."
+                )
+                return 0
             print(
                 f"Emergency battery alert already active: SOC {soc:g}% < "
                 f"{config.emergency_soc:g}% ({previous_mode})."
@@ -871,16 +913,16 @@ def command_battery_alert(config: Config) -> int:
         if not config.discord_webhook_url:
             raise GrowattGuardError("DISCORD_WEBHOOK_URL must be configured for emergency battery alerts.")
 
-        message = (
-            "Growatt emergency battery alert.\n"
-            f"SOC `{soc:g}%` is below emergency threshold `{config.emergency_soc:g}%`.\n"
-            f"Current output source: `{previous_mode}`.\n"
-            f"SOC source: `{path}`."
+        embed = (
+            embed_utility_unavailable_alert(soc, utility_expected_soc, previous_mode, utility_missing_reason)
+            if utility_missing
+            else embed_battery_alert(soc, config.emergency_soc, previous_mode)
         )
-        if not send_discord_embed(config, embed_battery_alert(soc, config.emergency_soc, previous_mode)):
+        if not send_discord_embed(config, embed):
             raise GrowattGuardError("Emergency battery alert could not be sent to Discord.")
-        write_battery_alert_state(soc)
-        print(f"Emergency battery alert sent: SOC {soc:g}% < {config.emergency_soc:g}%.")
+        write_battery_alert_state(soc, utility_unavailable=utility_missing)
+        suffix = f" Utility/charging not detected: {utility_missing_reason}." if utility_missing else ""
+        print(f"Emergency battery alert sent: SOC {soc:g}% < {config.emergency_soc:g}%.{suffix}")
         return 0
 
     if state and state.get("active") and soc >= recovery_soc:

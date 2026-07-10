@@ -138,6 +138,18 @@ def embed_battery_alert(soc: float, threshold: float, output_mode: str) -> dict:
     return _embed("🔋 Emergency: low battery", _COLOR_FAIL, fields)
 
 
+def embed_utility_unavailable_alert(soc: float, threshold: float, output_mode: str, evidence: str) -> dict:
+    fields = [
+        _f("Battery SOC", f"{soc:g}%"),
+        _f("Threshold", f"{threshold:g}%"),
+        _f("Output mode", output_mode),
+        _f("Utility/charging", "not detected", inline=True),
+        _f("Evidence", evidence or "no grid bypass or AC charge detected", inline=False),
+        _f("Action", "Check utility input/breaker/charger now; keep charging until SOC recovers.", inline=False),
+    ]
+    return _embed("❌ Low battery and utility not detected", _COLOR_FAIL, fields)
+
+
 def embed_battery_cleared(soc: float, recovery_soc: float, output_mode: str) -> dict:
     fields = [
         _f("Battery SOC", f"{soc:g}%"),

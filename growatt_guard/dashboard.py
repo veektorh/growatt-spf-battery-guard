@@ -2088,8 +2088,8 @@ def _glance_card(
     detail: Any = "",
 ) -> str:
     row_html = "".join(
-        f"<div><span>{esc(label)}</span><strong>{esc(row_value)}</strong></div>"
-        for label, row_value in rows
+        f'<div class="{"glance-primary-stat" if idx == 0 else ""}"><span>{esc(label)}</span><strong>{esc(row_value)}</strong></div>'
+        for idx, (label, row_value) in enumerate(rows)
     )
     detail_html = f'<p class="glance-detail">{esc(detail)}</p>' if detail else ""
     return (
@@ -2800,8 +2800,8 @@ def build_dashboard_html(
                 soc_health,
                 soc_health_class,
                 [
-                    ("Flow", f"{battery_power_label} {battery_flow_display}"),
                     ("Usable", usable_kwh_display),
+                    ("Flow", f"{battery_power_label} {battery_flow_display}"),
                     ("Runtime", est_runtime),
                 ],
                 battery_context,
@@ -2827,8 +2827,8 @@ def build_dashboard_html(
                 utility_badge_class,
                 [
                     ("Today", grid_today_display),
-                    ("Mode", mode),
                     ("Bypass", bypass_badge_label),
+                    ("Mode", mode),
                 ],
                 grid_status_text,
             ),
@@ -3099,48 +3099,35 @@ def build_dashboard_html(
       {glance_cards}
     </section>
 
-    <section class="battery-overview card" aria-label="Battery reserve and overnight plan">
-        <div class="battery-panel-head">
-          <div>
-            <div class="label">Battery Reserve</div>
-            <div class="mode-value">{esc(soc)}</div>
-          </div>
-          <div class="reserve-badges">
-            <span class="badge {esc(home_badge_class)}">Now: {esc(home_badge_label)}</span>
-            <span class="badge {esc(home_tonight_badge_class)}">Tonight: {esc(home_tonight_title)}</span>
-            <span class="badge {esc(soc_health_class)}">{esc(soc_health)}</span>
-          </div>
-        </div>
-        <div class="soc-command battery-command">
-          <div class="soc-ring" style="--soc:{soc_gauge_value:.0f}%">
-            <div class="soc-core">
-              <strong>{esc(soc)}</strong>
-              <span>{esc(battery_power_label)}</span>
-            </div>
-          </div>
-          <div class="battery-stats">
-            <div><span>Current power</span><strong>{esc(battery_flow_display)}</strong><em>{esc(battery_context)}</em></div>
-            <div><span>Usable reserve</span><strong>{esc(usable_kwh_display)}</strong><em>Floor {esc(reserve_floor_display)}</em></div>
-            <div><span>Sunrise reserve</span><strong>{esc(tonight_projection_display)}</strong><em>{esc(sunrise_reserve_detail_display)}</em></div>
-            <div><span>Top-up needed</span><strong>{esc(topup_needed_display)}</strong><em>Expected grid {esc(_grid_forecast_str)}</em></div>
-            <div><span>Reserve target</span><strong>{esc(reserve_target_display)}</strong><em>{esc(sunrise_basis_display)}</em></div>
-            <div><span>Current-load runtime</span><strong>{esc(est_runtime)}</strong><em>{esc(runtime_note)}</em></div>
-            <div><span>Charge rate</span><strong>{esc(battery_charge_rate_display)}</strong><em>Configured grid charge</em></div>
-            <div><span>Voltage</span><strong>{esc(vbat)}</strong><em>Battery bus reading</em></div>
-            <div><span>Day throughput</span><strong>{esc(battery_throughput_display)}</strong><em>Charge plus discharge today</em></div>
-          </div>
-        </div>
-        <div class="battery-outlook" aria-label="Tomorrow battery context">
-          <div><span>Tomorrow PV</span><strong>{esc(_tmr_str)}</strong><em>{esc(_forecast_short_str)}</em></div>
+    <details class="detail-panel reserve-details" aria-label="Reserve details and supporting signals">
+        <summary>
+          <span>
+            <span class="label">Reserve Details</span>
+            <span class="summary-copy">Supporting values behind the first-glance battery and tonight risk cards.</span>
+          </span>
+          <span class="reserve-badges">
+            <span class="badge {esc(soc_health_class)}">Battery: {esc(soc_health)}</span>
+            <span class="badge badge-neutral">Floor: {esc(reserve_floor_display)}</span>
+            <span class="badge badge-neutral">Charge: {esc(battery_charge_rate_display)}</span>
+          </span>
+        </summary>
+        <div class="reserve-body">
+        <div class="battery-stats">
+          <div><span>Charge rate</span><strong>{esc(battery_charge_rate_display)}</strong><em>Configured grid charge</em></div>
+          <div><span>Voltage</span><strong>{esc(vbat)}</strong><em>Battery bus reading</em></div>
+          <div><span>Day throughput</span><strong>{esc(battery_throughput_display)}</strong><em>Charge plus discharge today</em></div>
+          <div><span>Expected grid top-up</span><strong>{esc(_grid_forecast_str)}</strong><em>Duration {esc(_topup_duration_str)}</em></div>
+          <div><span>Estimate basis</span><strong>{esc(sunrise_reserve_detail_display)}</strong><em>Projection input for tonight risk</em></div>
           <div><span>Weather context</span><strong>{esc(_weather_short_str)}</strong><em>{esc(_weather_reason_str)}</em></div>
         </div>
-    </section>
+        </div>
+    </details>
 
     <section class="flow-stage" id="flow" aria-label="Live energy flow">
         <div class="flow-head">
           <div>
             <h2>Live energy flow</h2>
-            <div class="muted">{esc(bat_status)} &middot; {esc(battery_context)} &middot; Load: {esc(load_power_display)} at {esc(load_pct)}</div>
+            <div class="muted">{esc(bat_status)} &middot; Load: {esc(load_power_display)} at {esc(load_pct)} &middot; Battery {esc(battery_power_label.lower())}</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <a href="#insights" class="badge {esc(_status_badge_class(str(daily_insights.get("status", "unknown"))))}" style="text-decoration:none">Today: {esc(str(daily_insights.get("title", "Learning")))}</a>
@@ -3178,10 +3165,10 @@ def build_dashboard_html(
           <div class="flow-support-row">
             <div class="flow-tile flow-chip battery">
               <div>
-                <div class="flow-label">Battery</div>
-                <div class="flow-value">{esc(soc)}</div>
+                <div class="flow-label">Battery Flow</div>
+                <div class="flow-value">{esc(battery_flow_display)}</div>
               </div>
-              <div class="flow-detail">{esc(battery_context)} - {esc(battery_flow_display)}</div>
+              <div class="flow-detail">{esc(battery_power_label)} - {esc(battery_context)}</div>
             </div>
             <div class="flow-tile flow-chip grid-source">
               <div>
@@ -3259,7 +3246,7 @@ def build_dashboard_html(
       {tonight_safe_html}
       {utility_hold_html}
       <div class="planner-card primary">
-        <div class="label">Tonight Risk</div>
+        <div class="label">Tonight Risk Basis</div>
         <div class="value"><span class="badge {esc(tonight_badge_class)}">{esc(tonight_title)}</span></div>
         <div class="muted small">{esc(tonight_detail)}</div>
       </div>

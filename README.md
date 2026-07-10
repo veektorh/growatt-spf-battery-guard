@@ -242,6 +242,8 @@ BYPASS_ALERT_SOC=40
 
 When bypass is detected above that SOC, Discord gets up to three warnings for the active incident. The counter resets once bypass stops or SOC drops to/below the threshold. This is read-only; it does not change inverter mode.
 
+When SOC is at or below `BATTERY_BMS_CUTOFF_SOC`, `battery-alert` also checks whether Growatt reports grid bypass or AC charging. If not, the Discord alert is escalated to "Low battery and utility not detected" with the live charge/grid/discharge evidence so you know the expected utility transfer/charging did not appear.
+
 Add a cron job (e.g. every 15 min):
 
 ```text

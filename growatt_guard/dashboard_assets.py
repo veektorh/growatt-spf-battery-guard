@@ -52,7 +52,7 @@ DASHBOARD_CSS = r'''
     .theme-light .mix-panel { background: var(--panel-2); }
     .theme-light th { background: var(--panel-2); }
     .theme-light .flow-stage, .theme-light .card, .theme-light .detail-panel,
-    .theme-light .flow-tile, .theme-light .mix-panel, .theme-light .planner-card {
+    .theme-light .flow-tile, .theme-light .mix-panel, .theme-light .planner-card, .theme-light .reserve-details {
       box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.06);
     }
     .theme-toggle {
@@ -117,8 +117,8 @@ DASHBOARD_CSS = r'''
       border-radius: var(--radius);
       background: var(--panel);
     }
-    main { max-width: 1360px; width: 100%; margin: 0 auto; padding: 32px 32px 48px; }
-    h1 { font-size: clamp(28px, 4vw, 40px); line-height: 1.05; margin: 0; letter-spacing: 0; font-weight: 760; color: var(--ink); }
+    main { max-width: 1360px; width: 100%; margin: 0 auto; padding: 28px 28px 44px; }
+    h1 { font-size: clamp(24px, 3vw, 34px); line-height: 1.08; margin: 0; letter-spacing: 0; font-weight: 760; color: var(--ink); }
     h2 { font-size: 18px; line-height: 1.3; margin: 40px 0 0; letter-spacing: 0; font-weight: 720; color: var(--ink); }
     code { color: var(--muted); font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
     .muted { color: var(--muted); font-size: 14px; }
@@ -128,7 +128,7 @@ DASHBOARD_CSS = r'''
       justify-content: space-between;
       align-items: flex-start;
       gap: 16px;
-      margin-bottom: 32px;
+      margin-bottom: 22px;
     }
     .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
     .brand-mark {
@@ -166,16 +166,16 @@ DASHBOARD_CSS = r'''
     .glance-grid {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
-      margin: 0 0 16px;
+      gap: 10px;
+      margin: 0 0 12px;
     }
     .glance-card {
       min-width: 0;
-      min-height: 188px;
+      min-height: 164px;
       display: grid;
-      gap: 12px;
+      gap: 10px;
       align-content: space-between;
-      padding: 16px;
+      padding: 15px;
       border-radius: var(--radius);
       background: var(--panel);
       border: 1px solid var(--border);
@@ -189,9 +189,12 @@ DASHBOARD_CSS = r'''
     .glance-utility::before { background: var(--grid-c); }
     .glance-risk::before { background: var(--warn); }
     .glance-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; min-width: 0; }
+    .glance-head > div { min-width: 0; }
+    .glance-head .badge { flex: 0 0 auto; }
+    .glance-card .label { color: var(--ink); }
     .glance-value {
       margin-top: 6px;
-      font-size: clamp(24px, 2.5vw, 34px);
+      font-size: clamp(26px, 2.6vw, 36px);
       line-height: 1;
       font-weight: 780;
       font-variant-numeric: tabular-nums;
@@ -202,9 +205,10 @@ DASHBOARD_CSS = r'''
     .glance-solar .glance-value { color: var(--solar); }
     .glance-utility .glance-value { color: var(--grid-c); }
     .glance-risk .glance-value { color: var(--warn); font-size: clamp(20px, 2vw, 28px); line-height: 1.08; }
-    .glance-detail { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
-    .glance-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-    .glance-stats div { min-width: 0; padding: 9px 10px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--border); }
+    .glance-detail { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
+    .glance-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+    .glance-stats div { min-width: 0; padding: 8px 9px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--border); }
+    .glance-stats .glance-primary-stat { border-color: var(--border-strong); background: rgba(91, 141, 239, 0.08); }
     .glance-stats span { display: block; color: var(--muted); font-size: 11px; font-weight: 720; letter-spacing: 0.06em; text-transform: uppercase; }
     .glance-stats strong { display: block; margin-top: 4px; color: var(--ink); font-size: 13px; line-height: 1.2; font-weight: 720; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
     .flow-stage, .card, .detail-panel {
@@ -292,7 +296,7 @@ DASHBOARD_CSS = r'''
     .mode-stack { display: grid; gap: 12px; min-width: 0; }
     .mode-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     .mode-value { font-size: 24px; line-height: 1.15; font-weight: 720; overflow-wrap: anywhere; color: var(--ink); }
-    .flow-stage { padding: 20px 24px; }
+    .flow-stage { padding: 18px; margin-top: 16px; }
     .section-head, .flow-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin: 40px 0 16px; }
     .section-head h2, .flow-head h2 { margin: 0; }
     .flow-map {
@@ -306,10 +310,10 @@ DASHBOARD_CSS = r'''
       display: grid;
       grid-template-columns: 1fr;
       gap: 12px;
-      padding: 16px;
+      padding: 12px;
       border: 1px solid var(--border);
-      border-radius: 12px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0));
+      border-radius: 10px;
+      background: var(--panel);
     }
     .flow-main-row {
       display: grid;
@@ -326,7 +330,7 @@ DASHBOARD_CSS = r'''
       margin: 0 auto;
     }
     .flow-tile {
-      min-height: 104px;
+      min-height: 96px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.28), 0 0 0 1px rgba(255,255,255,0.05);
       border-radius: 10px;
       padding: 14px 16px;
@@ -549,7 +553,7 @@ DASHBOARD_CSS = r'''
     .rec-item strong { display: block; color: var(--ink); font-size: 14px; line-height: 1.25; margin-bottom: 2px; }
     .rec-item em { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; font-style: normal; }
     .planner-grid { display: grid; grid-template-columns: minmax(260px, 0.9fr) repeat(3, minmax(160px, 1fr)); gap: 12px; margin-top: 16px; }
-    .planner-card { padding: 16px; background: var(--panel); box-shadow: 0 1px 3px rgba(0,0,0,0.22), 0 0 0 1px rgba(255,255,255,0.04); border-radius: var(--radius); }
+    .planner-card { min-height: 124px; padding: 16px; background: var(--panel); box-shadow: 0 1px 3px rgba(0,0,0,0.22), 0 0 0 1px rgba(255,255,255,0.04); border-radius: var(--radius); }
     .planner-card.primary { background: var(--panel-2); color: var(--ink); border-color: var(--border-strong); }
     .planner-card.primary .muted, .planner-card.primary .label { color: var(--muted); }
     .banner-warn { background: rgba(245, 168, 42, 0.08); color: var(--ink); border: 1px solid rgba(245, 168, 42, 0.3); border-radius: var(--radius); padding: 12px 16px; margin: 16px 0 24px; font-weight: 620; }
@@ -587,6 +591,13 @@ DASHBOARD_CSS = r'''
     .detail-panel .table-wrap { border: 0; border-radius: 0; margin-top: 0; }
     .detail-panel .card { border: 0; border-radius: 0; }
     .summary-meta { color: var(--muted); font-size: 12px; font-weight: 560; white-space: nowrap; }
+    .summary-copy { display: block; margin-top: 3px; color: var(--muted); font-size: 13px; font-weight: 520; line-height: 1.35; text-transform: none; letter-spacing: 0; }
+    .reserve-details { margin: 0 0 16px; background: var(--panel); border: 1px solid var(--border); }
+    .reserve-details summary { align-items: center; }
+    .reserve-details summary > span:first-child { min-width: 0; }
+    .reserve-details .reserve-badges { flex: 1 1 auto; margin-left: auto; padding-right: 6px; }
+    .reserve-body { padding: 14px; }
+    .reserve-details .battery-stats { margin: 0; }
     .status-list { display: grid; gap: 10px; margin-top: 14px; }
     .status-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border); }
     .status-row:last-child { border-bottom: 0; padding-bottom: 0; }
@@ -694,6 +705,9 @@ DASHBOARD_CSS = r'''
       .topbar, .section-head, .flow-head { align-items: flex-start; flex-direction: column; }
       .top-actions { justify-content: flex-start; }
       .battery-overview, .flow-stage { padding: 16px; }
+      .reserve-body { padding: 12px; }
+      .reserve-details summary { align-items: flex-start; flex-direction: column; }
+      .reserve-details .reserve-badges { margin-left: 0; padding-right: 0; justify-content: flex-start; }
       .battery-panel-head { flex-direction: column; }
       .reserve-badges { justify-content: flex-start; }
       .glance-grid, .glance-stats, .battery-stats, .battery-outlook, .flow-main-row, .flow-support-row { grid-template-columns: 1fr; }
