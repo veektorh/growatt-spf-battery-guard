@@ -107,6 +107,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("glance-grid", html)
         self.assertIn("glance-battery", html)
         self.assertIn("glance-solar", html)
+        self.assertIn("Live load cover", html)
         self.assertIn("glance-utility", html)
         self.assertIn("glance-risk", html)
         self.assertIn("Battery", html)

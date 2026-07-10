@@ -2814,7 +2814,7 @@ def build_dashboard_html(
                 "badge-ok" if (live_metrics.get("pv_w") or 0) >= 20 else "badge-warn",
                 [
                     ("Today", pv_today_display),
-                    ("Cover", pv_cover_display),
+                    ("Live load cover", pv_cover_display),
                     ("Tomorrow", _tmr_str),
                 ],
                 _forecast_short_str,
