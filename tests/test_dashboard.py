@@ -84,6 +84,9 @@ class DashboardTests(unittest.TestCase):
             output = Path(tmpdir) / "dashboard.html"
             self.assertEqual(command_dashboard(config, str(output)), 0)
             html = output.read_text(encoding="utf-8")
+            self.assertIn("function toggleDashTheme()", html)
+            self.assertIn("drawLineChart(\"power-trend-chart\"", html)
+            self.assertNotIn("'''", html)
             dashboard_json = json.loads(output.with_suffix(".json").read_text(encoding="utf-8"))
             html_asset = dashboard_asset_for_path(output, "/dashboard.html?cache=1")
             json_asset = dashboard_asset_for_path(output, "/dashboard.json")
