@@ -13,10 +13,10 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from helpers import make_config
-from growatt_guard.modes import command_topup_complete_check
+from growatt_guard.topup import _persist_auto_topup_intent, command_topup_complete_check
 from growatt_guard.state import (
     STATE_SCHEMA_VERSION,
     acquire_command_lock,
@@ -175,15 +175,15 @@ class PruneAuditRowsTests(unittest.TestCase):
 class TopupImpliedRateTests(unittest.TestCase):
     def _run(self, config, state, end_capacity, recorded_rate):
         end_status = {"device": {"capacity": end_capacity}}
-        with patch("growatt_guard.modes.read_topup_state", return_value=state), \
-             patch("growatt_guard.modes.topup_is_active", return_value=False), \
-             patch("growatt_guard.modes.load_context",
+        with patch("growatt_guard.topup.read_topup_state", return_value=state), \
+             patch("growatt_guard.topup.topup_is_active", return_value=False), \
+             patch("growatt_guard.topup.load_context",
                    return_value=(None, None, end_status)), \
-             patch("growatt_guard.modes.command_resume"), \
-             patch("growatt_guard.modes.command_return_sbu", return_value=0), \
-             patch("growatt_guard.modes.append_charge_rate_reading",
+             patch("growatt_guard.topup.command_resume"), \
+             patch("growatt_guard.topup.command_return_sbu", return_value=0), \
+             patch("growatt_guard.topup.append_charge_rate_reading",
                    return_value=[{"rate_w": recorded_rate}]), \
-             patch("growatt_guard.modes.append_mode_audit"), \
+             patch("growatt_guard.topup.append_mode_audit"), \
              redirect_stdout(StringIO()) as out:
             rc = command_topup_complete_check(config)
         return rc, out.getvalue()
@@ -200,6 +200,44 @@ class TopupImpliedRateTests(unittest.TestCase):
         rc, output = self._run(config, state, "60 %", recorded_rate=3000)
         self.assertEqual(rc, 0)
         self.assertIn("Implied charge rate: 3000 W", output)
+
+
+class AutoTopupIntentTests(unittest.TestCase):
+    def test_persists_pause_and_ownership_before_caller_can_switch_mode(self):
+        config = make_config()
+        expiry = dt.datetime(2026, 7, 11, 8, 0, tzinfo=dt.timezone.utc)
+        calls = Mock()
+        with patch("growatt_guard.topup.command_pause", side_effect=calls.pause), \
+             patch("growatt_guard.topup.write_utility_hold_state", side_effect=calls.hold):
+            _persist_auto_topup_intent(
+                config, minutes=30, reason="test", paused_until=expiry,
+                start_soc=35.0, start_load_w=1200.0, target_soc=42.0,
+            )
+
+        self.assertEqual([entry[0] for entry in calls.mock_calls], ["pause", "hold"])
+        hold_kwargs = calls.hold.call_args.kwargs
+        self.assertEqual(hold_kwargs["completion_policy"], "soc")
+        self.assertEqual(hold_kwargs["minutes"], 30)
+        self.assertEqual(hold_kwargs["reason"], "test")
+        self.assertEqual(hold_kwargs["start_load_w"], 1200.0)
+
+    def test_persistence_failure_rolls_back_all_prepared_local_state(self):
+        config = make_config()
+        expiry = dt.datetime(2026, 7, 11, 8, 0, tzinfo=dt.timezone.utc)
+        with patch("growatt_guard.topup.command_pause"), \
+             patch("growatt_guard.topup.write_utility_hold_state", side_effect=OSError("disk full")), \
+             patch("growatt_guard.topup.clear_utility_hold_state") as clear_hold, \
+             patch("growatt_guard.topup.clear_topup_state") as clear_topup, \
+             patch("growatt_guard.topup.clear_pause_state") as clear_pause:
+            with self.assertRaisesRegex(OSError, "disk full"):
+                _persist_auto_topup_intent(
+                    config, minutes=30, reason="test", paused_until=expiry,
+                    start_soc=35.0, start_load_w=1200.0, target_soc=42.0,
+                )
+
+        clear_hold.assert_called_once_with()
+        clear_topup.assert_called_once_with()
+        clear_pause.assert_called_once_with()
 
 
 if __name__ == "__main__":

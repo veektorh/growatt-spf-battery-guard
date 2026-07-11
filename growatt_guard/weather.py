@@ -3,12 +3,13 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import requests
+
+from growatt_guard.exceptions import GrowattGuardError
 
 from growatt_guard.state import STATE_DIR
 
@@ -37,20 +38,6 @@ class ThresholdDecision:
     weather_category: str = "disabled"
     cloud_cover: float | None = None
     precipitation_mm: float | None = None
-
-
-def app_module() -> Any:
-    module = sys.modules.get("growatt_power_guard")
-    if module is not None and hasattr(module, "GrowattGuardError"):
-        return module
-
-    main_module = sys.modules.get("__main__")
-    if main_module is not None and hasattr(main_module, "GrowattGuardError"):
-        return main_module
-
-    import growatt_power_guard
-
-    return growatt_power_guard
 
 
 def current_season(date: dt.date | None = None) -> str:
@@ -102,8 +89,8 @@ def apply_load_adjustment(decision: ThresholdDecision, load_percent: float | Non
     return decision
 
 
-def weather_error(message: str) -> Exception:
-    return app_module().GrowattGuardError(message)
+def weather_error(message: str) -> GrowattGuardError:
+    return GrowattGuardError(message)
 
 
 def parse_forecast_time(value: str) -> dt.datetime:
@@ -186,7 +173,7 @@ def fetch_sunrise_data(config: Any) -> dict[str, Any]:
 
 def hours_until_next_sunrise(config: Any, now: dt.datetime | None = None) -> float | None:
     """Return fractional hours from now until the next sunrise, or None if unavailable."""
-    if not getattr(config, "weather_lat", None) or not getattr(config, "weather_lon", None):
+    if not config.weather_lat or not config.weather_lon:
         return None
     try:
         daily = fetch_sunrise_data(config)
@@ -206,7 +193,7 @@ def hours_until_next_sunset(config: Any, now: dt.datetime | None = None) -> floa
 
     Returns a positive value if sunset is in the future; negative if it has already passed today.
     """
-    if not getattr(config, "weather_lat", None) or not getattr(config, "weather_lon", None):
+    if not config.weather_lat or not config.weather_lon:
         return None
     try:
         daily = fetch_sunrise_data(config)
@@ -269,7 +256,7 @@ def get_tomorrow_solar_kwh_m2(config: Any, now: dt.datetime | None = None) -> fl
     Sums hourly shortwave_radiation values from Open-Meteo for tomorrow's date.
     Returns None if coordinates are missing, the API is unreachable, or data is absent.
     """
-    if not getattr(config, "weather_lat", None) or not getattr(config, "weather_lon", None):
+    if not config.weather_lat or not config.weather_lon:
         return None
     try:
         forecast = fetch_weather_forecast(config)
@@ -305,7 +292,7 @@ def get_today_remaining_solar_kwh_m2(config: Any, now: dt.datetime | None = None
     Sums hourly shortwave_radiation values from Open-Meteo for today's date,
     from the current hour onward. Returns None if unavailable.
     """
-    if not getattr(config, "weather_lat", None) or not getattr(config, "weather_lon", None):
+    if not config.weather_lat or not config.weather_lon:
         return None
     try:
         forecast = fetch_weather_forecast(config)
@@ -341,13 +328,13 @@ def get_pv_forecast(config: Any, now: dt.datetime | None = None) -> dict[str, An
     Returns None if panel_kwp is not configured or weather coordinates are missing.
     Keys: tomorrow_kwh (float), today_remaining_kwh (float | None), panel_kwp (float).
     """
-    panel_kwp = getattr(config, "panel_kwp", 0.0) or 0.0
+    panel_kwp = config.panel_kwp or 0.0
     if panel_kwp <= 0:
         return None
-    if not getattr(config, "weather_lat", None) or not getattr(config, "weather_lon", None):
+    if not config.weather_lat or not config.weather_lon:
         return None
 
-    pr = float(getattr(config, "panel_performance_ratio", 0.75) or 0.75)
+    pr = float(config.panel_performance_ratio or 0.75)
     _now = now or dt.datetime.now()
 
     ghi_tomorrow = get_tomorrow_solar_kwh_m2(config, now=_now)
@@ -450,7 +437,7 @@ def choose_preserve_threshold(config: Any, today: dt.date | None = None) -> Thre
                 weather_category="unavailable",
             )
 
-    if getattr(config, "season_profiles_enabled", False):
+    if config.season_profiles_enabled:
         season = current_season(today)
         decision = apply_season_adjustment(decision, season)
         logging.debug("Season: %s; threshold after season adjustment: %g%%", season, decision.threshold)

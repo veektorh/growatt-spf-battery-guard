@@ -5,10 +5,11 @@ import json
 import os
 import re
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from growatt_guard.exceptions import GrowattGuardError
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -65,22 +66,8 @@ class HealthCheckItem:
     detail: str
 
 
-def app_module() -> Any:
-    module = sys.modules.get("growatt_power_guard")
-    if module is not None and hasattr(module, "GrowattGuardError"):
-        return module
-
-    main_module = sys.modules.get("__main__")
-    if main_module is not None and hasattr(main_module, "GrowattGuardError"):
-        return main_module
-
-    import growatt_power_guard
-
-    return growatt_power_guard
-
-
-def schedule_error(message: str) -> Exception:
-    return app_module().GrowattGuardError(message)
+def schedule_error(message: str) -> GrowattGuardError:
+    return GrowattGuardError(message)
 
 
 def cron_part_matches(value: int, field: str, minimum: int, maximum: int) -> bool:
@@ -249,6 +236,51 @@ def schedule_job_tokens(job: dict[str, Any], index: int = 0) -> list[str]:
     return [command, *schedule_job_args(job, command, index)]
 
 
+@dataclass(frozen=True)
+class EffectiveScheduleJob:
+    job_id: str
+    index: int
+    original_job: dict[str, Any]
+    effective_job: dict[str, Any] | None
+    status: str
+    note: str = ""
+    fires: tuple[dt.datetime, ...] = ()
+
+    @property
+    def original_tokens(self) -> list[str]:
+        return schedule_job_tokens(self.original_job, self.index)
+
+    @property
+    def effective_tokens(self) -> list[str]:
+        if self.effective_job is None:
+            return []
+        index = 0 if self.status == "replace" else self.index
+        return schedule_job_tokens(self.effective_job, index)
+
+    @property
+    def effective_command(self) -> str | None:
+        return self.effective_tokens[0] if self.effective_tokens else None
+
+
+def resolve_effective_schedule_job(
+    job: dict[str, Any],
+    index: int,
+    override: dict[str, Any],
+    *,
+    fires: tuple[dt.datetime, ...] = (),
+) -> EffectiveScheduleJob:
+    job_id = schedule_job_id(job, index)
+    note = str(override.get("note", "")).strip()
+    skip_ids = override.get("skip", [])
+    replace_map = override.get("replace", {}) if isinstance(override.get("replace", {}), dict) else {}
+    if override.get("skip_all") or job_id in skip_ids:
+        return EffectiveScheduleJob(job_id, index, job, None, "skip", note, fires)
+    replacement = replace_map.get(job_id)
+    if isinstance(replacement, dict):
+        return EffectiveScheduleJob(job_id, index, job, replacement, "replace", note, fires)
+    return EffectiveScheduleJob(job_id, index, job, job, "scheduled", note, fires)
+
+
 def validate_schedule_overrides(schedule: dict[str, Any], path: Path = SCHEDULE_OVERRIDES_FILE) -> dict[str, Any]:
     if not path.exists():
         return {"dates": {}}
@@ -358,20 +390,6 @@ def command_validate_schedule(config: Any | None = None) -> int:
     for item in lint_schedule(schedule):
         print(f"{item.name} {item.status}: {item.detail}")
     return 0
-
-
-def _cron_interval_label(cron: str) -> str | None:
-    """Return 'every N min' if the cron fires on a repeating sub-hourly interval, else None."""
-    parts = cron.strip().split()
-    if len(parts) != 5:
-        return None
-    minute_field, hour_field = parts[0], parts[1]
-    if minute_field.startswith("*/") and hour_field == "*":
-        try:
-            return f"every {int(minute_field[2:])} min"
-        except ValueError:
-            return None
-    return None
 
 
 def _cron_interval_minutes(cron: str) -> int | None:
@@ -537,499 +555,17 @@ def _job_fires_on_date(schedule: dict[str, Any], date: dt.date) -> dict[str, lis
     return job_fires
 
 
-def _ical_escape(value: Any) -> str:
-    text = str(value)
-    return text.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
-
-
-def _ical_datetime(value: dt.datetime) -> str:
-    return value.strftime("%Y%m%dT%H%M%S")
-
-
-def _fold_ical_line(line: str) -> list[str]:
-    # RFC 5545 line folding is byte-based; this ASCII-safe approximation keeps
-    # generated files compatible with common calendar clients.
-    if len(line) <= 75:
-        return [line]
-    lines: list[str] = []
-    current = line
-    while len(current) > 75:
-        lines.append(current[:75])
-        current = " " + current[75:]
-    lines.append(current)
-    return lines
-
-
-def _schedule_calendar_events(
+def effective_schedule_jobs_on_date(
     schedule: dict[str, Any],
     overrides: dict[str, Any],
-    days: int,
-    today: dt.date,
-    include_all: bool = False,
-) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
-    for day_offset in range(days):
-        date = today + dt.timedelta(days=day_offset)
-        day_override = overrides.get("dates", {}).get(date.isoformat(), {})
-        skip_all = bool(day_override.get("skip_all", False))
-        skip_ids = set(day_override.get("skip", []))
-        replace_map = day_override.get("replace", {}) if isinstance(day_override.get("replace"), dict) else {}
-        note = str(day_override.get("note", "")).strip()
-        job_fires = _job_fires_on_date(schedule, date)
-
-        for index, job in enumerate(schedule["jobs"], start=1):
-            job_id = schedule_job_id(job, index)
-            if job_id not in job_fires or skip_all or job_id in skip_ids:
-                continue
-            effective_job = replace_map.get(job_id, job) if job_id in replace_map else job
-            command = str(effective_job.get("command", "")).strip()
-            if not include_all and command not in MODE_CHANGING_COMMANDS:
-                continue
-            command_str = " ".join(schedule_job_tokens(effective_job, index))
-            status = "replace" if job_id in replace_map else "scheduled"
-            for fire_at in job_fires[job_id]:
-                events.append({
-                    "job_id": job_id,
-                    "command": command,
-                    "command_str": command_str,
-                    "status": status,
-                    "start": fire_at,
-                    "end": fire_at + dt.timedelta(minutes=5),
-                    "note": note,
-                })
-    events.sort(key=lambda item: (item["start"], item["job_id"]))
-    return events
-
-
-def build_schedule_calendar_ics(
-    schedule: dict[str, Any],
-    overrides: dict[str, Any],
-    days: int,
-    today: dt.date,
-    include_all: bool = False,
-    generated_at: dt.datetime | None = None,
-) -> str:
-    timezone = str(schedule.get("timezone", "")).strip() or "UTC"
-    generated_at = generated_at or dt.datetime.now(dt.timezone.utc)
-    if generated_at.tzinfo is None:
-        generated_at = generated_at.replace(tzinfo=dt.timezone.utc)
-    dtstamp = generated_at.astimezone(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    events = _schedule_calendar_events(schedule, overrides, days, today, include_all=include_all)
-
-    raw_lines = [
-        "BEGIN:VCALENDAR",
-        "VERSION:2.0",
-        "PRODID:-//Growatt Guard//Schedule Export//EN",
-        "CALSCALE:GREGORIAN",
-        "METHOD:PUBLISH",
-        f"X-WR-CALNAME:{_ical_escape('Growatt Guard schedule')}",
-        f"X-WR-TIMEZONE:{_ical_escape(timezone)}",
-    ]
-    for event in events:
-        start = event["start"]
-        end = event["end"]
-        job_id = str(event["job_id"])
-        command_str = str(event["command_str"])
-        status = str(event["status"])
-        note = str(event.get("note") or "")
-        description_parts = [f"job_id={job_id}", f"command={command_str}", f"status={status}"]
-        if note:
-            description_parts.append(f"note={note}")
-        raw_lines.extend([
-            "BEGIN:VEVENT",
-            f"UID:growatt-{start.strftime('%Y%m%dT%H%M')}-{_ical_escape(job_id)}@growatt-guard",
-            f"DTSTAMP:{dtstamp}",
-            f"DTSTART;TZID={_ical_escape(timezone)}:{_ical_datetime(start)}",
-            f"DTEND;TZID={_ical_escape(timezone)}:{_ical_datetime(end)}",
-            f"SUMMARY:{_ical_escape('Growatt: ' + command_str)}",
-            f"DESCRIPTION:{_ical_escape('; '.join(description_parts))}",
-            "END:VEVENT",
-        ])
-    raw_lines.append("END:VCALENDAR")
-
-    folded: list[str] = []
-    for line in raw_lines:
-        folded.extend(_fold_ical_line(line))
-    return "\r\n".join(folded) + "\r\n"
-
-
-def command_schedule_calendar(
-    config: Any,
-    days: int = 14,
-    output: str = "",
-    include_all: bool = False,
-    today: dt.date | None = None,
-) -> int:
-    _ = config
-    schedule = validate_schedule()
-    overrides = validate_schedule_overrides(schedule)
-    today = today or dt.date.today()
-    content = build_schedule_calendar_ics(schedule, overrides, days, today, include_all=include_all)
-    if output:
-        Path(output).write_text(content, encoding="utf-8", newline="")
-        print(f"Wrote schedule calendar to {output}")
-    else:
-        print(content, end="")
-    return 0
-
-
-def build_schedule_preview_payload(
-    schedule: dict[str, Any],
-    overrides: dict[str, Any],
-    days: int,
-    today: dt.date,
-) -> dict[str, Any]:
-    timezone = schedule.get("timezone", "")
-    dates: list[dict[str, Any]] = []
-    for day_offset in range(days):
-        date = today + dt.timedelta(days=day_offset)
-        day_override = overrides.get("dates", {}).get(date.isoformat(), {})
-        skip_all = bool(day_override.get("skip_all", False))
-        skip_ids = set(day_override.get("skip", []))
-        replace_map = day_override.get("replace", {}) if isinstance(day_override.get("replace"), dict) else {}
-        note = str(day_override.get("note", "")).strip()
-
-        job_fires = _job_fires_on_date(schedule, date)
-
-        jobs: list[dict[str, Any]] = []
-        for job in [job for job in schedule["jobs"] if job.get("id", "") in job_fires]:
-            job_id = str(job.get("id", ""))
-            fires = job_fires[job_id]
-            interval_label = _cron_interval_label(str(job["cron"]))
-            replacement = ""
-            if skip_all or job_id in skip_ids:
-                status = "skip"
-            elif job_id in replace_map:
-                status = "replace"
-                replacement = " ".join(schedule_job_tokens(replace_map[job_id], 0))
-            else:
-                status = "scheduled"
-            jobs.append({
-                "time": interval_label if interval_label else fires[0].strftime("%H:%M"),
-                "job_id": job_id,
-                "command": " ".join(schedule_job_tokens(job, 0)),
-                "status": status,
-                "count": len(fires) if interval_label else 1,
-                "replacement": replacement,
-            })
-
-        if jobs:
-            dates.append({
-                "date": date.isoformat(),
-                "weekday": date.strftime("%a"),
-                "skip_all": skip_all,
-                "note": note,
-                "jobs": jobs,
-            })
-
-    return {
-        "schema_version": 1,
-        "timezone": timezone,
-        "start_date": today.isoformat(),
-        "days": days,
-        "dates": dates,
-    }
-
-
-def command_schedule_preview(
-    config: Any,
-    days: int = 7,
-    today: dt.date | None = None,
-    json_output: bool = False,
-) -> int:
-    _ = config
-    schedule = validate_schedule()
-    overrides = validate_schedule_overrides(schedule)
-
-    today = today or dt.date.today()
-    timezone = schedule.get("timezone", "")
-    if json_output:
-        print(json.dumps(build_schedule_preview_payload(schedule, overrides, days, today), indent=2, sort_keys=True))
-        return 0
-
-    print(f"Schedule preview — {days} day(s) from {today} [{timezone}]")
-
-    for day_offset in range(days):
-        date = today + dt.timedelta(days=day_offset)
-        day_override = overrides.get("dates", {}).get(date.isoformat(), {})
-        skip_all = bool(day_override.get("skip_all", False))
-        skip_ids = set(day_override.get("skip", []))
-        replace_map = day_override.get("replace", {}) if isinstance(day_override.get("replace"), dict) else {}
-        note = str(day_override.get("note", "")).strip()
-
-        job_fires = _job_fires_on_date(schedule, date)
-
-        jobs_on_day = [job for job in schedule["jobs"] if job.get("id", "") in job_fires]
-        if not jobs_on_day:
-            continue
-
-        header = f"\n{date.strftime('%a %Y-%m-%d')}"
-        if skip_all:
-            header += "  [skip-all]"
-        if note:
-            header += f"  — {note}"
-        print(header)
-
-        for job in jobs_on_day:
-            job_id = job.get("id", "")
-            fires = job_fires[job_id]
-            command_str = " ".join(schedule_job_tokens(job, 0))
-
-            interval_label = _cron_interval_label(str(job["cron"]))
-            if interval_label:
-                time_str = interval_label
-                count_suffix = f"  x{len(fires)}/day"
-            else:
-                time_str = fires[0].strftime("%H:%M")
-                count_suffix = ""
-
-            if skip_all or job_id in skip_ids:
-                status_suffix = "  [SKIP]"
-            elif job_id in replace_map:
-                repl_str = " ".join(schedule_job_tokens(replace_map[job_id], 0))
-                status_suffix = f"  [-> {repl_str}]"
-            else:
-                status_suffix = ""
-
-            print(f"  {time_str:<16}  {command_str:<32}  ({job_id}){count_suffix}{status_suffix}")
-
-    return 0
-
-
-def _load_overrides_raw() -> dict[str, Any]:
-    if not SCHEDULE_OVERRIDES_FILE.exists():
-        return {"dates": {}}
-    try:
-        data = json.loads(SCHEDULE_OVERRIDES_FILE.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {"dates": {}}
-    if not isinstance(data, dict) or not isinstance(data.get("dates"), dict):
-        return {"dates": {}}
-    return data
-
-
-def _save_overrides(overrides: dict[str, Any], schedule: dict[str, Any]) -> None:
-    tmp = SCHEDULE_OVERRIDES_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(overrides, indent=2, sort_keys=True), encoding="utf-8")
-    try:
-        validate_schedule_overrides(schedule, tmp)
-    except Exception:
-        tmp.unlink(missing_ok=True)
-        raise
-    tmp.replace(SCHEDULE_OVERRIDES_FILE)
-
-
-def _parse_override_date(date_str: str) -> str:
-    try:
-        dt.date.fromisoformat(date_str)
-    except ValueError:
-        raise schedule_error(f"Invalid date: {date_str!r}. Use YYYY-MM-DD format.")
-    return date_str
-
-
-def _override_list(date_filter: str) -> int:
-    overrides = _load_overrides_raw()
-    dates = overrides.get("dates", {})
-    if date_filter:
-        _parse_override_date(date_filter)
-        dates = {k: v for k, v in dates.items() if k == date_filter}
-
-    if not dates:
-        print(f"No overrides for {date_filter}." if date_filter else "No schedule overrides configured.")
-        return 0
-
-    for date_key in sorted(dates):
-        override = dates[date_key]
-        note = str(override.get("note", "")).strip()
-        header = date_key + (f"  — {note}" if note else "")
-        print(header)
-        if override.get("skip_all"):
-            print("  skip-all")
-        for job_id in override.get("skip", []):
-            print(f"  skip: {job_id}")
-        for job_id, replacement in (override.get("replace") or {}).items():
-            repl_str = " ".join(schedule_job_tokens(replacement, 0))
-            print(f"  replace: {job_id} -> {repl_str}")
-    return 0
-
-
-def _override_add_skip(schedule: dict[str, Any], date_str: str, job_id: str, note: str) -> int:
-    date_str = _parse_override_date(date_str)
-    overrides = _load_overrides_raw()
-    entry = overrides["dates"].setdefault(date_str, {})
-    skip_list: list[str] = entry.setdefault("skip", [])
-    if job_id in skip_list:
-        print(f"Job {job_id!r} is already in the skip list for {date_str}.")
-        return 0
-    skip_list.append(job_id)
-    if note and not entry.get("note"):
-        entry["note"] = note
-    _save_overrides(overrides, schedule)
-    print(f"Added skip: {job_id!r} on {date_str}.")
-    return 0
-
-
-def _override_add_skip_all(schedule: dict[str, Any], date_str: str, note: str) -> int:
-    date_str = _parse_override_date(date_str)
-    overrides = _load_overrides_raw()
-    entry = overrides["dates"].setdefault(date_str, {})
-    entry["skip_all"] = True
-    if note and not entry.get("note"):
-        entry["note"] = note
-    _save_overrides(overrides, schedule)
-    print(f"Added skip-all on {date_str}.")
-    return 0
-
-
-def _override_add_replace(
-    schedule: dict[str, Any],
-    date_str: str,
-    job_id: str,
-    replacement_command: str,
-    replacement_args: list[str],
-    note: str,
-) -> int:
-    date_str = _parse_override_date(date_str)
-    overrides = _load_overrides_raw()
-    entry = overrides["dates"].setdefault(date_str, {})
-    replace_map: dict[str, Any] = entry.setdefault("replace", {})
-    replacement: dict[str, Any] = {"command": replacement_command}
-    if replacement_args:
-        replacement["args"] = list(replacement_args)
-    replace_map[job_id] = replacement
-    if note and not entry.get("note"):
-        entry["note"] = note
-    _save_overrides(overrides, schedule)
-    repl_str = " ".join([replacement_command] + list(replacement_args))
-    print(f"Added replace: {job_id!r} -> {repl_str!r} on {date_str}.")
-    return 0
-
-
-def _override_remove(schedule: dict[str, Any], date_str: str, job_id: str) -> int:
-    date_str = _parse_override_date(date_str)
-    overrides = _load_overrides_raw()
-    dates = overrides.get("dates", {})
-
-    if date_str not in dates:
-        print(f"No overrides found for {date_str}.")
-        return 0
-
-    if not job_id:
-        del dates[date_str]
-        _save_overrides(overrides, schedule)
-        print(f"Removed all overrides for {date_str}.")
-        return 0
-
-    entry = dates[date_str]
-    removed = False
-    skip_list = entry.get("skip", [])
-    if job_id in skip_list:
-        skip_list.remove(job_id)
-        removed = True
-    replace_map = entry.get("replace") or {}
-    if job_id in replace_map:
-        del replace_map[job_id]
-        removed = True
-
-    if not removed:
-        print(f"Job {job_id!r} not found in overrides for {date_str}.")
-        return 0
-
-    if not skip_list and not replace_map and not entry.get("skip_all") and not entry.get("note"):
-        del dates[date_str]
-
-    _save_overrides(overrides, schedule)
-    print(f"Removed {job_id!r} from overrides for {date_str}.")
-    return 0
-
-
-_MODE_CHANGING_COMMANDS = {"preserve-battery", "utility-check", "morning-check", "return-sbu", "watchdog-sbu"}
-
-BUILTIN_OUTAGE_PROFILES: dict[str, str] = {
-    "skip-all": "Skip all scheduled automation jobs.",
-    "maintenance": "Alias for skip-all — use during planned maintenance windows.",
-    "health-only": "Replace mode-changing jobs with health-check; monitoring still runs.",
-}
-
-
-def _outage_apply_profile(
-    profile_name: str,
-    dates: list[str],
-    note: str,
-) -> int:
-    if profile_name not in BUILTIN_OUTAGE_PROFILES:
-        names = ", ".join(BUILTIN_OUTAGE_PROFILES)
-        raise schedule_error(f"Unknown profile: {profile_name!r}. Available: {names}.")
-
-    for date_str in dates:
-        _parse_override_date(date_str)
-
-    schedule = validate_schedule()
-    overrides = _load_overrides_raw()
-
-    for date_str in dates:
-        entry = overrides["dates"].setdefault(date_str, {})
-        if note and not entry.get("note"):
-            entry["note"] = note
-
-        if profile_name in ("skip-all", "maintenance"):
-            entry["skip_all"] = True
-        elif profile_name == "health-only":
-            replace_map: dict[str, Any] = entry.setdefault("replace", {})
-            for index, job in enumerate(schedule["jobs"], start=1):
-                job_id = schedule_job_id(job, index)
-                if str(job.get("command", "")).strip() in _MODE_CHANGING_COMMANDS:
-                    replace_map[job_id] = {"command": "health-check", "args": ["--notify"]}
-
-    _save_overrides(overrides, schedule)
-    date_list = ", ".join(dates)
-    print(f"Applied profile {profile_name!r} to: {date_list}.")
-    return 0
-
-
-def command_outage_profile(config: Any, args: Any) -> int:
-    subcommand = getattr(args, "outage_subcommand", None)
-
-    if subcommand == "list":
-        print("Available outage profiles:")
-        for name, description in BUILTIN_OUTAGE_PROFILES.items():
-            print(f"  {name:<16}  {description}")
-        return 0
-
-    if subcommand == "apply":
-        return _outage_apply_profile(
-            args.profile_name,
-            list(args.dates),
-            getattr(args, "note", "") or "",
-        )
-
-    raise schedule_error(f"Unknown outage-profile subcommand: {subcommand!r}")
-
-
-def command_schedule_override(config: Any, args: Any) -> int:
-    subcommand = getattr(args, "override_subcommand", None)
-    if not subcommand:
-        raise schedule_error("No schedule-override subcommand specified.")
-
-    if subcommand == "list":
-        return _override_list(getattr(args, "date", "") or "")
-
-    schedule = validate_schedule()
-
-    if subcommand == "add-skip":
-        return _override_add_skip(schedule, args.date, args.job_id, getattr(args, "note", "") or "")
-    if subcommand == "add-skip-all":
-        return _override_add_skip_all(schedule, args.date, getattr(args, "note", "") or "")
-    if subcommand == "add-replace":
-        return _override_add_replace(
-            schedule,
-            args.date,
-            args.job_id,
-            args.replacement_command,
-            getattr(args, "replacement_args", []) or [],
-            getattr(args, "note", "") or "",
-        )
-    if subcommand == "remove":
-        return _override_remove(schedule, args.date, getattr(args, "job_id", "") or "")
-
-    raise schedule_error(f"Unknown schedule-override subcommand: {subcommand!r}")
+    date: dt.date,
+) -> list[EffectiveScheduleJob]:
+    override = today_schedule_override(overrides, date)
+    fires_by_job = _job_fires_on_date(schedule, date)
+    effective: list[EffectiveScheduleJob] = []
+    for index, job in enumerate(schedule["jobs"], start=1):
+        job_id = schedule_job_id(job, index)
+        fires = tuple(fires_by_job.get(job_id, ()))
+        if fires:
+            effective.append(resolve_effective_schedule_job(job, index, override, fires=fires))
+    return effective

@@ -9,11 +9,13 @@ from unittest.mock import patch
 
 from helpers import make_config
 from growatt_guard.schedule import (
+    estimate_growatt_api_runs_per_day,
+    lint_schedule,
+)
+from growatt_guard.schedule_views import (
     build_schedule_calendar_ics,
     command_schedule_calendar,
     command_schedule_preview,
-    estimate_growatt_api_runs_per_day,
-    lint_schedule,
 )
 from growatt_power_guard import (
     GrowattGuardError,
@@ -196,8 +198,8 @@ class ScheduleTests(unittest.TestCase):
         }
         overrides = {"dates": {}}
 
-        with patch("growatt_guard.schedule.validate_schedule", return_value=schedule), patch(
-            "growatt_guard.schedule.validate_schedule_overrides", return_value=overrides
+        with patch("growatt_guard.schedule_views.validate_schedule", return_value=schedule), patch(
+            "growatt_guard.schedule_views.validate_schedule_overrides", return_value=overrides
         ), redirect_stdout(StringIO()) as stdout:
             result = command_schedule_preview(config, days=1, today=dt.date(2026, 6, 20))
 
@@ -217,8 +219,8 @@ class ScheduleTests(unittest.TestCase):
             "jobs": [{"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"}],
         }
 
-        with patch("growatt_guard.schedule.validate_schedule", return_value=schedule), patch(
-            "growatt_guard.schedule.validate_schedule_overrides", return_value={"dates": {}}
+        with patch("growatt_guard.schedule_views.validate_schedule", return_value=schedule), patch(
+            "growatt_guard.schedule_views.validate_schedule_overrides", return_value={"dates": {}}
         ), redirect_stdout(StringIO()) as stdout:
             result = command_schedule_preview(config, days=1, today=dt.date(2026, 6, 20), json_output=True)
 
@@ -321,8 +323,8 @@ class ScheduleTests(unittest.TestCase):
         }
 
         with TemporaryDirectory() as tmpdir, patch(
-            "growatt_guard.schedule.validate_schedule", return_value=schedule
-        ), patch("growatt_guard.schedule.validate_schedule_overrides", return_value={"dates": {}}), redirect_stdout(
+            "growatt_guard.schedule_views.validate_schedule", return_value=schedule
+        ), patch("growatt_guard.schedule_views.validate_schedule_overrides", return_value={"dates": {}}), redirect_stdout(
             StringIO()
         ) as stdout:
             output = Path(tmpdir) / "schedule.ics"
@@ -459,8 +461,8 @@ class ScheduleTests(unittest.TestCase):
             }
         }
 
-        with patch("growatt_guard.schedule.validate_schedule", return_value=schedule), patch(
-            "growatt_guard.schedule.validate_schedule_overrides", return_value=overrides
+        with patch("growatt_guard.schedule_views.validate_schedule", return_value=schedule), patch(
+            "growatt_guard.schedule_views.validate_schedule_overrides", return_value=overrides
         ), redirect_stdout(StringIO()) as stdout:
             result = command_schedule_preview(config, days=1, today=dt.date(2026, 6, 20))
 

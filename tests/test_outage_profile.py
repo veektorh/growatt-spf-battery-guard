@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import growatt_power_guard  # noqa: F401 — ensures app_module() resolves GrowattGuardError
 from growatt_guard.exceptions import GrowattGuardError
-from growatt_guard.schedule import command_outage_profile
+from growatt_guard.schedule_overrides import command_outage_profile
 
 
 FAKE_SCHEDULE = {
@@ -43,8 +43,8 @@ class OutageProfileApplyTests(unittest.TestCase):
     def _patch(self, tmpdir: str):
         override_file = Path(tmpdir) / "schedule_overrides.json"
         return (
-            patch("growatt_guard.schedule.SCHEDULE_OVERRIDES_FILE", override_file),
-            patch("growatt_guard.schedule.validate_schedule", return_value=FAKE_SCHEDULE),
+            patch("growatt_guard.schedule_overrides.SCHEDULE_OVERRIDES_FILE", override_file),
+            patch("growatt_guard.schedule_overrides.validate_schedule", return_value=FAKE_SCHEDULE),
             override_file,
         )
 
