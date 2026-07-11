@@ -19,7 +19,9 @@ from growatt_guard.diagnostics import (
 from growatt_guard.discord_control import command_serve_discord_bot
 from growatt_guard.notifications import notify_failure
 from growatt_guard.pvoutput import command_pvoutput_upload
-from growatt_guard.schedule import command_outage_profile, command_schedule_calendar, command_schedule_override, command_validate_schedule
+from growatt_guard.schedule import command_validate_schedule
+from growatt_guard.schedule_overrides import command_outage_profile, command_schedule_override
+from growatt_guard.schedule_views import command_schedule_calendar
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]

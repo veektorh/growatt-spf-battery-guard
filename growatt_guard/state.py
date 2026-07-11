@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +58,71 @@ COMMAND_LOCK_STALE_SECONDS = 45 * 60
 SESSION_REFRESH_LOCK_STALE_SECONDS = 2 * 60
 STATE_SCHEMA_VERSION = 1
 _STATE_METADATA_KEYS = ("_schema_version", "_updated_at")
+
+
+@dataclass(frozen=True)
+class UtilityHold:
+    ownership: str
+    completion_policy: str
+    max_expiry: dt.datetime
+    started_at: dt.datetime
+    target_soc: float | None = None
+    start_soc: float | None = None
+    minutes: int | None = None
+    reason: str = ""
+    start_load_w: float | None = None
+
+    def to_state(self) -> dict[str, Any]:
+        state: dict[str, Any] = {
+            "ownership": self.ownership,
+            "completion_policy": self.completion_policy,
+            "max_expiry": self.max_expiry.isoformat(),
+            "started_at": self.started_at.isoformat(),
+        }
+        for key, value in (
+            ("target_soc", self.target_soc),
+            ("start_soc", self.start_soc),
+            ("minutes", self.minutes),
+            ("reason", self.reason or None),
+            ("start_load_w", self.start_load_w),
+        ):
+            if value is not None:
+                state[key] = value
+        return state
+
+
+    @classmethod
+    def from_state(cls, state: dict[str, Any]) -> "UtilityHold":
+        def optional_float(key: str) -> float | None:
+            value = state.get(key)
+            try:
+                return float(value) if value is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        max_expiry = parse_utc_datetime(str(state["max_expiry"]))
+        started_at = parse_utc_datetime(str(state.get("started_at") or state["max_expiry"]))
+        minutes_value = optional_float("minutes")
+        return cls(
+            ownership=str(state.get("ownership") or "owned"),
+            completion_policy=str(state.get("completion_policy") or "soc"),
+            max_expiry=max_expiry,
+            started_at=started_at,
+            target_soc=optional_float("target_soc"),
+            start_soc=optional_float("start_soc"),
+            minutes=int(minutes_value) if minutes_value is not None else None,
+            reason=str(state.get("reason") or ""),
+            start_load_w=optional_float("start_load_w"),
+        )
+
+
+    @classmethod
+    def from_legacy_topup(cls, state: dict[str, Any]) -> "UtilityHold":
+        normalized = dict(state)
+        normalized["ownership"] = "owned"
+        normalized["completion_policy"] = "time"
+        normalized["max_expiry"] = state["paused_until"]
+        return cls.from_state(normalized)
 
 
 def utc_now() -> dt.datetime:
@@ -411,8 +477,25 @@ def session_cache_age_minutes(state: dict[str, Any], now: dt.datetime | None = N
     return (now - saved).total_seconds() / 60.0
 
 
-def read_topup_state() -> dict[str, Any] | None:
+def _read_legacy_topup_state() -> dict[str, Any] | None:
     return read_json_state(TOPUP_STATE_FILE, "topup")
+
+
+def read_topup_state() -> dict[str, Any] | None:
+    legacy = _read_legacy_topup_state()
+    if legacy is not None:
+        return legacy
+    hold = read_utility_hold_state()
+    if hold is None or hold.get("minutes") is None:
+        return None
+    return {
+        "started_at": hold.get("started_at"),
+        "minutes": hold.get("minutes"),
+        "paused_until": hold.get("max_expiry"),
+        "reason": hold.get("reason", ""),
+        "start_soc": hold.get("start_soc"),
+        "start_load_w": hold.get("start_load_w"),
+    }
 
 
 def write_topup_state(
@@ -559,25 +642,48 @@ def clear_runtime_alert_state() -> None:
 # Utility hold — tracks owned/adopted Utility state for auto-return logic
 # ---------------------------------------------------------------------------
 
+def read_utility_hold() -> UtilityHold | None:
+    state = read_json_state(UTILITY_HOLD_FILE, "utility hold")
+    try:
+        if state is not None:
+            return UtilityHold.from_state(state)
+        legacy = _read_legacy_topup_state()
+        return UtilityHold.from_legacy_topup(legacy) if legacy is not None else None
+    except (KeyError, TypeError, ValueError) as exc:
+        logging.warning("Ignoring invalid utility hold state: %s", exc)
+        return None
+
+
 def read_utility_hold_state() -> dict[str, Any] | None:
-    return read_json_state(UTILITY_HOLD_FILE, "utility hold")
+    hold = read_utility_hold()
+    return hold.to_state() if hold is not None else None
 
 
 def write_utility_hold_state(
     ownership: str,
-    target_soc: float,
+    target_soc: float | None,
     max_expiry: dt.datetime,
     start_soc: float | None = None,
+    *,
+    completion_policy: str = "soc",
+    minutes: int | None = None,
+    reason: str = "",
+    start_load_w: float | None = None,
 ) -> None:
-    state: dict[str, Any] = {
-        "ownership": ownership,
-        "target_soc": target_soc,
-        "max_expiry": max_expiry.isoformat(),
-        "started_at": utc_now().isoformat(),
-    }
-    if start_soc is not None:
-        state["start_soc"] = start_soc
-    write_json_state(UTILITY_HOLD_FILE, state)
+    if completion_policy not in {"soc", "time"}:
+        raise ValueError(f"Unsupported utility hold completion policy: {completion_policy}")
+    hold = UtilityHold(
+        ownership=ownership,
+        completion_policy=completion_policy,
+        max_expiry=max_expiry,
+        started_at=utc_now(),
+        target_soc=target_soc,
+        start_soc=start_soc,
+        minutes=minutes,
+        reason=reason,
+        start_load_w=start_load_w,
+    )
+    write_json_state(UTILITY_HOLD_FILE, hold.to_state())
 
 
 def clear_utility_hold_state() -> None:

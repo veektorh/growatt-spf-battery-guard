@@ -98,7 +98,7 @@ class GrowattPowerGuardTests(unittest.TestCase):
     def test_rotate_logs_removes_generated_files_but_preserves_stateful_logs(self):
         config = make_config(log_retention_days=30)
 
-        with TemporaryDirectory() as tmpdir, patch("growatt_guard.modes.LOG_DIR", Path(tmpdir)):
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.reports.LOG_DIR", Path(tmpdir)):
             old_probe = Path(tmpdir) / "growatt-probe-20200101-000000.json"
             old_probe.write_text("{}", encoding="utf-8")
             active_log = Path(tmpdir) / "growatt_power_guard.log"
@@ -569,9 +569,9 @@ class GrowattPowerGuardTests(unittest.TestCase):
         ), patch(
             "growatt_guard.state.BYPASS_ALERT_FILE", Path(tmpdir) / "bypass_alert.json"
         ), patch(
-            "growatt_guard.modes.load_context",
+            "growatt_guard.alerts.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
-        ), patch("growatt_guard.modes.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()):
+        ), patch("growatt_guard.alerts.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()):
             self.assertEqual(command_battery_alert(config), 0)
             self.assertEqual(command_battery_alert(config), 0)
 
@@ -591,9 +591,9 @@ class GrowattPowerGuardTests(unittest.TestCase):
         ), patch(
             "growatt_guard.state.BYPASS_ALERT_FILE", Path(tmpdir) / "bypass_alert.json"
         ), patch(
-            "growatt_guard.modes.load_context",
+            "growatt_guard.alerts.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
-        ), patch("growatt_guard.modes.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()):
+        ), patch("growatt_guard.alerts.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()):
             self.assertEqual(command_battery_alert(config), 0)
             state = json.loads((Path(tmpdir) / "battery_alert.json").read_text(encoding="utf-8"))
 
@@ -615,9 +615,9 @@ class GrowattPowerGuardTests(unittest.TestCase):
         ), patch(
             "growatt_guard.state.BYPASS_ALERT_FILE", Path(tmpdir) / "bypass_alert.json"
         ), patch(
-            "growatt_guard.modes.load_context",
+            "growatt_guard.alerts.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
-        ), patch("growatt_guard.modes.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()) as stdout:
+        ), patch("growatt_guard.alerts.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()) as stdout:
             self.assertEqual(command_battery_alert(config), 0)
             self.assertEqual(command_battery_alert(config), 0)
             state = json.loads((Path(tmpdir) / "battery_alert.json").read_text(encoding="utf-8"))
@@ -642,9 +642,9 @@ class GrowattPowerGuardTests(unittest.TestCase):
         ), patch(
             "growatt_guard.state.BYPASS_ALERT_FILE", Path(tmpdir) / "bypass_alert.json"
         ), patch(
-            "growatt_guard.modes.load_context",
+            "growatt_guard.alerts.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
-        ), patch("growatt_guard.modes.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()):
+        ), patch("growatt_guard.alerts.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()):
             (Path(tmpdir) / "battery_alert.json").write_text(
                 json.dumps({"active": True, "last_soc": 29, "last_alert_at": "2026-07-10T12:00:00+00:00"}),
                 encoding="utf-8",
@@ -670,10 +670,10 @@ class GrowattPowerGuardTests(unittest.TestCase):
         ), patch(
             "growatt_guard.state.BYPASS_ALERT_FILE", Path(tmpdir) / "bypass_alert.json"
         ), patch(
-            "growatt_guard.modes.load_context",
+            "growatt_guard.alerts.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
-        ), patch("growatt_guard.modes.utility_hold_ownership", return_value="owned"), patch(
-            "growatt_guard.modes.send_discord_embed", return_value=True
+        ), patch("growatt_guard.alerts.utility_hold_ownership", return_value="owned"), patch(
+            "growatt_guard.alerts.send_discord_embed", return_value=True
         ) as send_mock, redirect_stdout(StringIO()) as stdout:
             self.assertEqual(command_battery_alert(config), 0)
 
@@ -694,9 +694,9 @@ class GrowattPowerGuardTests(unittest.TestCase):
         ), patch(
             "growatt_guard.state.BYPASS_ALERT_FILE", Path(tmpdir) / "bypass_alert.json"
         ), patch(
-            "growatt_guard.modes.load_context",
+            "growatt_guard.alerts.load_context",
             return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
-        ), patch("growatt_guard.modes.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()) as stdout:
+        ), patch("growatt_guard.alerts.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()) as stdout:
             self.assertEqual(command_battery_alert(config), 0)
             self.assertEqual(command_battery_alert(config), 0)
             self.assertEqual(command_battery_alert(config), 0)
@@ -726,12 +726,12 @@ class GrowattPowerGuardTests(unittest.TestCase):
         ), patch(
             "growatt_guard.state.BYPASS_ALERT_FILE", Path(tmpdir) / "bypass_alert.json"
         ), patch(
-            "growatt_guard.modes.load_context",
+            "growatt_guard.alerts.load_context",
             side_effect=[
                 (None, DeviceRef("plant123", "SN123", "storage", {}), bypass_status),
                 (None, DeviceRef("plant123", "SN123", "storage", {}), normal_status),
             ],
-        ), patch("growatt_guard.modes.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()) as stdout:
+        ), patch("growatt_guard.alerts.send_discord_embed", return_value=True) as send_mock, redirect_stdout(StringIO()) as stdout:
             self.assertEqual(command_battery_alert(config), 0)
             self.assertEqual(command_battery_alert(config), 0)
 

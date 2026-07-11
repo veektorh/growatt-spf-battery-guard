@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import sys
 from pathlib import Path
 from typing import Any
 
 import requests
+
+from growatt_guard.exceptions import GrowattGuardError
 
 from growatt_guard.growatt_api import (
     PV_POWER_CHANNELS,
@@ -34,20 +35,8 @@ _V8_KEYS = ("pCharge", "pChargeText", "chargePower")
 _V9_KEYS = ("pDischarge", "pDischargeText", "dischargePower")
 
 
-def app_module() -> Any:
-    module = sys.modules.get("growatt_power_guard")
-    if module is not None and hasattr(module, "GrowattGuardError"):
-        return module
-    main_module = sys.modules.get("__main__")
-    if main_module is not None and hasattr(main_module, "GrowattGuardError"):
-        return main_module
-    import growatt_power_guard
-
-    return growatt_power_guard
-
-
-def _pvoutput_error(message: str) -> Exception:
-    return app_module().GrowattGuardError(message)
+def _pvoutput_error(message: str) -> GrowattGuardError:
+    return GrowattGuardError(message)
 
 
 def _extract_float_with_key(
@@ -234,7 +223,7 @@ def publish_pvoutput_status_from_status(
     status: dict[str, Any],
     now: dt.datetime | None = None,
 ) -> tuple[bool, str]:
-    if not getattr(config, "pvoutput_enabled", False):
+    if not config.pvoutput_enabled:
         return True, "PVOutput upload skipped: set PVOUTPUT_ENABLED=true in .env to enable."
 
     fields = extract_pvoutput_fields(status)
@@ -275,7 +264,7 @@ def fetch_pvoutput_daily_outputs(
     Returns a dict mapping ISO date string (YYYY-MM-DD) to energy generated in Wh.
     Returns empty dict if PVOutput is not enabled, on network error, or non-200 response.
     """
-    if not getattr(config, "pvoutput_enabled", False):
+    if not config.pvoutput_enabled:
         return {}
     if not config.pvoutput_api_key or not config.pvoutput_system_id:
         return {}
@@ -313,7 +302,7 @@ def fetch_pvoutput_daily_outputs(
 
 
 def command_pvoutput_upload(config: Any) -> int:
-    if not getattr(config, "pvoutput_enabled", False):
+    if not config.pvoutput_enabled:
         ok, message = publish_pvoutput_status_from_status(config, {})
         print(message)
         return 0 if ok else 1

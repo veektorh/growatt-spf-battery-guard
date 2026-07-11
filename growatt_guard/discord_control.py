@@ -23,7 +23,6 @@ from growatt_guard.state import (
     utility_hold_ownership,
     waste_alert_is_muted,
     write_battery_alert_mute,
-    write_topup_state,
     write_utility_hold_state,
     write_waste_alert_mute,
 )
@@ -521,7 +520,21 @@ def command_serve_discord_bot(config: Config) -> int:
 
             reason = f"Discord top-up for {effective_minutes} minute(s)"
             paused_until = utc_now() + dt.timedelta(minutes=effective_minutes)
-            write_topup_state(effective_minutes, reason, paused_until)
+            completion_policy = "soc" if target_soc > 0 else "time"
+            max_expiry = (
+                utc_now() + dt.timedelta(minutes=effective_minutes * 1.2 + 15)
+                if completion_policy == "soc"
+                else paused_until
+            )
+            write_utility_hold_state(
+                ownership="owned",
+                target_soc=float(target_soc) if target_soc > 0 else None,
+                max_expiry=max_expiry,
+                start_soc=current_soc if target_soc > 0 else None,
+                completion_policy=completion_policy,
+                minutes=effective_minutes,
+                reason=reason,
+            )
 
             if target_soc > 0:
                 rate_kw = config.battery_charge_rate_w / 1000.0
@@ -536,6 +549,7 @@ def command_serve_discord_bot(config: Config) -> int:
                 ["pause", "--hours", f"{effective_minutes / 60:.4f}", "--reason", reason]
             )
             if pause_rc != 0:
+                clear_utility_hold_state()
                 clear_topup_state()
                 await interaction.channel.send(command_result_text("topup pause", pause_rc, pause_out))
                 return
@@ -547,16 +561,9 @@ def command_serve_discord_bot(config: Config) -> int:
             if utility_rc != 0:
                 resume_rc, resume_out = await run_guard_command(["resume"])
                 await interaction.channel.send(command_result_text("topup resume after failure", resume_rc, resume_out))
+                clear_utility_hold_state()
                 clear_topup_state()
                 return
-
-            max_expiry = utc_now() + dt.timedelta(minutes=effective_minutes * 1.2 + 15)
-            write_utility_hold_state(
-                ownership="owned",
-                target_soc=float(target_soc) if target_soc > 0 else 0.0,
-                max_expiry=max_expiry,
-                start_soc=current_soc if target_soc > 0 else None,
-            )
 
             await asyncio.sleep(effective_minutes * 60)
 

@@ -8,7 +8,8 @@ This repository is a small Python automation service with one command-line entry
 cron/systemd/manual shell
   -> growatt_power_guard.py  (thin shim; re-exports all public symbols)
   -> growatt_guard.cli       (argparse, dispatch, main)
-  -> growatt_guard.modes / growatt_guard.health / growatt_guard.pause
+  -> growatt_guard.modes / growatt_guard.topup / growatt_guard.alerts
+  -> growatt_guard.reports / growatt_guard.health / growatt_guard.pause
   -> focused helper modules under growatt_guard/
 ```
 
@@ -27,12 +28,19 @@ growatt_guard.cli
   Owns argparse, scheduled command token parsing, dispatch, and main().
 
 growatt_guard.growatt_api
-  Talks to Growatt/ShinePhone cloud, reads status, extracts SOC/output source,
-  and sends output-source mode commands.
+  Owns Growatt session/device coordination, status reads, mode writes, and verification.
+
+growatt_guard.growatt_telemetry
+  Owns pure telemetry extraction, normalization, estimates, and bypass detection.
 
 growatt_guard.schedule
-  Validates schedule.json and schedule_overrides.json, computes scheduled jobs,
-  checks installed cron entries, and implements schedule-preview.
+  Validates and lints schedules and owns the canonical effective-job model.
+
+growatt_guard.schedule_views
+  Owns calendar and preview JSON/terminal presentation.
+
+growatt_guard.schedule_overrides
+  Owns override persistence/mutation commands and outage profiles.
 
 growatt_guard.state
   Owns local JSON state and lock files under state/.
@@ -47,7 +55,16 @@ growatt_guard.weather
   Owns optional Open-Meteo forecast reads and weather-aware threshold selection.
 
 growatt_guard.dashboard
-  Owns dashboard.html rendering, observability refresh loop, static server, and stale dashboard alerts.
+  Owns HTML rendering and compatibility exports.
+
+growatt_guard.dashboard_metrics / dashboard_insights / dashboard_planning
+  Own normalized history, risk/quality insights, and energy planning.
+
+growatt_guard.dashboard_viewmodel / dashboard_render_components
+  Own canonical JSON assembly and reusable HTML components.
+
+growatt_guard.dashboard_service
+  Owns observability refresh, atomic output writes, static serving, and stale alerts.
 
 growatt_guard.pvoutput
   Owns PVOutput field extraction, upload, extended-field fallback, and upload state.
@@ -63,8 +80,16 @@ growatt_guard.health
   Owns the health-check command and health report formatting.
 
 growatt_guard.modes
-  Owns all remaining command implementations: preserve-battery, force-utility, return-sbu,
-  watchdog-sbu, run-scheduled (including --dry-plan), battery-alert, summaries, etc.
+  Owns core mode control, scheduled dispatch, charge-rate estimation, and test-discord.
+
+growatt_guard.topup
+  Owns auto-topup planning, hold persistence, completion, and Utility adoption.
+
+growatt_guard.alerts
+  Owns battery, bypass, runtime, and avoidable-waste alert commands.
+
+growatt_guard.reports
+  Owns summaries, log rotation, audit pruning, and threshold reporting.
 ```
 
 ## Command Categories

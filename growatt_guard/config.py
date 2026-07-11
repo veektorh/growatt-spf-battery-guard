@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from growatt_guard.exceptions import GrowattGuardError
 
 try:
     from dotenv import load_dotenv
@@ -83,22 +84,8 @@ class Config:
     panel_performance_ratio: float = 0.75
 
 
-def app_module() -> Any:
-    module = sys.modules.get("growatt_power_guard")
-    if module is not None and hasattr(module, "GrowattGuardError"):
-        return module
-
-    main_module = sys.modules.get("__main__")
-    if main_module is not None and hasattr(main_module, "GrowattGuardError"):
-        return main_module
-
-    import growatt_power_guard
-
-    return growatt_power_guard
-
-
-def config_error(message: str) -> Exception:
-    return app_module().GrowattGuardError(message)
+def config_error(message: str) -> GrowattGuardError:
+    return GrowattGuardError(message)
 
 
 def str_to_bool(value: str | bool | None, default: bool = False) -> bool:

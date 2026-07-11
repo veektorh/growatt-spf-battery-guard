@@ -21,12 +21,24 @@ This project automates battery-preservation mode switching for a Growatt SPF inv
 - `growatt_guard/cli.py`: argparse parser, command dispatch, and `main()`.
 - `growatt_guard/config.py`: `.env` loading and `Config`.
 - `growatt_guard/exceptions.py`: `GrowattGuardError`; imported by helpers to avoid circular imports with the shim.
-- `growatt_guard/growatt_api.py`: Growatt login, plant/device selection, status probing, SOC/output parsing, and mode writes.
-- `growatt_guard/schedule.py`: schedule validation, cron checks, run-scheduled helpers, date overrides, and `schedule-preview`.
-- `growatt_guard/modes.py`: all inverter command implementations — `preserve-battery`, `return-sbu`, `watchdog-sbu`, `run-scheduled` (including `--dry-plan`), `battery-alert`, summaries, log rotation, and `test-discord`.
+- `growatt_guard/growatt_api.py`: Growatt session/device coordination, status probing, mode writes, and verification.
+- `growatt_guard/growatt_telemetry.py`: pure recursive telemetry extraction, normalization, runtime estimates, and bypass detection.
+- `growatt_guard/schedule.py`: cron parsing, schedule validation/lint, and the canonical effective-job model.
+- `growatt_guard/schedule_views.py`: calendar and preview JSON/terminal presentation.
+- `growatt_guard/schedule_overrides.py`: override persistence/mutation commands and outage profiles.
+- `growatt_guard/modes.py`: core inverter mode commands (`preserve-battery`, `force-utility`, `return-sbu`, `watchdog-sbu`), scheduled dispatch, charge-rate estimation, and `test-discord`.
+- `growatt_guard/topup.py`: auto-topup planning, canonical hold persistence, completion policies, and Utility adoption.
+- `growatt_guard/alerts.py`: battery, bypass, runtime, and avoidable-Utility-waste alert commands.
+- `growatt_guard/reports.py`: daily/weekly/monthly summaries, log rotation, audit pruning, and weather-threshold reporting.
 - `growatt_guard/pause.py`: pause/resume state checks and the mode-command lock (`ensure_not_paused`, `run_with_command_lock`).
 - `growatt_guard/health.py`: `health-check` command and health report formatting.
-- `growatt_guard/dashboard.py`: static dashboard generation, observability refresh loop, stale alert, and static server.
+- `growatt_guard/dashboard.py`: dashboard HTML renderer and compatibility exports.
+- `growatt_guard/dashboard_metrics.py`: normalized typed metrics and local metric history.
+- `growatt_guard/dashboard_insights.py` / `dashboard_planning.py`: dashboard risk, reconciliation, recommendations, and energy planning.
+- `growatt_guard/dashboard_viewmodel.py`: the canonical JSON/view-model assembly boundary.
+- `growatt_guard/dashboard_render_components.py`: reusable HTML presentation components.
+- `growatt_guard/dashboard_service.py`: refresh orchestration, stale alerts, and static serving.
+- `growatt_guard/assets/`: packaged dashboard CSS and JavaScript sources.
 - `growatt_guard/pvoutput.py`: PVOutput field extraction, upload, retry without extended fields, and upload state.
 - `growatt_guard/discord_control.py`: optional private Discord control bot; keep commands allowlisted and route writes through existing CLI commands. `/growatt_dashboard` renders a live embed from `status` subprocess output without posting raw text to the channel.
 - `growatt_guard/audit.py`: mode decision CSV audit trail, daily summary, weekly summary, and log counters.

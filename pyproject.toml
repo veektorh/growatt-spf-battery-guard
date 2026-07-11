@@ -20,3 +20,6 @@ growatt-guard = "growatt_guard.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["growatt_guard*"]
+
+[tool.setuptools.package-data]
+growatt_guard = ["assets/*.css", "assets/*.js"]

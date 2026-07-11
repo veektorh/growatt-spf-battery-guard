@@ -22,6 +22,7 @@ class TestUtilityHoldState(unittest.TestCase):
         import growatt_guard.state as _state
         self._orig_state_dir = _state.STATE_DIR
         self._orig_hold_file = _state.UTILITY_HOLD_FILE
+        self._orig_topup_file = _state.TOPUP_STATE_FILE
         self._orig_waste_file = _state.WASTE_ALERT_FILE
         _state.STATE_DIR = self._state_dir
         _state.UTILITY_HOLD_FILE = self._state_dir / "utility_hold.json"
@@ -32,6 +33,7 @@ class TestUtilityHoldState(unittest.TestCase):
         import growatt_guard.state as _state
         _state.STATE_DIR = self._orig_state_dir
         _state.UTILITY_HOLD_FILE = self._orig_hold_file
+        _state.TOPUP_STATE_FILE = self._orig_topup_file
         _state.WASTE_ALERT_FILE = self._orig_waste_file
         self._tmp.cleanup()
 
@@ -96,6 +98,39 @@ class TestUtilityHoldState(unittest.TestCase):
         write_utility_hold_state("owned", 40.0, expiry)
         self.assertFalse(topup_is_active())
 
+    def test_canonical_hold_exposes_topup_compatibility_view_without_legacy_file(self):
+        from growatt_guard import state
+        expiry = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=30)
+        state.write_utility_hold_state(
+            "owned", 42.0, expiry, start_soc=35.0,
+            completion_policy="soc", minutes=30, reason="auto", start_load_w=1200.0,
+        )
+
+        compatibility = state.read_topup_state()
+
+        self.assertFalse(state.TOPUP_STATE_FILE.exists())
+        self.assertEqual(compatibility["minutes"], 30)
+        self.assertEqual(compatibility["reason"], "auto")
+        self.assertEqual(compatibility["start_load_w"], 1200.0)
+
+    def test_legacy_topup_normalizes_to_explicit_time_policy(self):
+        from growatt_guard import state
+        expiry = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=20)
+        state.write_topup_state(20, "legacy", expiry, start_soc=34.0)
+
+        hold = state.read_utility_hold()
+
+        self.assertEqual(hold.completion_policy, "time")
+        self.assertEqual(hold.minutes, 20)
+        self.assertEqual(hold.reason, "legacy")
+        self.assertEqual(hold.start_soc, 34.0)
+
+    def test_rejects_unknown_completion_policy(self):
+        from growatt_guard.state import write_utility_hold_state
+        expiry = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=20)
+        with self.assertRaisesRegex(ValueError, "completion policy"):
+            write_utility_hold_state("owned", None, expiry, completion_policy="unknown")
+
 
 class TestWasteAlertState(unittest.TestCase):
     def setUp(self):
@@ -147,7 +182,7 @@ class TestWasteAlertState(unittest.TestCase):
 
 class TestWasteAlertMetrics(unittest.TestCase):
     def test_pv_can_cover_load_unpacks_channel_sum(self):
-        from growatt_guard.modes import _pv_can_cover_load
+        from growatt_guard.alerts import _pv_can_cover_load
 
         status = {
             "storage_params": {
@@ -194,24 +229,24 @@ class TestPreserveHoldExpiry(unittest.TestCase):
 
 class TestProjectedSunriseSoc(unittest.TestCase):
     def test_basic_projection(self):
-        from growatt_guard.modes import _projected_sunrise_soc
+        from growatt_guard.topup import _projected_sunrise_soc
         # 800W load, 30000Wh battery, 7h to sunrise, 55% SOC
         # drain = 800 * 7 / 30000 * 100 = 18.67%
         result = _projected_sunrise_soc(55.0, 800.0, 30000.0, 25.0, 7.0)
         self.assertAlmostEqual(result, 55.0 - 800.0 * 7.0 / 30000.0 * 100.0, places=1)
 
     def test_capped_at_bms_cutoff(self):
-        from growatt_guard.modes import _projected_sunrise_soc
+        from growatt_guard.topup import _projected_sunrise_soc
         # Very high drain: 2000W, 30000Wh, 8h, 30% SOC â€” will drain below 25%
         result = _projected_sunrise_soc(30.0, 2000.0, 30000.0, 25.0, 8.0)
         self.assertGreaterEqual(result, 25.0)
 
     def test_returns_none_for_zero_capacity(self):
-        from growatt_guard.modes import _projected_sunrise_soc
+        from growatt_guard.topup import _projected_sunrise_soc
         self.assertIsNone(_projected_sunrise_soc(50.0, 800.0, 0.0, 25.0, 7.0))
 
     def test_returns_none_for_zero_hours(self):
-        from growatt_guard.modes import _projected_sunrise_soc
+        from growatt_guard.topup import _projected_sunrise_soc
         self.assertIsNone(_projected_sunrise_soc(50.0, 800.0, 30000.0, 25.0, 0.0))
 
 
@@ -221,18 +256,18 @@ class TestProjectedSunriseSoc(unittest.TestCase):
 
 class TestEtaMinutes(unittest.TestCase):
     def test_basic_eta(self):
-        from growatt_guard.modes import _eta_minutes
+        from growatt_guard.topup import _eta_minutes
         # 8% SOC needed, 30000Wh battery, 1800W charge rate
         # 8% * 30000 = 2400Wh, 2400 / 1800 * 60 = 80 min
         result = _eta_minutes(32.0, 40.0, 30000.0, 1800.0)
         self.assertAlmostEqual(result, 80.0, places=1)
 
     def test_returns_none_for_no_gain(self):
-        from growatt_guard.modes import _eta_minutes
+        from growatt_guard.topup import _eta_minutes
         self.assertIsNone(_eta_minutes(45.0, 40.0, 30000.0, 1800.0))
 
     def test_returns_none_for_zero_rate(self):
-        from growatt_guard.modes import _eta_minutes
+        from growatt_guard.topup import _eta_minutes
         self.assertIsNone(_eta_minutes(32.0, 40.0, 30000.0, 0.0))
 
 
@@ -277,22 +312,22 @@ class TestCommandAdoptUtility(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_fails_when_not_on_utility(self):
-        from growatt_guard.modes import command_adopt_utility
+        from growatt_guard.topup import command_adopt_utility
         from growatt_guard.exceptions import GrowattGuardError
         cfg = _make_topup_config()
         status = _make_status_mock(soc=37.0, on_utility=False)
         with self.assertRaises(GrowattGuardError) as ctx:
-            with patch("growatt_guard.modes.load_context", return_value=(MagicMock(), MagicMock(), status)):
+            with patch("growatt_guard.topup.load_context", return_value=(MagicMock(), MagicMock(), status)):
                 command_adopt_utility(cfg, 40.0)
         self.assertIn("not currently on Utility", str(ctx.exception))
 
     def test_adopts_when_on_utility(self):
-        from growatt_guard.modes import command_adopt_utility
+        from growatt_guard.topup import command_adopt_utility
         cfg = _make_topup_config()
         status = _make_status_mock(soc=37.0, on_utility=True)
         with (
-            patch("growatt_guard.modes.load_context", return_value=(MagicMock(), MagicMock(), status)),
-            patch("growatt_guard.modes.append_mode_audit"),
+            patch("growatt_guard.topup.load_context", return_value=(MagicMock(), MagicMock(), status)),
+            patch("growatt_guard.topup.append_mode_audit"),
         ):
             import io, sys
             captured = io.StringIO()
@@ -468,7 +503,7 @@ class TestTopupCompleteCheckSoc(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_no_state_prints_no_active(self):
-        from growatt_guard.modes import command_topup_complete_check
+        from growatt_guard.topup import command_topup_complete_check
         cfg = make_config()
         with patch("growatt_guard.audit.find_overdue_unclosed_topup", return_value=None):
             import io, sys
@@ -482,7 +517,7 @@ class TestTopupCompleteCheckSoc(unittest.TestCase):
         self.assertIn("No active topup", captured.getvalue())
 
     def test_target_reached_returns_sbu(self):
-        from growatt_guard.modes import command_topup_complete_check
+        from growatt_guard.topup import command_topup_complete_check
         from growatt_guard.state import write_utility_hold_state, read_utility_hold_state
         cfg = make_config()
         expiry = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)
@@ -493,10 +528,10 @@ class TestTopupCompleteCheckSoc(unittest.TestCase):
             sbu_calls.append(True)
             return 0
         with (
-            patch("growatt_guard.modes.load_context", return_value=(MagicMock(), MagicMock(), status_at_target)),
-            patch("growatt_guard.modes.command_return_sbu", side_effect=fake_return_sbu),
-            patch("growatt_guard.modes.command_resume"),
-            patch("growatt_guard.modes.append_charge_rate_reading", return_value=[]),
+            patch("growatt_guard.topup.load_context", return_value=(MagicMock(), MagicMock(), status_at_target)),
+            patch("growatt_guard.topup.command_return_sbu", side_effect=fake_return_sbu),
+            patch("growatt_guard.topup.command_resume"),
+            patch("growatt_guard.topup.append_charge_rate_reading", return_value=[]),
             patch("growatt_guard.audit.find_overdue_unclosed_topup", return_value=None),
         ):
             import io, sys
@@ -513,14 +548,14 @@ class TestTopupCompleteCheckSoc(unittest.TestCase):
         self.assertIsNone(read_utility_hold_state())
 
     def test_still_active_prints_remaining(self):
-        from growatt_guard.modes import command_topup_complete_check
+        from growatt_guard.topup import command_topup_complete_check
         from growatt_guard.state import write_utility_hold_state
         cfg = make_config()
         expiry = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)
         write_utility_hold_state("owned", 40.0, expiry, start_soc=32.0)
         status_low = _make_status_mock(soc=36.0, on_utility=True)
         with (
-            patch("growatt_guard.modes.load_context", return_value=(MagicMock(), MagicMock(), status_low)),
+            patch("growatt_guard.topup.load_context", return_value=(MagicMock(), MagicMock(), status_low)),
             patch("growatt_guard.audit.find_overdue_unclosed_topup", return_value=None),
         ):
             import io, sys
@@ -534,7 +569,7 @@ class TestTopupCompleteCheckSoc(unittest.TestCase):
         self.assertIn("active", captured.getvalue().lower())
 
     def test_expiry_above_floor_returns_sbu_below_target(self):
-        from growatt_guard.modes import command_topup_complete_check
+        from growatt_guard.topup import command_topup_complete_check
         from growatt_guard.state import write_utility_hold_state
         cfg = make_config(auto_topup_sunrise_floor_soc=35.0)
         expiry = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=1)  # already expired
@@ -545,9 +580,9 @@ class TestTopupCompleteCheckSoc(unittest.TestCase):
             sbu_calls.append(True)
             return 0
         with (
-            patch("growatt_guard.modes.load_context", return_value=(MagicMock(), MagicMock(), status_below)),
-            patch("growatt_guard.modes.command_return_sbu", side_effect=fake_return_sbu),
-            patch("growatt_guard.modes.command_resume"),
+            patch("growatt_guard.topup.load_context", return_value=(MagicMock(), MagicMock(), status_below)),
+            patch("growatt_guard.topup.command_return_sbu", side_effect=fake_return_sbu),
+            patch("growatt_guard.topup.command_resume"),
             patch("growatt_guard.audit.find_overdue_unclosed_topup", return_value=None),
         ):
             import io, sys
@@ -561,7 +596,7 @@ class TestTopupCompleteCheckSoc(unittest.TestCase):
         self.assertIn("below target", captured.getvalue().lower())
 
     def test_expiry_at_or_below_floor_sends_alert(self):
-        from growatt_guard.modes import command_topup_complete_check
+        from growatt_guard.topup import command_topup_complete_check
         from growatt_guard.state import write_utility_hold_state
         cfg = make_config(auto_topup_sunrise_floor_soc=35.0, discord_notify_failure=True, dry_run=False)
         expiry = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=1)
@@ -571,10 +606,10 @@ class TestTopupCompleteCheckSoc(unittest.TestCase):
         def fake_return_sbu(c):
             return 0
         with (
-            patch("growatt_guard.modes.load_context", return_value=(MagicMock(), MagicMock(), status_low)),
-            patch("growatt_guard.modes.command_return_sbu", side_effect=fake_return_sbu),
-            patch("growatt_guard.modes.command_resume"),
-            patch("growatt_guard.modes.send_discord_embed", side_effect=lambda c, e: embeds_sent.append(e)),
+            patch("growatt_guard.topup.load_context", return_value=(MagicMock(), MagicMock(), status_low)),
+            patch("growatt_guard.topup.command_return_sbu", side_effect=fake_return_sbu),
+            patch("growatt_guard.topup.command_resume"),
+            patch("growatt_guard.topup.send_discord_embed", side_effect=lambda c, e: embeds_sent.append(e)),
             patch("growatt_guard.audit.find_overdue_unclosed_topup", return_value=None),
         ):
             command_topup_complete_check(cfg)
