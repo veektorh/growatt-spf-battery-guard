@@ -364,6 +364,10 @@ Available slash commands:
 ```
 
 `/growatt_topup minutes:60` (or `target_soc:80`) pauses scheduled mode-changing automation, switches to Utility, waits, resumes automation, then returns to SBU.
+Top-up completion and cancellation clear local top-up state only after resume
+succeeds, `return-sbu` exits successfully, and the canonical Utility ownership
+file has been cleared. Failed, blocked, paused, or unverified SBU cleanup keeps
+ownership state for a safe retry.
 
 ## Current Light Schedule
 

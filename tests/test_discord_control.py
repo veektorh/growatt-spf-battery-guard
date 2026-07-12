@@ -1,5 +1,7 @@
 import json
 import unittest
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,6 +10,7 @@ from growatt_guard.discord_control import (
     build_dashboard_embed,
     build_health_embed,
     command_result_text,
+    finalize_topup_state_after_sbu,
     is_authorized_interaction,
     trim_output,
     validate_control_config,
@@ -82,6 +85,43 @@ class DiscordControlTests(unittest.TestCase):
 
         self.assertIn("status: OK", text)
         self.assertIn("```text", text)
+
+    def test_topup_state_clears_only_after_resume_sbu_and_hold_cleanup(self):
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.discord_control.state_module.UTILITY_HOLD_FILE", Path(tmpdir) / "utility_hold.json"
+        ), patch("growatt_guard.discord_control.clear_topup_state") as clear_topup:
+            result = finalize_topup_state_after_sbu(0, 0)
+
+        self.assertTrue(result)
+        clear_topup.assert_called_once()
+
+    def test_topup_state_is_preserved_when_sbu_is_blocked(self):
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.discord_control.state_module.UTILITY_HOLD_FILE", Path(tmpdir) / "utility_hold.json"
+        ), patch("growatt_guard.discord_control.clear_topup_state") as clear_topup:
+            result = finalize_topup_state_after_sbu(0, 2)
+
+        self.assertFalse(result)
+        clear_topup.assert_not_called()
+
+    def test_topup_state_is_preserved_when_raw_utility_hold_remains(self):
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.discord_control.state_module.UTILITY_HOLD_FILE", Path(tmpdir) / "utility_hold.json"
+        ), patch("growatt_guard.discord_control.clear_topup_state") as clear_topup:
+            (Path(tmpdir) / "utility_hold.json").write_text("{}", encoding="utf-8")
+            result = finalize_topup_state_after_sbu(0, 0)
+
+        self.assertFalse(result)
+        clear_topup.assert_not_called()
+
+    def test_topup_state_is_preserved_when_resume_fails(self):
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.discord_control.state_module.UTILITY_HOLD_FILE", Path(tmpdir) / "utility_hold.json"
+        ), patch("growatt_guard.discord_control.clear_topup_state") as clear_topup:
+            result = finalize_topup_state_after_sbu(1, 0)
+
+        self.assertFalse(result)
+        clear_topup.assert_not_called()
 
     def test_build_dashboard_embed_parses_public_fixture_summary(self):
         status = json.loads(

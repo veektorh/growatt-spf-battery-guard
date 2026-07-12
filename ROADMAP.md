@@ -159,6 +159,8 @@ Why: local state now matters and outage schedules change.
 - Add stricter idempotency audit rows for skipped mode writes.
 - [x] Add emergency SBU-return guard below a configurable SOC, with an explicit
   audited override for outage realities.
+- [x] Preserve Discord top-up ownership when Utility/SBU cleanup fails, is
+  blocked, or does not clear the canonical hold.
 - [x] Add state migration/versioning for local JSON state files.
 
 ### Dashboard And Observability

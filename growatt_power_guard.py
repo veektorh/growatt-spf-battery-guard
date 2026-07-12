@@ -86,6 +86,7 @@ from growatt_guard.diagnostics import (
 from growatt_guard.discord_control import (
     command_result_text,
     command_serve_discord_bot,
+    finalize_topup_state_after_sbu,
     is_authorized_interaction,
     trim_output,
     validate_control_config,

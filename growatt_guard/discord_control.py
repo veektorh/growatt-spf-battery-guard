@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import growatt_guard.state as state_module
+
 from growatt_guard.config import Config
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.state import (
@@ -39,6 +41,19 @@ _STATUS_ICON = {"OK": "✅", "WARN": "⚠️", "FAIL": "❌"}
 _CHECK_RE = re.compile(r"^\[(OK|WARN|FAIL)\]\s+([^:]+):\s+(.+)$")
 _HEALTH_EMBED_MAX_PROBLEM_FIELDS = 6
 _HEALTH_EMBED_FIELD_LIMIT = 360
+
+
+def finalize_topup_state_after_sbu(resume_rc: int, sbu_rc: int) -> bool:
+    """Clear residual top-up state only after canonical SBU cleanup succeeded.
+
+    command_return_sbu owns Utility-hold cleanup after verification. A remaining
+    raw hold file means the command skipped, failed verification, or was blocked;
+    in all of those cases Discord must preserve recovery intent.
+    """
+    if resume_rc != 0 or sbu_rc != 0 or state_module.UTILITY_HOLD_FILE.exists():
+        return False
+    clear_topup_state()
+    return True
 
 
 def _read_state_file(relative_path: str) -> dict[str, Any] | None:
@@ -561,8 +576,10 @@ def command_serve_discord_bot(config: Config) -> int:
             if utility_rc != 0:
                 resume_rc, resume_out = await run_guard_command(["resume"])
                 await interaction.channel.send(command_result_text("topup resume after failure", resume_rc, resume_out))
-                clear_utility_hold_state()
-                clear_topup_state()
+                await interaction.channel.send(
+                    "Top-up ownership state was preserved because the Utility command failed; "
+                    "check inverter mode before retrying or cancelling."
+                )
                 return
 
             await asyncio.sleep(effective_minutes * 60)
@@ -571,8 +588,11 @@ def command_serve_discord_bot(config: Config) -> int:
             await interaction.channel.send(command_result_text("topup resume", resume_rc, resume_out))
             sbu_rc, sbu_out = await run_guard_command(["return-sbu"])
             await interaction.channel.send(command_result_text("topup return-sbu", sbu_rc, sbu_out))
-            clear_utility_hold_state()
-            clear_topup_state()
+            if not finalize_topup_state_after_sbu(resume_rc, sbu_rc):
+                await interaction.channel.send(
+                    "Top-up state preserved: SBU cleanup did not clear Utility ownership. "
+                    "Review the command result and retry safely."
+                )
 
         await _guarded(config, interaction, action)
 
@@ -587,8 +607,11 @@ def command_serve_discord_bot(config: Config) -> int:
             await interaction.channel.send(command_result_text("topup cancel resume", resume_rc, resume_out))
             sbu_rc, sbu_out = await run_guard_command(["return-sbu"])
             await interaction.channel.send(command_result_text("topup cancel return-sbu", sbu_rc, sbu_out))
-            clear_utility_hold_state()
-            clear_topup_state()
+            if not finalize_topup_state_after_sbu(resume_rc, sbu_rc):
+                await interaction.channel.send(
+                    "Cancellation state preserved: SBU cleanup did not clear Utility ownership. "
+                    "Review the command result before further action."
+                )
 
         await _guarded(config, interaction, action)
 
