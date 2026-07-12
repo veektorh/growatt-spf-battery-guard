@@ -21,6 +21,7 @@ from growatt_guard.dashboard import (
     read_dashboard_metrics_history,
 )
 from growatt_guard.exceptions import GrowattGuardError
+from growatt_guard.forecast_calibration import update_forecast_calibration
 from growatt_guard.growatt_api import load_context
 from growatt_guard.notifications import notify_failure, send_discord_message
 from growatt_guard.pvoutput import publish_pvoutput_status_from_status
@@ -84,6 +85,14 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
     append_dashboard_metric_snapshot(status, now=dt.datetime.now().astimezone())
     metrics_history = read_dashboard_metrics_history()
     pv_forecast = get_pv_forecast(config)
+    calibration = update_forecast_calibration(
+        pv_forecast,
+        metrics_history,
+        current_performance_ratio=config.panel_performance_ratio,
+        sunny_threshold_kwh_m2=config.auto_topup_solar_skip_kwh_m2,
+    )
+    if pv_forecast is not None:
+        pv_forecast["calibration"] = calibration
     json_payload = build_dashboard_data_payload(
         status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes,
         config.battery_capacity_wh, config.battery_bms_cutoff_soc,
@@ -93,6 +102,7 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
         metrics_history,
         hours_to_sunset=hrs_to_sunset,
         pv_forecast=pv_forecast,
+        min_sbu_return_soc=config.min_sbu_return_soc,
     )
     html_content = build_dashboard_html(
         status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes,
@@ -108,6 +118,7 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
         tonight_comfortable_soc=45.0,
         utility_hold_state=read_utility_hold_state(),
         pv_forecast=pv_forecast,
+        min_sbu_return_soc=config.min_sbu_return_soc,
         dashboard_data=json_payload,
     )
     # Atomic write: temp file in same directory then rename to avoid serving

@@ -62,6 +62,9 @@ def make_config(**overrides):
         "auto_topup_sunrise_floor_soc": 35.0,
         "auto_topup_sunrise_buffer_soc": 38.0,
         "auto_topup_unusual_soc_threshold": 70.0,
+        "panel_kwp": 0.0,
+        "panel_performance_ratio": 0.75,
+        "min_sbu_return_soc": 30.0,
     }
     values.update(overrides)
     return Config(**values)

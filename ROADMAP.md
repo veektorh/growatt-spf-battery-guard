@@ -77,6 +77,8 @@ what to do next.
   and service states.
 - For each failed check, include one suggested command.
 - Add `--discord`/`--notify` output that stays compact enough for mobile.
+- [x] Show the SBU-return guard, recent block/bypass state, blocked Utility
+  ownership, and forecast-calibration readiness in operational views.
 
 ### 4. Forecast And Load Planner V2
 
@@ -85,8 +87,9 @@ improving decisions, not adding more writes.
 
 - Use solar-relevant weather fields where available: direct radiation, sunshine
   duration, cloud cover, and precipitation.
-- Compare forecast with recent PVOutput/Growatt production to learn whether a
-  "sunny" forecast actually produced useful energy.
+- [x] Compare day-ahead forecasts with completed Growatt production to learn
+  whether a "sunny" forecast actually produced useful energy, and wait for five
+  samples before suggesting performance-ratio tuning.
 - Add a dashboard card: "Tonight's risk" with expected sunrise SOC and reason.
 - Add weekly recommendation text for `AUTO_TOPUP_TARGET_SOC`,
   `BATTERY_CHARGE_RATE_W`, and the topup margin.
@@ -141,6 +144,8 @@ Why: local state now matters and outage schedules change.
 
 - Add backup/restore for pause state, alert state, topup state, schedule
   overrides, dashboard metrics, and audit logs.
+- [x] Add selective backup/restore for overrides, audit history, dashboard
+  metrics, and forecast calibration, with explicit live-validated active-hold recovery.
 - [x] Keep generated backups out of Git.
 - Keep `schedule-calendar` useful for outage windows and mode-changing jobs.
 - [x] Add schedule lint warnings for jobs that are too close together.
@@ -152,8 +157,8 @@ Why: local state now matters and outage schedules change.
 - [x] Add local API call accounting and warnings when a schedule would increase
   Growatt polling too much.
 - Add stricter idempotency audit rows for skipped mode writes.
-- Add emergency SBU-return guard below a configurable SOC, with an explicit
-  override for outage realities.
+- [x] Add emergency SBU-return guard below a configurable SOC, with an explicit
+  audited override for outage realities.
 - [x] Add state migration/versioning for local JSON state files.
 
 ### Dashboard And Observability
@@ -168,7 +173,7 @@ Why: local state now matters and outage schedules change.
 
 - Learn typical overnight load by weekday/weekend.
 - Learn effective charge rate from completed topups and suggest config updates.
-- Compare forecasted solar against actual PV generation.
+- [x] Compare forecasted solar against actual PV generation.
 - Suggest threshold adjustments only after several days of evidence.
 
 ### Scheduling

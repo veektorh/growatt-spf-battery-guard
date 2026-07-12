@@ -617,4 +617,16 @@ class TopupCompleteFeedbackTests(unittest.TestCase):
         return_mock.assert_not_called()
         self.assertIn("No active topup", buf.getvalue())
 
+    def test_blocked_sbu_return_preserves_topup_and_hold_state(self):
+        from growatt_guard.topup import _return_sbu_and_clear_topup
 
+        with (
+            patch("growatt_guard.topup.command_return_sbu", return_value=2),
+            patch("growatt_guard.topup.clear_utility_hold_state") as clear_hold,
+            patch("growatt_guard.topup.clear_topup_state") as clear_topup,
+        ):
+            result = _return_sbu_and_clear_topup(make_config())
+
+        self.assertEqual(result, 2)
+        clear_hold.assert_not_called()
+        clear_topup.assert_not_called()

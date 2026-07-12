@@ -81,6 +81,11 @@ class ValidateConfigTests(unittest.TestCase):
 
         self.assertFalse(any("AUTO_TOPUP_ENABLED" in w for w in warnings))
 
+    def test_invalid_min_sbu_return_soc_warns(self):
+        warnings = validate_config(make_config(min_sbu_return_soc=101))
+
+        self.assertTrue(any("MIN_SBU_RETURN_SOC" in warning for warning in warnings))
+
 
 class LoadConfigTests(unittest.TestCase):
     def _load_with_env(self, env):
@@ -95,6 +100,7 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(config.mode_driver, "spf5000")
         self.assertEqual(config.discord_control_allowed_user_ids, ())
         self.assertEqual(config.panel_performance_ratio, 0.75)
+        self.assertEqual(config.min_sbu_return_soc, 30)
 
     def test_load_config_parses_typed_values(self):
         config = self._load_with_env(
@@ -113,6 +119,7 @@ class LoadConfigTests(unittest.TestCase):
                 "GROWATT_SESSION_TTL_MINUTES": "60",
                 "PANEL_KWP": "8.2",
                 "PANEL_PERFORMANCE_RATIO": "0.7",
+                "MIN_SBU_RETURN_SOC": "28",
             }
         )
 
@@ -128,6 +135,7 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(config.growatt_session_ttl_minutes, 60)
         self.assertEqual(config.panel_kwp, 8.2)
         self.assertEqual(config.panel_performance_ratio, 0.7)
+        self.assertEqual(config.min_sbu_return_soc, 28)
 
     def test_load_config_custom_driver_without_params_falls_back_to_spf5000(self):
         config = self._load_with_env(

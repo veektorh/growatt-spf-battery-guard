@@ -5,6 +5,7 @@ from typing import Any
 
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.pvoutput import read_pvoutput_state
+from growatt_guard.operational_status import build_sbu_guard_status
 from growatt_guard.growatt_api import format_duration_minutes
 from growatt_guard.dashboard_metrics import (
     _fmt_w, _history_with_live, build_dashboard_history_payload,
@@ -45,6 +46,7 @@ def build_dashboard_data_payload(
     metrics_history: list[dict[str, Any]] | None = None,
     hours_to_sunset: float | None = None,
     pv_forecast: dict[str, Any] | None = None,
+    min_sbu_return_soc: float = 30.0,
     now: dt.datetime | None = None,
 ) -> dict[str, Any]:
     now = now or dt.datetime.now().astimezone()
@@ -57,6 +59,7 @@ def build_dashboard_data_payload(
     pause_state = read_pause_state()
     alert_state = read_battery_alert_state()
     cloud_state = read_growatt_cloud_failure_state()
+    sbu_guard = build_sbu_guard_status(min_sbu_return_soc)
     pvoutput_state = read_pvoutput_state()
     sources = extract_dashboard_metric_sources(status)
     data_quality = build_dashboard_data_quality(live_metrics, sources)
@@ -145,7 +148,11 @@ def build_dashboard_data_payload(
         "sources": sources,
         "quality": {"data": data_quality},
         "insights": {"daily": daily_insights, "daily_mix": daily_mix},
-        "planner": {"tonight_risk": risk, "outlook": energy_outlook},
+        "planner": {
+            "tonight_risk": risk,
+            "outlook": energy_outlook,
+            "forecast_calibration": energy_outlook.get("forecast_calibration"),
+        },
         "assistant": {
             "status": home_status,
             "summary": assistant_summary,
@@ -163,6 +170,7 @@ def build_dashboard_data_payload(
             "pause_state": {k: v for k, v in pause_state.items() if k != "paused_until_dt"} if pause_state else None,
             "emergency_alert": "active" if alert_state and alert_state.get("active") else "clear",
             "cloud_failure_streak": int(cloud_state.get("count", 0)) if cloud_state else 0,
+            "sbu_return_guard": sbu_guard,
             "today_override_note": str(today_override.get("note", "")).strip() or "none",
             "today_skipped_jobs": today_override.get("skip", []) if isinstance(today_override.get("skip", []), list) else [],
         },
@@ -422,5 +430,3 @@ def _upcoming_override_rows(overrides: dict[str, Any], today: dt.date, days: int
             action = "; ".join(parts) if parts else "none"
         rows.append((date_str, note, action))
     return rows
-
-

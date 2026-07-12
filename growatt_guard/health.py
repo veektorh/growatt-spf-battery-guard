@@ -13,6 +13,7 @@ from growatt_guard.dashboard import DASHBOARD_FILE, dashboard_freshness
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import extract_soc, extract_spf_output_source, load_context
 from growatt_guard.notifications import read_growatt_cloud_failure_state, send_discord_embed, send_discord_message
+from growatt_guard.operational_status import build_forecast_calibration_status, build_sbu_guard_status
 from growatt_guard.pvoutput import read_pvoutput_state
 from growatt_guard.schedule import (
     check_cron_schedule,
@@ -97,6 +98,10 @@ def default_health_suggestion(check: HealthCheckItem) -> str:
         return "Use GROWATT_MODE_DRIVER=spf5000 for SPF models unless custom params are intentional."
     if "utility command" in name or "sbu command" in name:
         return "Set the missing custom params or switch back to the SPF driver."
+    if "sbu return guard" in name:
+        if "active utility hold remains" in detail:
+            return "Run topup-complete-check; use an audited low-SOC override only if outage conditions require SBU now."
+        return "Set MIN_SBU_RETURN_SOC to a value from 1-100; 30 is the safe default."
     if "schedule override" in name:
         return "Inspect schedule_overrides.json or remove the bad date override."
     if "disk space" in name:
@@ -169,6 +174,15 @@ def command_health_check(config: Config, notify: bool = False) -> int:
         ),
     ]
     checks.append(disk_usage_check())
+
+    guard = build_sbu_guard_status(config.min_sbu_return_soc)
+    guard_health = "FAIL" if guard["state"] == "misconfigured" else (
+        "WARN" if guard["state"] in {"disabled", "blocked_hold"} else "OK"
+    )
+    checks.append(HealthCheckItem("SBU return guard", guard_health, guard["detail"]))
+
+    calibration = build_forecast_calibration_status(config)
+    checks.append(HealthCheckItem("Forecast calibration", "OK", calibration["detail"]))
 
     if config.emergency_soc_recovery <= config.emergency_soc:
         checks.append(

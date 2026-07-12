@@ -97,6 +97,26 @@ def embed_mode_switch_sbu(soc: float | None, previous_mode: str) -> dict:
     return _embed("Returned to SBU priority", _COLOR_OK, fields)
 
 
+def embed_sbu_return_blocked(
+    command: str,
+    soc: float | None,
+    threshold: float,
+    previous_mode: str,
+) -> dict:
+    fields = [
+        _f("Command", command),
+        _f("Battery SOC", f"{soc:g}%" if soc is not None else "unavailable"),
+        _f("Minimum return SOC", f"{threshold:g}%"),
+        _f("Current mode", previous_mode or "unknown"),
+        _f(
+            "Action",
+            "Stayed on Utility. Use an explicit low-SOC override with a reason only when outage conditions require it.",
+            inline=False,
+        ),
+    ]
+    return _embed("SBU return blocked by low-SOC guard", _COLOR_FAIL, fields)
+
+
 def embed_mode_not_confirmed(command: str, expected_mode: str) -> dict:
     fields = [
         _f("Command", command),

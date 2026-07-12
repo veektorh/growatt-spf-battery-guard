@@ -29,7 +29,7 @@ def configure_state_dir(path: str | os.PathLike[str]) -> Path:
     global COMMAND_LOCK_FILE, DASHBOARD_STALE_ALERT_FILE, GROWATT_CLOUD_FAILURE_FILE
     global LOGIN_COOLDOWN_FILE, SESSION_CACHE_FILE, SESSION_REFRESH_LOCK_FILE
     global TOPUP_STATE_FILE, TOPUP_SKIP_NOTIFICATION_FILE
-    global CHARGE_RATE_HISTORY_FILE, DISCHARGE_RATE_HISTORY_FILE, RUNTIME_ALERT_FILE
+    global CHARGE_RATE_HISTORY_FILE, DISCHARGE_RATE_HISTORY_FILE, FORECAST_CALIBRATION_FILE, RUNTIME_ALERT_FILE
     global UTILITY_HOLD_FILE, WASTE_ALERT_FILE
 
     STATE_DIR = Path(path)
@@ -47,6 +47,7 @@ def configure_state_dir(path: str | os.PathLike[str]) -> Path:
     TOPUP_SKIP_NOTIFICATION_FILE = STATE_DIR / "topup_skip_notification.json"
     CHARGE_RATE_HISTORY_FILE = STATE_DIR / "charge_rate_history.json"
     DISCHARGE_RATE_HISTORY_FILE = STATE_DIR / "discharge_rate_history.json"
+    FORECAST_CALIBRATION_FILE = STATE_DIR / "forecast_calibration.json"
     RUNTIME_ALERT_FILE = STATE_DIR / "runtime_alert.json"
     UTILITY_HOLD_FILE = STATE_DIR / "utility_hold.json"
     WASTE_ALERT_FILE = STATE_DIR / "waste_alert.json"
@@ -622,6 +623,20 @@ def append_discharge_rate_reading(rate_w: float) -> list[dict]:
     return readings
 
 
+def read_forecast_calibration_history() -> list[dict[str, Any]]:
+    state = read_json_state(FORECAST_CALIBRATION_FILE, "forecast calibration")
+    if not state:
+        return []
+    forecasts = state.get("forecasts")
+    if not isinstance(forecasts, list):
+        return []
+    return [row for row in forecasts if isinstance(row, dict)]
+
+
+def write_forecast_calibration_history(forecasts: list[dict[str, Any]]) -> None:
+    write_json_state(FORECAST_CALIBRATION_FILE, {"forecasts": forecasts})
+
+
 def read_runtime_alert_state() -> dict[str, Any] | None:
     return read_json_state(RUNTIME_ALERT_FILE, "runtime alert")
 
@@ -793,5 +808,4 @@ def clear_waste_alert_mute() -> None:
         write_json_state(WASTE_ALERT_FILE, state)
     else:
         clear_state_file(WASTE_ALERT_FILE)
-
 

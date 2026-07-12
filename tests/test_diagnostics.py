@@ -301,6 +301,8 @@ class DeploymentPreflightTests(unittest.TestCase):
 
         self.assertEqual(payload["result"], "OK")
         self.assertFalse(payload["topup"]["present"])
+        self.assertEqual(payload["sbu_return_guard"]["minimum_soc"], 30)
+        self.assertIn("sample_count", payload["forecast_calibration"])
         freshness_mock.assert_called_once()
         self.assertEqual(freshness_mock.call_args.args[1], 45)
 

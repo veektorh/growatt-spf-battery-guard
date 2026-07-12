@@ -257,6 +257,7 @@ def build_dashboard_energy_outlook(
 
     tomorrow_kwh = pv_forecast.get("tomorrow_kwh") if pv_forecast else None
     today_remaining_kwh = pv_forecast.get("today_remaining_kwh") if pv_forecast else None
+    calibration = pv_forecast.get("calibration") if pv_forecast else None
     weather_category = str(getattr(threshold_decision, "weather_category", "") or "not configured")
     cloud = getattr(threshold_decision, "cloud_cover", None)
     rain = getattr(threshold_decision, "precipitation_mm", None)
@@ -295,6 +296,7 @@ def build_dashboard_energy_outlook(
         "expected_grid_kwh": expected_grid_kwh,
         "weather": weather_detail,
         "confidence": confidence,
+        "forecast_calibration": calibration if isinstance(calibration, dict) else None,
     }
 
 
@@ -536,5 +538,4 @@ def build_dashboard_next_action(
         "command": command,
         "relative": relative,
     }
-
 

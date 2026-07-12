@@ -54,6 +54,17 @@ growatt_guard.audit
 growatt_guard.weather
   Owns optional Open-Meteo forecast reads and weather-aware threshold selection.
 
+growatt_guard.forecast_calibration
+  Records day-ahead PV estimates, reconciles completed Growatt daily production,
+  and produces read-only forecast accuracy and configuration recommendations.
+
+growatt_guard.operational_status
+  Builds shared SBU-return guard and forecast-calibration readiness summaries.
+
+growatt_guard.backups
+  Backs up selected local history/overrides and strictly validates active holds
+  before any restore.
+
 growatt_guard.dashboard
   Owns HTML rendering and compatibility exports.
 

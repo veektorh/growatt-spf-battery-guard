@@ -50,6 +50,14 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(args.command, "watchdog-sbu")
 
+    def test_return_sbu_low_soc_override_args(self):
+        args = build_parser().parse_args(
+            ["return-sbu", "--allow-low-soc", "--reason", "scheduled outage"]
+        )
+
+        self.assertTrue(args.allow_low_soc)
+        self.assertEqual(args.reason, "scheduled outage")
+
     def test_force_utility_command_is_available(self):
         args = build_parser().parse_args(["force-utility", "--reason", "manual top-up"])
 
@@ -89,6 +97,14 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertEqual(args.command, "deployment-preflight")
         self.assertTrue(args.json)
+
+    def test_backup_and_restore_commands_are_available(self):
+        backup = build_parser().parse_args(["backup-state", "--include-active-hold"])
+        restore = build_parser().parse_args(["restore-state", "snapshot.backup.json", "--allow-active-hold"])
+
+        self.assertTrue(backup.include_active_hold)
+        self.assertEqual(restore.input, "snapshot.backup.json")
+        self.assertTrue(restore.allow_active_hold)
 
     def test_rotate_logs_command_is_available(self):
         args = build_parser().parse_args(["rotate-logs"])
@@ -477,6 +493,8 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("Result: OK", output)
         self.assertIn("[OK] Next jobs:", output)
+        self.assertIn("[OK] SBU return guard:", output)
+        self.assertIn("[OK] Forecast calibration:", output)
         self.assertIn("morning-preserve", output)
         self.assertIn("morning-return", output)
         self.assertIn("morning-watchdog", output)

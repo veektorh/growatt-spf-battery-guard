@@ -82,6 +82,7 @@ class Config:
     auto_topup_unusual_soc_threshold: float = 70.0
     panel_kwp: float = 0.0
     panel_performance_ratio: float = 0.75
+    min_sbu_return_soc: float = 30.0
 
 
 def config_error(message: str) -> GrowattGuardError:
@@ -116,6 +117,8 @@ def csv_env(name: str) -> tuple[str, ...]:
 
 def validate_config(config: Config) -> list[str]:
     warnings: list[str] = []
+    if not 0 <= config.min_sbu_return_soc <= 100:
+        warnings.append("MIN_SBU_RETURN_SOC must be between 0 and 100")
     if config.load_aware_threshold and not config.weather_enabled:
         warnings.append(
             "LOAD_AWARE_THRESHOLD=true has no effect without WEATHER_ENABLED=true"
@@ -218,4 +221,5 @@ def load_config() -> Config:
         auto_topup_unusual_soc_threshold=float(env("AUTO_TOPUP_UNUSUAL_SOC_THRESHOLD", "70")),
         panel_kwp=float(env("PANEL_KWP", "0")),
         panel_performance_ratio=float(env("PANEL_PERFORMANCE_RATIO", "0.75")),
+        min_sbu_return_soc=float(env("MIN_SBU_RETURN_SOC", "30")),
     )

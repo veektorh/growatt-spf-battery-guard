@@ -418,6 +418,9 @@ def _return_sbu_and_clear_topup(config: Config) -> int:
     except Exception:
         logging.warning("topup-complete-check: return-sbu failed; state preserved for retry")
         raise
+    if result != 0:
+        logging.warning("topup-complete-check: return-sbu was blocked; state preserved for retry")
+        return result
     clear_utility_hold_state()
     clear_topup_state()
     return result

@@ -141,6 +141,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Tomorrow PV", html)
         self.assertIn("Weather context", html)
         self.assertIn("Energy Outlook", html)
+        self.assertIn("SBU Return Guard", html)
         self.assertIn("Estimate basis:", html)
         self.assertIn("Top-up duration:", html)
         self.assertIn("flow-chain", html)

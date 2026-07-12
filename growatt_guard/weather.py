@@ -349,6 +349,7 @@ def get_pv_forecast(config: Any, now: dt.datetime | None = None) -> dict[str, An
     return {
         "tomorrow_kwh": tomorrow_kwh,
         "today_remaining_kwh": today_remaining_kwh,
+        "tomorrow_irradiance_kwh_m2": round(ghi_tomorrow, 2),
         "panel_kwp": panel_kwp,
         "performance_ratio": pr,
     }

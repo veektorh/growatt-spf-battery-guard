@@ -19,6 +19,7 @@ from growatt_guard.dashboard import (
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import deep_values, extract_soc, extract_spf_output_source, load_context
 from growatt_guard.pvoutput import extract_pvoutput_fields, read_pvoutput_state
+from growatt_guard.operational_status import build_forecast_calibration_status, build_sbu_guard_status
 from growatt_guard.schedule import (
     check_cron_schedule,
     lint_schedule,
@@ -277,6 +278,13 @@ def _state_items() -> list[DiagnosticItem]:
 
 def build_service_status(config: Any) -> list[DiagnosticItem]:
     items: list[DiagnosticItem] = []
+    guard = build_sbu_guard_status(config.min_sbu_return_soc)
+    guard_status = "FAIL" if guard["state"] == "misconfigured" else (
+        "WARN" if guard["state"] in {"disabled", "blocked_hold"} else "OK"
+    )
+    items.append(DiagnosticItem("SBU return guard", guard_status, guard["detail"]))
+    calibration = build_forecast_calibration_status(config)
+    items.append(DiagnosticItem("Forecast calibration", "OK", calibration["detail"]))
     try:
         schedule = validate_schedule()
     except Exception as exc:  # noqa: BLE001 - diagnostic output should continue
@@ -383,6 +391,9 @@ def build_deployment_preflight_payload(config: Any | None = None) -> dict[str, A
 
     stale_minutes = int(getattr(config, "dashboard_stale_minutes", 30) or 30)
     freshness = dashboard_freshness(DASHBOARD_FILE, stale_minutes)
+    minimum_soc = float(getattr(config, "min_sbu_return_soc", 30) or 0)
+    guard = build_sbu_guard_status(minimum_soc, utility_hold=hold)
+    calibration = build_forecast_calibration_status(config) if config is not None else None
     return {
         "schema_version": 1,
         "generated_at": _now_iso(),
@@ -390,11 +401,15 @@ def build_deployment_preflight_payload(config: Any | None = None) -> dict[str, A
         "branch": branch,
         "head": head,
         "dashboard": freshness,
+        "sbu_return_guard": guard,
+        "forecast_calibration": calibration,
         "topup": _state_summary_for_preflight(topup, ("minutes", "paused_until", "reason", "started_at")),
         "utility_hold": _state_summary_for_preflight(hold, ("ownership", "target_soc", "max_expiry", "started_at")),
         "pause": _state_summary_for_preflight(pause, ("paused_until", "reason")),
         "command_lock": _state_summary_for_preflight(lock, ("command", "created_at")),
         "blocking_reason": (
+            "Active Utility hold remains after the low-SOC guard blocked SBU cleanup; resolve it before deploying."
+            if guard["hold_blocked"] else
             "Active topup/utility-hold state exists; deploy after return-to-SBU automation completes."
             if active_hold else "No active topup or utility hold."
         ),
@@ -408,6 +423,8 @@ def format_deployment_preflight(payload: dict[str, Any]) -> str:
         f"Branch: {payload.get('branch')}",
         f"HEAD: {payload.get('head')}",
         f"Dashboard: {payload.get('dashboard', {}).get('reason', 'unknown')}",
+        f"SBU return guard: {payload.get('sbu_return_guard', {}).get('detail', 'unknown')}",
+        f"Forecast calibration: {(payload.get('forecast_calibration') or {}).get('detail', 'unknown')}",
     ]
     for key, label in (("topup", "Topup"), ("utility_hold", "Utility hold"), ("pause", "Pause"), ("command_lock", "Command lock")):
         state = payload.get(key, {})
@@ -435,6 +452,7 @@ def _redacted_config_summary(config: Any) -> list[str]:
         f"BATTERY_CAPACITY_WH={config.battery_capacity_wh:g}",
         f"BATTERY_CHARGE_RATE_W={config.battery_charge_rate_w:g}",
         f"AUTO_TOPUP_ENABLED={config.auto_topup_enabled}",
+        f"MIN_SBU_RETURN_SOC={config.min_sbu_return_soc:g}",
         f"DASHBOARD_STALE_MINUTES={config.dashboard_stale_minutes:g}",
         f"PVOUTPUT_ENABLED={getattr(config, 'pvoutput_enabled', False)}",
         f"DISCORD_WEBHOOK_CONFIGURED={bool(config.discord_webhook_url)}",

@@ -187,6 +187,21 @@ BATTERY_CHARGE_TARGET_SOC=75
 
 `watchdog-sbu` will hold on Utility until SOC reaches 75%, then repair to SBU normally. Set to `0` to disable.
 
+Automatic Utility-to-SBU transitions also have a low-SOC safety guard. The
+default `MIN_SBU_RETURN_SOC=30` blocks `return-sbu` and watchdog repairs when
+SOC is below 30%, or when SOC cannot be read, leaving the Utility hold in place
+for retry. For an exceptional outage, a manual operator can bypass the guard
+with an audited reason:
+
+```bash
+python growatt_power_guard.py return-sbu --allow-low-soc --reason "utility outage expected"
+```
+
+Set `MIN_SBU_RETURN_SOC=0` only if you deliberately want to disable the guard.
+The guard state, latest blocked/bypassed event, active blocked hold, and forecast
+calibration readiness are also shown by `health-check`, `service-status`,
+`deployment-preflight`, the dashboard, and `dashboard.json`.
+
 ### Auto-Topup at Night
 
 Enable auto-topup to automatically charge from Utility at night when the battery won't survive until sunrise:
@@ -651,12 +666,18 @@ The dashboard includes a health badge that turns stale when `dashboard.html` is 
 Each refresh also appends a compact local snapshot to `logs/dashboard_metrics.jsonl`.
 The dashboard uses that local history for PV/load/grid/SOC charts, so chart views do
 not add extra Growatt API calls.
+When `PANEL_KWP` and weather coordinates are configured, each refresh also
+records the day-ahead PV estimate in local state. Completed days are compared
+with Growatt's highest reported daily PV counter. The dashboard and
+`dashboard.json` show forecast error, bias, sunny-day realization, and a
+calibration recommendation. At least five completed days are required before
+the system suggests changing `PANEL_PERFORMANCE_RATIO`; it never applies the
+change automatically or uses calibration to issue inverter commands.
 Each refresh also writes `dashboard.json` beside `dashboard.html`. The JSON file
 contains the same live metrics, metric source paths, freshness metadata, schedule
 summary, next automation action, PVOutput state, data-quality status,
 `quality.data.reconciliation` energy-balance status, same-time daily insights,
-and tonight risk planner data
-used by the dashboard. The built-in dashboard server exposes it at
+and tonight risk planner data used by the dashboard. The built-in dashboard server exposes it at
 `/dashboard.json` without making another Growatt API call. Treat the top-level
 keys `generated_at`, `metrics`, `sources`, `planner`, `schedule`, `automation`,
 `pvoutput`, `quality`, `history`, `assistant`, and `freshness` as the public
@@ -664,6 +685,31 @@ read-only dashboard contract for monitors and future apps. `freshness` includes
 `last_successful_growatt_read_at` and `last_successful_pvoutput_upload_at` for
 integration health checks. New keys may be added, but existing key meanings
 should stay backward-compatible.
+
+### Local Backup and Restore
+
+Create a selective local backup of schedule overrides, the mode audit, dashboard
+metric history, and forecast calibration evidence:
+
+```bash
+.venv/bin/python growatt_power_guard.py backup-state
+```
+
+Backups are written with owner-only permissions under `backups/`, which is
+ignored by Git. Credentials, `.env`, webhook URLs, Growatt session caches,
+device identifiers, logs outside the mode audit, and alert state are excluded.
+
+Restore a backup with:
+
+```bash
+.venv/bin/python growatt_power_guard.py restore-state backups/growatt-guard-YYYYMMDDTHHMMSS.backup.json
+```
+
+Active Utility ownership is excluded by default. For a deliberate disaster
+recovery snapshot, use `backup-state --include-active-hold`. Restoring that
+section requires `--allow-active-hold`, no existing hold/top-up, valid bounded
+future timestamps, and a live read confirming the inverter is currently in
+Utility-first mode. Invalid or expired ownership state is never restored.
 
 To use a 30-minute refresh interval instead:
 

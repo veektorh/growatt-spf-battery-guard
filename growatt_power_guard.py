@@ -19,6 +19,12 @@ from growatt_guard.audit import (
     read_mode_audit_rows,
     summarize_today_log_counts,
 )
+from growatt_guard.backups import (
+    BACKUP_SCHEMA_VERSION,
+    build_backup_payload,
+    command_backup_state,
+    command_restore_state,
+)
 from growatt_guard.cli import (
     LOG_BACKUP_COUNT,
     LOG_DIR,

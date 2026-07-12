@@ -106,7 +106,11 @@ class GrowattApiTests(unittest.TestCase):
                 "growatt_guard.state.UTILITY_HOLD_FILE", hold_file
             ), patch(
                 "growatt_guard.modes.load_context",
-                return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), {"storage_params": {"outputConfig": "2"}}),
+                return_value=(
+                    None,
+                    DeviceRef("plant123", "SN123", "storage", {}),
+                    {"device": {"capacity": "70 %"}, "storage_params": {"outputConfig": "2"}},
+                ),
             ), patch("growatt_guard.modes.set_mode", return_value={"success": True}) as set_mode_mock, patch(
                 "logging.warning"
             ), redirect_stdout(StringIO()):
@@ -114,6 +118,31 @@ class GrowattApiTests(unittest.TestCase):
 
         set_mode_mock.assert_called_once()
 
+    def test_watchdog_sbu_blocks_repair_below_minimum_soc(self):
+        config = make_config(min_sbu_return_soc=30)
+        status = {
+            "device": {"capacity": "24 %"},
+            "storage_params": {"outputConfig": "2"},
+        }
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.audit.LOG_DIR", Path(tmpdir)
+        ), patch(
+            "growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
+        ), patch(
+            "growatt_guard.state.UTILITY_HOLD_FILE", Path(tmpdir) / "utility_hold.json"
+        ), patch(
+            "growatt_guard.modes.load_context",
+            return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
+        ), patch(
+            "growatt_guard.modes.read_utility_hold_state",
+            return_value={"ownership": "owned"},
+        ), patch(
+            "growatt_guard.modes.set_mode"
+        ) as set_mode_mock, redirect_stdout(StringIO()):
+            result = command_watchdog_sbu(config)
+
+        self.assertEqual(result, 2)
+        set_mode_mock.assert_not_called()
 
 class IdempotencyTests(unittest.TestCase):
     def _audit_patch(self, tmpdir):
@@ -232,6 +261,101 @@ class IdempotencyTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertIsNone(state)
         mock_set.assert_not_called()
+
+    def test_return_sbu_blocks_below_minimum_soc(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from tempfile import TemporaryDirectory
+        from growatt_guard.modes import command_return_sbu
+
+        config = make_config(min_sbu_return_soc=30)
+        status = {
+            "device": {"capacity": "24 %"},
+            "storage_params": {"storageBean": {"outputConfig": "2"}},
+        }
+        with TemporaryDirectory() as tmpdir:
+            with self._audit_patch(tmpdir)[0], self._audit_patch(tmpdir)[1], \
+                 patch("growatt_guard.modes.load_context", return_value=(None, DeviceRef("p", "s", "storage", {}), status)), \
+                 patch("growatt_guard.modes.set_mode") as mock_set, \
+                 patch("growatt_guard.modes.ensure_not_paused", return_value=False), \
+                 redirect_stdout(StringIO()):
+                result = command_return_sbu(config)
+            audit = (Path(tmpdir) / "mode_decisions.csv").read_text(encoding="utf-8")
+
+        self.assertEqual(result, 2)
+        mock_set.assert_not_called()
+        self.assertIn("low-soc-guard-blocked", audit)
+
+    def test_return_sbu_blocks_when_soc_is_unavailable(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from tempfile import TemporaryDirectory
+        from growatt_guard.modes import command_return_sbu
+
+        config = make_config(min_sbu_return_soc=30)
+        status = {"storage_params": {"storageBean": {"outputConfig": "2"}}}
+        with TemporaryDirectory() as tmpdir:
+            with self._audit_patch(tmpdir)[0], self._audit_patch(tmpdir)[1], \
+                 patch("growatt_guard.modes.load_context", return_value=(None, DeviceRef("p", "s", "storage", {}), status)), \
+                 patch("growatt_guard.modes.set_mode") as mock_set, \
+                 patch("growatt_guard.modes.ensure_not_paused", return_value=False), \
+                 redirect_stdout(StringIO()):
+                result = command_return_sbu(config)
+
+        self.assertEqual(result, 2)
+        mock_set.assert_not_called()
+
+    def test_return_sbu_low_soc_override_requires_reason(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from tempfile import TemporaryDirectory
+        from growatt_guard.exceptions import GrowattGuardError
+        from growatt_guard.modes import command_return_sbu
+
+        config = make_config(min_sbu_return_soc=30)
+        status = {
+            "device": {"capacity": "24 %"},
+            "storage_params": {"storageBean": {"outputConfig": "2"}},
+        }
+        with TemporaryDirectory() as tmpdir:
+            with self._audit_patch(tmpdir)[0], self._audit_patch(tmpdir)[1], \
+                 patch("growatt_guard.modes.load_context", return_value=(None, DeviceRef("p", "s", "storage", {}), status)), \
+                 patch("growatt_guard.modes.set_mode") as mock_set, \
+                 patch("growatt_guard.modes.ensure_not_paused", return_value=False), \
+                 redirect_stdout(StringIO()):
+                with self.assertRaisesRegex(GrowattGuardError, "requires --reason"):
+                    command_return_sbu(config, allow_low_soc=True)
+
+        mock_set.assert_not_called()
+
+    def test_return_sbu_low_soc_override_is_audited(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from tempfile import TemporaryDirectory
+        from growatt_guard.modes import command_return_sbu
+
+        config = make_config(min_sbu_return_soc=30)
+        status = {
+            "device": {"capacity": "24 %"},
+            "storage_params": {"storageBean": {"outputConfig": "2"}},
+        }
+        with TemporaryDirectory() as tmpdir:
+            with self._audit_patch(tmpdir)[0], self._audit_patch(tmpdir)[1], \
+                 patch("growatt_guard.modes.load_context", return_value=(None, DeviceRef("p", "s", "storage", {}), status)), \
+                 patch("growatt_guard.modes.set_mode", return_value={"dry_run": True}) as mock_set, \
+                 patch("growatt_guard.modes.ensure_not_paused", return_value=False), \
+                 redirect_stdout(StringIO()):
+                result = command_return_sbu(
+                    config,
+                    allow_low_soc=True,
+                    reason="utility outage expected",
+                )
+            audit = (Path(tmpdir) / "mode_decisions.csv").read_text(encoding="utf-8")
+
+        self.assertEqual(result, 0)
+        mock_set.assert_called_once()
+        self.assertIn("low-soc-guard-bypassed", audit)
+        self.assertIn("utility outage expected", audit)
 
     def test_preserve_battery_switches_when_not_already_utility(self):
         from growatt_guard.modes import command_preserve_battery

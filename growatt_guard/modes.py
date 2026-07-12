@@ -29,6 +29,7 @@ from growatt_guard.notifications import (
     embed_mode_switch_sbu,
     embed_mode_switch_utility,
     embed_preserve_skipped,
+    embed_sbu_return_blocked,
     embed_watchdog_failed,
     embed_watchdog_repaired,
     send_discord_embed,
@@ -61,6 +62,62 @@ from growatt_guard.weather import apply_load_adjustment, choose_preserve_thresho
 
 _PRESERVE_HOLD_FALLBACK_MINUTES = 90.0
 _PRESERVE_HOLD_MAX_SCHEDULE_MINUTES = 180.0
+
+
+def _sbu_return_guard_blocks(
+    config: Config,
+    command: str,
+    soc: float | None,
+    previous_mode: str,
+    *,
+    allow_low_soc: bool = False,
+    reason: str = "",
+) -> bool:
+    threshold = max(0.0, float(config.min_sbu_return_soc))
+    if threshold <= 0 or (soc is not None and soc >= threshold):
+        return False
+    if allow_low_soc:
+        if not reason.strip():
+            raise GrowattGuardError("--allow-low-soc requires --reason so the safety override is auditable.")
+        append_mode_audit(
+            config,
+            command,
+            soc=soc,
+            threshold=threshold,
+            previous_mode=previous_mode,
+            action="low-soc-guard-bypassed",
+            result="override",
+            note=reason.strip(),
+        )
+        logging.warning(
+            "%s: low-SOC SBU guard explicitly bypassed (SOC=%s, minimum=%.1f%%): %s",
+            command,
+            "unavailable" if soc is None else f"{soc:.1f}%",
+            threshold,
+            reason.strip(),
+        )
+        return False
+
+    detail = (
+        f"SOC {soc:.1f}% is below minimum {threshold:.1f}%"
+        if soc is not None
+        else f"SOC is unavailable while minimum return SOC is {threshold:.1f}%"
+    )
+    append_mode_audit(
+        config,
+        command,
+        soc=soc,
+        threshold=threshold,
+        previous_mode=previous_mode,
+        action="low-soc-guard-blocked",
+        result="blocked",
+        note=detail,
+    )
+    logging.warning("%s: %s; staying on Utility.", command, detail)
+    if config.discord_notify_failure and not config.dry_run:
+        send_discord_embed(config, embed_sbu_return_blocked(command, soc, threshold, previous_mode))
+    print(f"SBU return blocked: {detail}; staying on Utility.")
+    return True
 
 
 def _preserve_hold_expiry(now: dt.datetime | None = None) -> dt.datetime:
@@ -397,7 +454,11 @@ def command_force_utility(config: Config, reason: str = "") -> int:
     return 0
 
 
-def command_return_sbu(config: Config) -> int:
+def command_return_sbu(
+    config: Config,
+    allow_low_soc: bool = False,
+    reason: str = "",
+) -> int:
     if ensure_not_paused(config, "return-sbu"):
         return 0
 
@@ -421,6 +482,16 @@ def command_return_sbu(config: Config) -> int:
         )
         print("Already in SBU priority mode; no switch needed.")
         return 0
+
+    if _sbu_return_guard_blocks(
+        config,
+        "return-sbu",
+        soc,
+        previous_mode,
+        allow_low_soc=allow_low_soc,
+        reason=reason,
+    ):
+        return 2
 
     try:
         result = set_mode(api, config, device, "sbu")
@@ -552,6 +623,9 @@ def command_watchdog_sbu(config: Config) -> int:
                 return 0
         except ValueError:
             pass
+
+    if _sbu_return_guard_blocks(config, "watchdog-sbu", soc, previous_mode):
+        return 2
 
     logging.warning("SBU watchdog detected output=%s [%s] from %s; retrying SBU.", label, raw, path)
     try:

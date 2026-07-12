@@ -15,6 +15,7 @@ from typing import Any
 from growatt_guard.audit import build_chart_data, read_mode_audit_rows
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.notifications import notify_failure, send_discord_message
+from growatt_guard.operational_status import build_sbu_guard_status
 from growatt_guard.dashboard_assets import DASHBOARD_CSS, DASHBOARD_JS
 from growatt_guard.pvoutput import publish_pvoutput_status_from_status, read_pvoutput_state
 from growatt_guard.growatt_api import (
@@ -191,6 +192,7 @@ def build_dashboard_html(
     tonight_comfortable_soc: float = 45.0,
     utility_hold_state: dict[str, Any] | None = None,
     pv_forecast: dict[str, Any] | None = None,
+    min_sbu_return_soc: float = 30.0,
     dashboard_data: dict[str, Any] | None = None,
 ) -> str:
     if dashboard_data is None:
@@ -299,6 +301,14 @@ def build_dashboard_html(
         for row in read_mode_audit_rows(limit=40, newest_first=True)
         if str(row.get("dry_run", "")).strip().lower() != "true"
     ][:8]
+    if dashboard_data is None:
+        sbu_guard = build_sbu_guard_status(
+            min_sbu_return_soc,
+            audit_rows=last_actions,
+            utility_hold=utility_hold_state,
+        )
+    else:
+        sbu_guard = dashboard_data["automation"]["sbu_return_guard"]
     next_runs = next_scheduled_runs(schedule, now=now, limit=8)
     next_action = (
         dashboard_data["schedule"]["next_action"]
@@ -537,6 +547,22 @@ def build_dashboard_html(
     _weather_short_str = _weather_str.split(" (", 1)[0]
     _weather_reason_str = threshold_reason
     _tomorrow_pv_detail = "Open-Meteo estimate; actual output can be lower in local rain/cloud."
+    _calibration = pv_forecast.get("calibration") if pv_forecast else None
+    _calibration_value = "Learning"
+    _calibration_detail = "Collecting five completed forecast days before suggesting changes."
+    if isinstance(_calibration, dict):
+        _calibration_samples = int(_calibration.get("sample_count") or 0)
+        _calibration_error = _calibration.get("mean_absolute_error_kwh")
+        _calibration_confidence = str(_calibration.get("confidence") or "learning").title()
+        _calibration_value = f"{_calibration_confidence} ({_calibration_samples}d)"
+        _calibration_detail = str(_calibration.get("recommendation") or _calibration_detail)
+        if _calibration_samples > 0 and isinstance(_calibration_error, (int, float)):
+            _tomorrow_pv_detail += (
+                f" Calibration: {_calibration_samples} completed days, "
+                f"{_fmt_kwh(float(_calibration_error))} mean absolute error."
+            )
+        else:
+            _tomorrow_pv_detail += " Calibration is collecting completed forecast days."
     _weather_sensitive_pv = False
     _rain = getattr(threshold_decision, "precipitation_mm", None)
     _cloud = getattr(threshold_decision, "cloud_cover", None)
@@ -568,6 +594,12 @@ def build_dashboard_html(
             ("Battery at Sunrise", _sunrise_str, f"Estimate basis: {_sunrise_basis_str}. {_sunrise_note_str}"),
             ("Expected Grid Top-up", _grid_forecast_str, f"Top-up duration: {_topup_duration_str} from charge-rate config."),
             ("Weather Impact", _weather_str, _weather_reason_str),
+            ("Forecast Calibration", _calibration_value, _calibration_detail),
+            (
+                "SBU Return Guard",
+                f"{sbu_guard['minimum_soc']:g}% {sbu_guard['state']}",
+                str(sbu_guard["detail"]),
+            ),
         ],
     }
     pv_forecast_html = _render_energy_outlook(energy_outlook_view)
@@ -744,6 +776,9 @@ def build_dashboard_html(
     )
     emergency_badge_class = "badge-fail" if alert == "active" else "badge-ok"
     cloud_badge_class = "badge-warn" if cloud_streak else "badge-ok"
+    guard_badge_class = "badge-fail" if sbu_guard["state"] == "misconfigured" else (
+        "badge-warn" if sbu_guard["state"] in {"disabled", "blocked_hold"} else "badge-ok"
+    )
     system_status_rows = _render_status_rows(
         [
             ("Inverter Mode", mode, mode_badge_class),
@@ -752,6 +787,7 @@ def build_dashboard_html(
             ("Data Quality", quality_display, quality_badge_class),
             ("Emergency Alert", alert, emergency_badge_class),
             ("Cloud Streak", str(cloud_streak), cloud_badge_class),
+            ("SBU Guard", f"{sbu_guard['minimum_soc']:g}% {sbu_guard['state']}", guard_badge_class),
         ]
     )
     activity_items = _render_activity_items(last_actions)

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from growatt_guard.config import Config, load_config, validate_config
+from growatt_guard.backups import command_backup_state, command_restore_state
 from growatt_guard.dashboard import DASHBOARD_FILE, MIN_DASHBOARD_REFRESH_MINUTES
 from growatt_guard.diagnostics import (
     command_deployment_preflight,
@@ -83,7 +84,13 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("morning-check", help="Alias for preserve-battery.")
     force_utility_parser = subparsers.add_parser("force-utility", help="Switch to Utility first without an SOC threshold.")
     force_utility_parser.add_argument("--reason", default="", help="Optional reason stored in the audit log.")
-    subparsers.add_parser("return-sbu", help="Switch back to SBU.")
+    return_sbu_parser = subparsers.add_parser("return-sbu", help="Switch back to SBU.")
+    return_sbu_parser.add_argument(
+        "--allow-low-soc",
+        action="store_true",
+        help="Explicitly bypass MIN_SBU_RETURN_SOC; requires --reason.",
+    )
+    return_sbu_parser.add_argument("--reason", default="", help="Required audit reason for a low-SOC bypass.")
     subparsers.add_parser("watchdog-sbu", help="Verify output source is SBU; retry SBU once if needed.")
     subparsers.add_parser("daily-summary", help="Post/print a daily Growatt and automation summary.")
     subparsers.add_parser("weekly-summary", help="Post/print a weekly automation performance summary.")
@@ -101,6 +108,18 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("battery-alert", help="Send a Discord alert if battery SOC is below EMERGENCY_SOC.")
     subparsers.add_parser("validate-schedule", help="Validate schedule.json.")
     subparsers.add_parser("public-hygiene", help="Check tracked files and .env.example for public-safe values.")
+    backup_parser = subparsers.add_parser("backup-state", help="Back up selected local operational history and overrides.")
+    backup_parser.add_argument("--output", default="", help="Output .backup.json path; defaults under backups/.")
+    backup_parser.add_argument(
+        "--include-active-hold", action="store_true",
+        help="Include current Utility ownership state for deliberate disaster recovery.",
+    )
+    restore_parser = subparsers.add_parser("restore-state", help="Restore a validated selective local-state backup.")
+    restore_parser.add_argument("input", help="Backup .json file to restore.")
+    restore_parser.add_argument(
+        "--allow-active-hold", action="store_true",
+        help="Validate and restore an included active hold after confirming live Utility mode.",
+    )
     subparsers.add_parser("test-discord", help="Send a test Discord webhook message.")
     run_parser = subparsers.add_parser("run-scheduled", help="Run a schedule job by id, applying date overrides first.")
     run_parser.add_argument("job_id", help="Schedule job id from schedule.json.")
@@ -308,7 +327,7 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
         if command == "force-utility":
             return app.command_force_utility(config, args.reason)
         if command == "return-sbu":
-            return app.command_return_sbu(config)
+            return app.command_return_sbu(config, allow_low_soc=args.allow_low_soc, reason=args.reason)
         if command == "watchdog-sbu":
             return app.command_watchdog_sbu(config)
         if command == "daily-summary":
@@ -327,6 +346,10 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_weather_threshold(config)
         if command == "battery-alert":
             return app.command_battery_alert(config)
+        if command == "backup-state":
+            return command_backup_state(args.output, args.include_active_hold)
+        if command == "restore-state":
+            return command_restore_state(config, args.input, args.allow_active_hold)
         if command == "test-discord":
             return app.command_test_discord(config)
         if command == "health-check":
@@ -416,6 +439,8 @@ def main(argv: list[str] | None = None) -> int:
             return command_validate_schedule()
         if args.command == "public-hygiene":
             return command_public_hygiene()
+        if args.command == "backup-state":
+            return command_backup_state(args.output, args.include_active_hold)
         if args.command == "redact-probe":
             return command_redact_probe(args.input, args.output)
         config = load_config()
