@@ -602,7 +602,7 @@ def append_charge_rate_reading(rate_w: float) -> list[dict]:
     return readings
 
 
-_DISCHARGE_RATE_MAX_READINGS = 10
+_DISCHARGE_RATE_MAX_READINGS = 30
 
 
 def read_discharge_rate_history() -> list[dict]:
@@ -615,9 +615,37 @@ def read_discharge_rate_history() -> list[dict]:
     return readings
 
 
-def append_discharge_rate_reading(rate_w: float) -> list[dict]:
+def append_discharge_rate_reading(
+    rate_w: float,
+    *,
+    recorded_at: dt.datetime | None = None,
+    aggregate_nightly: bool = False,
+) -> list[dict]:
+    from growatt_guard.load_learning import day_type
+
     readings = read_discharge_rate_history()
-    readings.append({"rate_w": round(rate_w), "recorded_at": utc_now().isoformat()})
+    recorded_at = recorded_at or dt.datetime.now().astimezone()
+    local_recorded_at = recorded_at.astimezone() if recorded_at.tzinfo is not None else recorded_at
+    sample_date = local_recorded_at.date().isoformat()
+    entry = {
+        "rate_w": round(rate_w),
+        "recorded_at": recorded_at.isoformat(),
+        "day_type": day_type(local_recorded_at),
+        "sample_date": sample_date,
+        "sample_count": 1,
+    }
+    if aggregate_nightly:
+        existing = next((row for row in reversed(readings) if row.get("sample_date") == sample_date), None)
+        if existing is not None and isinstance(existing.get("rate_w"), (int, float)):
+            count = max(1, int(existing.get("sample_count", 1)))
+            old_rate = float(existing["rate_w"])
+            existing.update(entry)
+            existing["rate_w"] = round((old_rate * count + rate_w) / (count + 1))
+            existing["sample_count"] = count + 1
+        else:
+            readings.append(entry)
+    else:
+        readings.append(entry)
     readings = readings[-_DISCHARGE_RATE_MAX_READINGS:]
     write_json_state(DISCHARGE_RATE_HISTORY_FILE, {"readings": readings})
     return readings
@@ -808,4 +836,3 @@ def clear_waste_alert_mute() -> None:
         write_json_state(WASTE_ALERT_FILE, state)
     else:
         clear_state_file(WASTE_ALERT_FILE)
-

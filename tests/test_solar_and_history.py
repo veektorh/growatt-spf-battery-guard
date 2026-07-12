@@ -1,3 +1,4 @@
+import datetime as dt
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -342,10 +343,10 @@ class DischargeRateHistoryTests(unittest.TestCase):
         from growatt_guard import state as state_mod
         with TemporaryDirectory() as tmpdir:
             with patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", Path(tmpdir) / "dr.json"):
-                for i in range(12):
+                for i in range(32):
                     readings = state_mod.append_discharge_rate_reading(float(1000 + i * 100))
         self.assertEqual(len(readings), state_mod._DISCHARGE_RATE_MAX_READINGS)
-        self.assertEqual(readings[-1]["rate_w"], 2100)
+        self.assertEqual(readings[-1]["rate_w"], 4100)
 
     def test_read_returns_empty_list_when_missing(self):
         from growatt_guard import state as state_mod
@@ -386,8 +387,9 @@ class DischargeRateAverageTests(unittest.TestCase):
         tmp = Path(tmpdir)
         dr_file = tmp / "dr.json"
         with patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", dr_file):
-            for r in prior_readings:
-                state_mod.append_discharge_rate_reading(r)
+            base = dt.datetime(2026, 7, 6, 22, 0, tzinfo=dt.timezone.utc)
+            for index, r in enumerate(prior_readings):
+                state_mod.append_discharge_rate_reading(r, recorded_at=base - dt.timedelta(days=index + 1))
 
         with (patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", dr_file),
               patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "topup.json"),
@@ -424,8 +426,8 @@ class DischargeRateAverageTests(unittest.TestCase):
     def test_uses_average_when_history_has_prior_readings(self):
         cfg = self._make_cfg()
         with TemporaryDirectory() as tmpdir:
-            # Seed one prior reading at 600 W; live spike = 3000 W
-            # After appending live: history = [600, 3000] → avg = 1800 W
+            # With only one prior matching night the model conservatively falls
+            # back to the two-night overall average.
             result = self._run_check(cfg, tmpdir, discharge_w=3000.0, prior_readings=[600.0])
         self.assertAlmostEqual(result["start_load_w"], 1800.0, delta=1.0)
 

@@ -263,6 +263,12 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertEqual(args.command, "dashboard")
         self.assertEqual(args.output, "dash.html")
 
+    def test_topup_status_json_command_is_available(self):
+        args = build_parser().parse_args(["topup-status", "--json"])
+
+        self.assertEqual(args.command, "topup-status")
+        self.assertTrue(args.json)
+
     def test_dashboard_refresh_command_is_available(self):
         args = build_parser().parse_args(["dashboard-refresh", "--interval-minutes", "10", "--once"])
 

@@ -17,6 +17,7 @@ from growatt_guard.growatt_api import (
     set_mode,
 )
 from growatt_guard.modes import command_return_sbu
+from growatt_guard.load_learning import select_overnight_load
 from growatt_guard.notifications import (
     embed_auto_topup_started,
     embed_topup_below_target,
@@ -170,14 +171,14 @@ def command_auto_topup_check(config: Config) -> int:
         print(f"Battery not discharging; no auto-topup needed.")
         return 0
 
-    append_discharge_rate_reading(load_w)
+    append_discharge_rate_reading(load_w, aggregate_nightly=True)
     history = read_discharge_rate_history()
-    rates = [r["rate_w"] for r in history if isinstance(r.get("rate_w"), (int, float))]
-    if len(rates) >= 2:
-        avg_load_w = sum(rates) / len(rates)
+    learned_load = select_overnight_load(history)
+    if learned_load["rate_w"] is not None:
+        avg_load_w = float(learned_load["rate_w"])
         logging.info(
-            "Using avg discharge rate %.0f W (%d readings) instead of live %.0f W",
-            avg_load_w, len(rates), load_w,
+            "Using learned discharge rate %.0f W (%s) instead of live %.0f W",
+            avg_load_w, learned_load["source"], load_w,
         )
         load_w = avg_load_w
 

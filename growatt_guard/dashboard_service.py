@@ -32,6 +32,7 @@ from growatt_guard.state import (
     utc_now,
     write_dashboard_stale_alert_state,
 )
+from growatt_guard.topup_status import collect_topup_status
 from growatt_guard.weather import (
     choose_preserve_threshold,
     get_pv_forecast,
@@ -85,6 +86,7 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
     append_dashboard_metric_snapshot(status, now=dt.datetime.now().astimezone())
     metrics_history = read_dashboard_metrics_history()
     pv_forecast = get_pv_forecast(config)
+    topup_status = collect_topup_status(config, status=status)
     calibration = update_forecast_calibration(
         pv_forecast,
         metrics_history,
@@ -103,6 +105,7 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
         hours_to_sunset=hrs_to_sunset,
         pv_forecast=pv_forecast,
         min_sbu_return_soc=config.min_sbu_return_soc,
+        topup_status=topup_status,
     )
     html_content = build_dashboard_html(
         status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes,

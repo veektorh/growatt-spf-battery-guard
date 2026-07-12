@@ -47,6 +47,7 @@ def build_dashboard_data_payload(
     hours_to_sunset: float | None = None,
     pv_forecast: dict[str, Any] | None = None,
     min_sbu_return_soc: float = 30.0,
+    topup_status: dict[str, Any] | None = None,
     now: dt.datetime | None = None,
 ) -> dict[str, Any]:
     now = now or dt.datetime.now().astimezone()
@@ -85,6 +86,7 @@ def build_dashboard_data_payload(
         projection_start_soc=risk_start_soc,
         projection_hours=overnight_hours,
         projection_basis=risk_basis,
+        now=now,
     )
     battery_net_w = _numeric_metric(live_metrics.get("battery_net_w")) or 0.0
     battery_flow_dir = "discharging" if battery_net_w > 0 else ("charging" if battery_net_w < 0 else "standby")
@@ -171,6 +173,7 @@ def build_dashboard_data_payload(
             "emergency_alert": "active" if alert_state and alert_state.get("active") else "clear",
             "cloud_failure_streak": int(cloud_state.get("count", 0)) if cloud_state else 0,
             "sbu_return_guard": sbu_guard,
+            "topup_status": topup_status or {"active": False, "warnings": []},
             "today_override_note": str(today_override.get("note", "")).strip() or "none",
             "today_skipped_jobs": today_override.get("skip", []) if isinstance(today_override.get("skip", []), list) else [],
         },

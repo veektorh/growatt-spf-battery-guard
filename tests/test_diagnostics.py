@@ -278,6 +278,14 @@ class DeploymentPreflightTests(unittest.TestCase):
         self.assertLess(preflight_pos, pull_pos)
         self.assertNotIn("topup-complete-check", script)
 
+    def test_update_server_can_wait_for_a_safe_deployment_window(self):
+        script = (Path(__file__).resolve().parents[1] / "update_server.sh").read_text(encoding="utf-8")
+
+        self.assertIn("--wait-for-clear", script)
+        self.assertIn("WAIT_FOR_CLEAR_MINUTES", script)
+        self.assertIn("sleep 60", script)
+        self.assertIn("requires a positive number of minutes", script)
+
     def test_update_server_rolls_back_if_post_pull_validation_fails(self):
         script = (Path(__file__).resolve().parents[1] / "update_server.sh").read_text(encoding="utf-8")
 

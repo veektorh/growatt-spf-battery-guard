@@ -121,6 +121,9 @@ Why: Discord can write to the inverter, so every write should be easy to trace.
   restart-safe `topup-complete-check` the sole completion owner.
 - [x] Add `/growatt_topup_status` with SOC, target, elapsed time, expiry,
   ownership, and projected completion.
+- [x] Share canonical top-up status across CLI, Discord, dashboard, health, and
+  service diagnostics, including learned/observed charge rate and stall warnings.
+- [x] Add a deployment wait-for-clear option that never cancels an active hold.
 
 ### 7. Dashboard Mobile Polish
 
@@ -177,7 +180,7 @@ Why: local state now matters and outage schedules change.
 
 ### Forecasting And Optimization
 
-- Learn typical overnight load by weekday/weekend.
+- [x] Learn typical overnight load by weekday/weekend after three matching nights.
 - Learn effective charge rate from completed topups and suggest config updates.
 - [x] Compare forecasted solar against actual PV generation.
 - Suggest threshold adjustments only after several days of evidence.

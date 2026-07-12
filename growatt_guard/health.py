@@ -24,14 +24,13 @@ from growatt_guard.schedule import (
 )
 from growatt_guard.state import (
     command_lock_is_stale,
-    parse_utc_datetime,
     pause_message,
     read_command_lock_state,
     read_pause_state,
-    read_topup_state,
     topup_is_active,
 )
 from growatt_guard.weather import choose_preserve_threshold
+from growatt_guard.topup_status import collect_topup_status, format_topup_status
 
 
 @dataclass(frozen=True)
@@ -310,11 +309,13 @@ def command_health_check(config: Config, notify: bool = False) -> int:
                 )
             )
 
+    cloud_status: dict[str, Any] | None = None
     try:
         _, device, status = load_context(config)
     except Exception as exc:  # noqa: BLE001 - health check continues reporting other checks on cloud failure
         checks.append(HealthCheckItem("Growatt cloud", "FAIL", str(exc)))
     else:
+        cloud_status = status
         checks.append(
             HealthCheckItem(
                 "Growatt cloud",
@@ -363,19 +364,12 @@ def command_health_check(config: Config, notify: bool = False) -> int:
             except (ValueError, TypeError):
                 checks.append(HealthCheckItem("PVOutput", "WARN", "upload state file could not be parsed."))
 
-    topup_state = read_topup_state()
-    if topup_state:
-        try:
-            paused_until = parse_utc_datetime(str(topup_state["paused_until"]))
-            now_utc = dt.datetime.now(dt.timezone.utc)
-            reason = topup_state.get("reason", "Discord top-up")
-            if now_utc < paused_until:
-                remaining = int((paused_until - now_utc).total_seconds() // 60)
-                checks.append(HealthCheckItem("Topup", "WARN", f"active: {reason}; ~{remaining} min remaining."))
-            else:
-                checks.append(HealthCheckItem("Topup", "WARN", f"state file present but pause has expired — may be interrupted: {reason}."))
-        except (KeyError, ValueError):
-            checks.append(HealthCheckItem("Topup", "WARN", "topup state file present but could not be parsed."))
+    topup_payload = collect_topup_status(config, status=cloud_status or {})
+    if topup_payload.get("active"):
+        status_level = "FAIL" if topup_payload.get("valid") is False else "WARN"
+        checks.append(HealthCheckItem("Topup", status_level, format_topup_status(topup_payload)))
+    else:
+        checks.append(HealthCheckItem("Topup", "OK", format_topup_status(topup_payload)))
 
     pause_state = read_pause_state()
     if pause_state:

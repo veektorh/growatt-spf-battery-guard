@@ -213,6 +213,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("tonight_level", dashboard_json["assistant"]["status"])
         self.assertIn("summary", dashboard_json["assistant"])
         self.assertIn("recommendations", dashboard_json["assistant"])
+        self.assertIn("topup_status", dashboard_json["automation"])
 
         self.assertIsNotNone(html_asset)
         self.assertIsNotNone(json_asset)

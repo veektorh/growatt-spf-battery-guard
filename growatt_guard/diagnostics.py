@@ -28,13 +28,13 @@ from growatt_guard.schedule import (
     validate_schedule,
 )
 from growatt_guard.state import (
-    parse_utc_datetime,
     pause_message,
     read_command_lock_state,
     read_pause_state,
     read_topup_state,
     read_utility_hold_state,
 )
+from growatt_guard.topup_status import collect_topup_status, format_topup_status
 
 
 SERVICE_UNITS = (
@@ -247,21 +247,6 @@ def _state_items() -> list[DiagnosticItem]:
     else:
         items.append(DiagnosticItem("Pause state", "OK", "automation is active."))
 
-    topup_state = read_topup_state()
-    if topup_state:
-        try:
-            paused_until = parse_utc_datetime(str(topup_state["paused_until"]))
-            now = dt.datetime.now(dt.timezone.utc)
-            if now < paused_until:
-                remaining = int((paused_until - now).total_seconds() // 60)
-                items.append(DiagnosticItem("Topup state", "WARN", f"active; about {remaining} min remaining."))
-            else:
-                items.append(DiagnosticItem("Topup state", "WARN", "state exists but topup window has expired."))
-        except (KeyError, ValueError):
-            items.append(DiagnosticItem("Topup state", "WARN", "state exists but could not be parsed."))
-    else:
-        items.append(DiagnosticItem("Topup state", "OK", "no active topup."))
-
     lock_state = read_command_lock_state()
     if lock_state:
         items.append(
@@ -285,6 +270,9 @@ def build_service_status(config: Any) -> list[DiagnosticItem]:
     items.append(DiagnosticItem("SBU return guard", guard_status, guard["detail"]))
     calibration = build_forecast_calibration_status(config)
     items.append(DiagnosticItem("Forecast calibration", "OK", calibration["detail"]))
+    topup_payload = collect_topup_status(config, status={})
+    topup_level = "FAIL" if topup_payload.get("valid") is False else ("WARN" if topup_payload.get("active") else "OK")
+    items.append(DiagnosticItem("Topup", topup_level, format_topup_status(topup_payload)))
     try:
         schedule = validate_schedule()
     except Exception as exc:  # noqa: BLE001 - diagnostic output should continue
@@ -394,6 +382,7 @@ def build_deployment_preflight_payload(config: Any | None = None) -> dict[str, A
     minimum_soc = float(getattr(config, "min_sbu_return_soc", 30) or 0)
     guard = build_sbu_guard_status(minimum_soc, utility_hold=hold)
     calibration = build_forecast_calibration_status(config) if config is not None else None
+    canonical_topup = collect_topup_status(config, status={}) if config is not None else None
     return {
         "schema_version": 1,
         "generated_at": _now_iso(),
@@ -403,6 +392,7 @@ def build_deployment_preflight_payload(config: Any | None = None) -> dict[str, A
         "dashboard": freshness,
         "sbu_return_guard": guard,
         "forecast_calibration": calibration,
+        "topup_status": canonical_topup,
         "topup": _state_summary_for_preflight(topup, ("minutes", "paused_until", "reason", "started_at")),
         "utility_hold": _state_summary_for_preflight(hold, ("ownership", "target_soc", "max_expiry", "started_at")),
         "pause": _state_summary_for_preflight(pause, ("paused_until", "reason")),

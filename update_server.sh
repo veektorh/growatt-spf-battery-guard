@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_BIN="${ROOT}/.venv/bin/python"
 NOTIFY=1
+WAIT_FOR_CLEAR_MINUTES=0
 
 PREVIOUS_COMMIT=""
 ROLLBACK_ARMED=0
@@ -29,12 +30,26 @@ rollback_validation_failure() {
 
 trap rollback_validation_failure EXIT
 
-if [[ "${1:-}" == "--no-notify" ]]; then
-  NOTIFY=0
-elif [[ "${1:-}" != "" ]]; then
-  echo "Usage: ./update_server.sh [--no-notify]"
-  exit 2
-fi
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --no-notify)
+      NOTIFY=0
+      shift
+      ;;
+    --wait-for-clear)
+      if [[ "${2:-}" == "" || ! "${2:-}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "--wait-for-clear requires a positive number of minutes." >&2
+        exit 2
+      fi
+      WAIT_FOR_CLEAR_MINUTES="$2"
+      shift 2
+      ;;
+    *)
+      echo "Usage: ./update_server.sh [--no-notify] [--wait-for-clear MINUTES]"
+      exit 2
+      ;;
+  esac
+done
 
 cd "${ROOT}"
 
@@ -43,7 +58,30 @@ if [[ ! -x "${PYTHON_BIN}" ]]; then
   python3 -m venv "${ROOT}/.venv"
 fi
 
-"${PYTHON_BIN}" growatt_power_guard.py deployment-preflight
+run_deployment_preflight() {
+  "${PYTHON_BIN}" growatt_power_guard.py deployment-preflight
+}
+
+if ! run_deployment_preflight; then
+  if [[ "${WAIT_FOR_CLEAR_MINUTES}" -eq 0 ]]; then
+    exit 1
+  fi
+  wait_deadline=$(( $(date +%s) + WAIT_FOR_CLEAR_MINUTES * 60 ))
+  preflight_clear=0
+  echo "Deployment is currently blocked; waiting up to ${WAIT_FOR_CLEAR_MINUTES} minutes for a safe window..."
+  while (( $(date +%s) < wait_deadline )); do
+    sleep 60
+    if run_deployment_preflight; then
+      echo "Deployment preflight is clear; continuing."
+      preflight_clear=1
+      break
+    fi
+  done
+  if [[ "${preflight_clear}" -ne 1 ]]; then
+    echo "Deployment remained blocked after ${WAIT_FOR_CLEAR_MINUTES} minutes; no update was applied." >&2
+    exit 1
+  fi
+fi
 
 echo "Pulling latest code..."
 PREVIOUS_COMMIT="$(git rev-parse HEAD)"

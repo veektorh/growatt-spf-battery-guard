@@ -4,6 +4,7 @@ from typing import Any
 
 from growatt_guard.growatt_api import estimate_topup_for_sunrise, format_duration_minutes
 from growatt_guard.dashboard_metrics import _fmt_kwh, _fmt_pct, _fmt_w, _parse_metric_timestamp
+from growatt_guard.load_learning import select_overnight_load
 from growatt_guard.state import read_discharge_rate_history
 
 from growatt_guard.dashboard_planning import _positive_metric
@@ -267,14 +268,6 @@ def build_dashboard_daily_insights(
     }
 
 
-def _average_recent_discharge_w() -> float | None:
-    history = read_discharge_rate_history()
-    rates = [float(r["rate_w"]) for r in history if isinstance(r.get("rate_w"), (int, float))]
-    if len(rates) < 2:
-        return None
-    return sum(rates) / len(rates)
-
-
 def compute_tonight_safe(
     projected_sunrise_soc: float | None,
     hours_to_sunset: float | None,
@@ -333,6 +326,7 @@ def build_tonight_risk(
     projection_start_soc: float | None = None,
     projection_hours: float | None = None,
     projection_basis: str = "",
+    now: dt.datetime | None = None,
 ) -> dict[str, Any]:
     soc = live_metrics.get("soc")
     if not isinstance(soc, (int, float)):
@@ -363,8 +357,9 @@ def build_tonight_risk(
             "topup_minutes": None,
         }
 
-    load_w = _average_recent_discharge_w()
-    source = "recent average"
+    learned_load = select_overnight_load(read_discharge_rate_history(), now=now)
+    load_w = learned_load["rate_w"]
+    source = learned_load["source"]
     if load_w is None:
         battery_net_w = live_metrics.get("battery_net_w")
         if isinstance(battery_net_w, (int, float)) and battery_net_w > 0:
@@ -552,5 +547,4 @@ def build_dashboard_data_quality(
         "items": items,
         "reconciliation": reconciliation,
     }
-
 

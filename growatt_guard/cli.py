@@ -23,6 +23,7 @@ from growatt_guard.pvoutput import command_pvoutput_upload
 from growatt_guard.schedule import command_validate_schedule
 from growatt_guard.schedule_overrides import command_outage_profile, command_schedule_override
 from growatt_guard.schedule_views import command_schedule_calendar
+from growatt_guard.topup_status import command_topup_status
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -264,6 +265,8 @@ def build_parser() -> argparse.ArgumentParser:
         "topup-complete-check",
         help="Check if an auto-topup has finished; if so, resume automation and return to SBU.",
     )
+    topup_status_parser = subparsers.add_parser("topup-status", help="Show canonical active top-up progress.")
+    topup_status_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     subparsers.add_parser(
         "runtime-alert",
         help="Send a Discord alert if estimated battery runtime is below RUNTIME_ALERT_MINUTES.",
@@ -404,6 +407,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_auto_topup_check(config)
         if command == "topup-complete-check":
             return app.command_topup_complete_check(config)
+        if command == "topup-status":
+            return command_topup_status(config, args.json)
         if command == "runtime-alert":
             return app.command_runtime_alert(config)
         if command == "adopt-utility":

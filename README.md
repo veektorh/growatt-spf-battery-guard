@@ -225,14 +225,21 @@ Requires `BATTERY_CAPACITY_WH`, `BATTERY_CHARGE_RATE_W`, `WEATHER_LAT`, and `WEA
 
 Auto-topup pause and start notifications include the computed topup target SOC so you can see the stop target, not just the duration.
 
-The bundled schedule uses 20-minute start checks and 10-minute completion checks:
+The bundled schedule uses 20-minute start checks and an all-day 10-minute completion safety net:
 
 ```text
 */20 22-23,0-2 * * *  auto-topup-check      # starts a topup if needed, exits immediately
-*/10 22-23,0-6 * * *  topup-complete-check  # resumes automation once the topup window expires
+*/10 * * * *          topup-complete-check  # resumes automation once the topup window expires
 ```
 
 `auto-topup-check` is non-blocking: it evaluates whether a topup is needed, starts one if so (pausing automation, switching to Utility, writing state), and exits in seconds. `topup-complete-check` detects when the window has elapsed, resumes automation, and calls `return-sbu`.
+
+Overnight-load learning keeps one averaged sample per night. It uses separate weekday/weekend averages after at least three matching nights; until then it falls back to the broader recent average. `topup-status` reports an active hold's SOC gain, configured/learned/observed charge rates, revised completion estimate, and stalled-charging warnings:
+
+```bash
+.venv/bin/python growatt_power_guard.py topup-status
+.venv/bin/python growatt_power_guard.py topup-status --json
+```
 
 The Discord control bot also accepts `/growatt_topup_cancel` to abort a running topup early.
 
@@ -934,7 +941,7 @@ If dependency installation, compilation, tests, or schedule validation fails
 after the pull, the script automatically resets the checkout to the previous
 commit before any cron or long-lived process changes are made.
 
-`update_server.sh` runs `deployment-preflight`, prints the same preflight summary, and refuses to continue while `state/topup_active.json` or `state/utility_hold.json` exists, so deploy after active Utility holds complete. Use `./update_server.sh --no-notify` if you want the health check printed only in the terminal.
+`update_server.sh` runs `deployment-preflight`, prints the same preflight summary, and refuses to continue while `state/topup_active.json` or `state/utility_hold.json` exists. To wait safely without cancelling or changing the hold, use `./update_server.sh --wait-for-clear 120`; it rechecks once per minute and exits without updating if the window never clears. Use `--no-notify` as well if you want the health check printed only in the terminal.
 
 Pause the cloud schedule:
 

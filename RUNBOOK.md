@@ -311,6 +311,13 @@ auto-topup or Utility hold is active, the script refuses to continue until the
 hold completes or is cancelled, to avoid interrupting return-to-SBU automation
 during deploys.
 
+To wait up to two hours for the hold to clear naturally, without cancelling it
+or issuing any inverter command, run:
+
+```bash
+./update_server.sh --wait-for-clear 120
+```
+
 If Discord reports `Schedule job ... has unsupported command` after an update, the VPS is running a stale Python process or mismatched files. Run:
 
 ```bash

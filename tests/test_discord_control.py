@@ -150,7 +150,7 @@ class DiscordControlTests(unittest.TestCase):
         self.assertEqual(payload["target_soc"], 60)
         self.assertEqual(payload["elapsed_minutes"], 30)
         self.assertEqual(payload["projected_completion_minutes"], 24)
-        self.assertEqual(payload["projected_basis"], "configured capacity and charge rate")
+        self.assertEqual(payload["projected_basis"], "configured charge rate")
 
     def test_topup_status_payload_uses_expiry_for_time_policy(self):
         now = dt.datetime(2026, 7, 12, 20, 0, tzinfo=dt.timezone.utc)
@@ -165,7 +165,7 @@ class DiscordControlTests(unittest.TestCase):
 
         payload = build_topup_status_payload(hold, 50, make_config(), now=now)
 
-        self.assertEqual(payload["projected_completion"], expiry)
+        self.assertEqual(payload["projected_completion"], expiry.isoformat())
         self.assertEqual(payload["projected_completion_minutes"], 45)
         self.assertEqual(payload["projected_basis"], "maximum expiry")
 

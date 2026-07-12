@@ -307,8 +307,10 @@ def build_dashboard_html(
             audit_rows=last_actions,
             utility_hold=utility_hold_state,
         )
+        topup_status = {"active": bool(utility_hold_state), "ownership": (utility_hold_state or {}).get("ownership")}
     else:
         sbu_guard = dashboard_data["automation"]["sbu_return_guard"]
+        topup_status = dashboard_data["automation"].get("topup_status") or {"active": False}
     next_runs = next_scheduled_runs(schedule, now=now, limit=8)
     next_action = (
         dashboard_data["schedule"]["next_action"]
@@ -361,6 +363,7 @@ def build_dashboard_html(
             projection_start_soc=risk_start_soc,
             projection_hours=overnight_hours,
             projection_basis=risk_basis,
+            now=now,
         )
     tonight_badge_class = _status_badge_class(str(tonight_risk.get("level", "unknown")))
     tonight_title = str(tonight_risk.get("title", "Unknown"))
@@ -600,6 +603,20 @@ def build_dashboard_html(
                 f"{sbu_guard['minimum_soc']:g}% {sbu_guard['state']}",
                 str(sbu_guard["detail"]),
             ),
+            (
+                "Active Top-up",
+                (
+                    f"{topup_status.get('current_soc', '--')}% → {topup_status.get('target_soc', 'time')}"
+                    if topup_status.get("active") else "None"
+                ),
+                (
+                    f"{topup_status.get('ownership', 'unknown')} ownership; "
+                    f"elapsed {topup_status.get('elapsed_minutes', '--')} min; "
+                    f"projected {topup_status.get('projected_completion', topup_status.get('max_expiry', '--'))}. "
+                    + (" ".join(topup_status.get("warnings", [])) or "Completion monitoring healthy.")
+                    if topup_status.get("active") else "No persisted Utility hold."
+                ),
+            ),
         ],
     }
     pv_forecast_html = _render_energy_outlook(energy_outlook_view)
@@ -779,6 +796,9 @@ def build_dashboard_html(
     guard_badge_class = "badge-fail" if sbu_guard["state"] == "misconfigured" else (
         "badge-warn" if sbu_guard["state"] in {"disabled", "blocked_hold"} else "badge-ok"
     )
+    topup_badge_class = "badge-fail" if topup_status.get("warnings") else (
+        "badge-warn" if topup_status.get("active") else "badge-ok"
+    )
     system_status_rows = _render_status_rows(
         [
             ("Inverter Mode", mode, mode_badge_class),
@@ -788,6 +808,7 @@ def build_dashboard_html(
             ("Emergency Alert", alert, emergency_badge_class),
             ("Cloud Streak", str(cloud_streak), cloud_badge_class),
             ("SBU Guard", f"{sbu_guard['minimum_soc']:g}% {sbu_guard['state']}", guard_badge_class),
+            ("Top-up", "Active" if topup_status.get("active") else "Clear", topup_badge_class),
         ]
     )
     activity_items = _render_activity_items(last_actions)
