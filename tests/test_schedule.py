@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 from helpers import make_config
 from growatt_guard.schedule import (
+    CONDITIONAL_GROWATT_READ_COMMANDS,
+    GROWATT_READ_COMMANDS,
     estimate_growatt_api_runs_per_day,
     lint_schedule,
 )
@@ -33,6 +35,14 @@ class ScheduleTests(unittest.TestCase):
 
         self.assertEqual(schedule["timezone"], "Africa/Lagos")
         self.assertGreaterEqual(len(schedule["jobs"]), 1)
+
+    def test_topup_completion_monitor_runs_all_day_without_baseline_api_accounting(self):
+        schedule = validate_schedule()
+        job = next(item for item in schedule["jobs"] if item["id"] == "topup-complete-check")
+
+        self.assertEqual(job["cron"], "*/10 * * * *")
+        self.assertIn("topup-complete-check", CONDITIONAL_GROWATT_READ_COMMANDS)
+        self.assertNotIn("topup-complete-check", GROWATT_READ_COMMANDS)
 
     def test_validate_schedule_rejects_unknown_command(self):
         with TemporaryDirectory() as tmpdir:

@@ -360,10 +360,16 @@ Available slash commands:
 /growatt_utility     — manually switch to Utility first
 /growatt_preserve    — run preserve-battery immediately
 /growatt_topup        — charge from grid for N minutes (or to a target SOC), then return to SBU
+/growatt_topup_status — show SOC, target, ownership, elapsed time, expiry, and projected completion
 /growatt_topup_cancel — abort a running topup early and return to SBU
 ```
 
-`/growatt_topup minutes:60` (or `target_soc:80`) pauses scheduled mode-changing automation, switches to Utility, waits, resumes automation, then returns to SBU.
+`/growatt_topup minutes:60` (or `target_soc:80`) persists ownership, pauses
+scheduled mode-changing automation, switches to Utility, and exits immediately.
+The all-day `topup-complete-check` job monitors active holds every 10 minutes and
+is local-only when no hold exists. It resumes automation and returns to SBU when
+the time expires or the SOC target is reached, so Discord bot restarts do not
+orphan completion.
 Top-up completion and cancellation clear local top-up state only after resume
 succeeds, `return-sbu` exits successfully, and the canonical Utility ownership
 file has been cleared. Failed, blocked, paused, or unverified SBU cleanup keeps

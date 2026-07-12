@@ -82,7 +82,9 @@ growatt_guard.pvoutput
 
 growatt_guard.discord_control
   Owns the optional private Discord control bot. It receives allowlisted slash
-  commands and executes safe CLI commands in subprocesses.
+  commands and executes safe CLI commands in subprocesses. Discord top-ups
+  persist ownership and return immediately; scheduled `topup-complete-check`
+  owns completion so bot restarts cannot orphan an in-memory timer.
 
 growatt_guard.pause
   Owns pause/resume state checks and the mode-command lock.

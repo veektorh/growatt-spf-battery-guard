@@ -51,9 +51,9 @@ GROWATT_READ_COMMANDS = {
     "observability-refresh",
     "pvoutput-upload",
     "runtime-alert",
-    "topup-complete-check",
     "waste-alert-check",
 }
+CONDITIONAL_GROWATT_READ_COMMANDS = {"topup-complete-check"}
 MODE_CHANGING_COMMANDS = {"preserve-battery", "utility-check", "morning-check", "return-sbu", "watchdog-sbu"}
 GROWATT_API_COMMANDS = GROWATT_READ_COMMANDS | MODE_CHANGING_COMMANDS
 GROWATT_API_DAILY_WARNING_THRESHOLD = 200
@@ -462,7 +462,7 @@ def lint_schedule(schedule: dict[str, Any]) -> list[HealthCheckItem]:
         command = str(job.get("command", "")).strip()
         cron = str(job.get("cron", "")).strip()
         interval = _cron_interval_minutes(cron)
-        if command in GROWATT_READ_COMMANDS:
+        if command in GROWATT_READ_COMMANDS | CONDITIONAL_GROWATT_READ_COMMANDS:
             read_jobs_by_cron.setdefault(cron, []).append(job_id)
             if interval is not None and interval < 5:
                 items.append(

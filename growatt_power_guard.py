@@ -84,6 +84,8 @@ from growatt_guard.diagnostics import (
     redact_probe_fixture,
 )
 from growatt_guard.discord_control import (
+    build_topup_status_embed,
+    build_topup_status_payload,
     command_result_text,
     command_serve_discord_bot,
     finalize_topup_state_after_sbu,
@@ -233,7 +235,7 @@ from growatt_guard.weather import (
 )
 
 PAUSABLE_COMMANDS = {"preserve-battery", "utility-check", "morning-check", "return-sbu", "watchdog-sbu"}
-LOCKED_COMMANDS = PAUSABLE_COMMANDS | {"force-utility", "adopt-utility"}
+LOCKED_COMMANDS = PAUSABLE_COMMANDS | {"force-utility", "adopt-utility", "topup-complete-check"}
 
 
 if __name__ == "__main__":

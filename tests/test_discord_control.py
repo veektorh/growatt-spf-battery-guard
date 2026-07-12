@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 import unittest
 from tempfile import TemporaryDirectory
@@ -9,6 +10,8 @@ from helpers import make_config
 from growatt_guard.discord_control import (
     build_dashboard_embed,
     build_health_embed,
+    build_topup_status_embed,
+    build_topup_status_payload,
     command_result_text,
     finalize_topup_state_after_sbu,
     is_authorized_interaction,
@@ -122,6 +125,83 @@ class DiscordControlTests(unittest.TestCase):
 
         self.assertFalse(result)
         clear_topup.assert_not_called()
+
+    def test_topup_status_payload_reports_progress_and_projection(self):
+        now = dt.datetime(2026, 7, 12, 20, 0, tzinfo=dt.timezone.utc)
+        hold = {
+            "ownership": "owned",
+            "completion_policy": "soc",
+            "started_at": (now - dt.timedelta(minutes=30)).isoformat(),
+            "max_expiry": (now + dt.timedelta(minutes=90)).isoformat(),
+            "target_soc": 60,
+            "reason": "Discord top-up",
+        }
+
+        payload = build_topup_status_payload(
+            hold,
+            56,
+            make_config(battery_capacity_wh=30_000, battery_charge_rate_w=3_000),
+            now=now,
+        )
+
+        self.assertTrue(payload["active"])
+        self.assertEqual(payload["ownership"], "owned")
+        self.assertEqual(payload["current_soc"], 56)
+        self.assertEqual(payload["target_soc"], 60)
+        self.assertEqual(payload["elapsed_minutes"], 30)
+        self.assertEqual(payload["projected_completion_minutes"], 24)
+        self.assertEqual(payload["projected_basis"], "configured capacity and charge rate")
+
+    def test_topup_status_payload_uses_expiry_for_time_policy(self):
+        now = dt.datetime(2026, 7, 12, 20, 0, tzinfo=dt.timezone.utc)
+        expiry = now + dt.timedelta(minutes=45)
+        hold = {
+            "ownership": "owned",
+            "completion_policy": "time",
+            "started_at": (now - dt.timedelta(minutes=15)).isoformat(),
+            "max_expiry": expiry.isoformat(),
+            "minutes": 60,
+        }
+
+        payload = build_topup_status_payload(hold, 50, make_config(), now=now)
+
+        self.assertEqual(payload["projected_completion"], expiry)
+        self.assertEqual(payload["projected_completion_minutes"], 45)
+        self.assertEqual(payload["projected_basis"], "maximum expiry")
+
+    def test_topup_status_embed_contains_requested_fields(self):
+        now = dt.datetime(2026, 7, 12, 20, 0, tzinfo=dt.timezone.utc)
+        payload = {
+            "active": True,
+            "valid": True,
+            "current_soc": 56.0,
+            "target_soc": 60.0,
+            "ownership": "owned",
+            "completion_policy": "soc",
+            "elapsed_minutes": 30,
+            "max_expiry": now + dt.timedelta(minutes=90),
+            "projected_completion": now + dt.timedelta(minutes=24),
+            "projected_basis": "configured capacity and charge rate",
+            "reason": "Discord top-up",
+        }
+
+        embed = build_topup_status_embed(FakeDiscord, payload)
+        fields = {field["name"]: field["value"] for field in embed.fields}
+
+        self.assertEqual(fields["Battery SOC"], "56%")
+        self.assertEqual(fields["Target"], "60%")
+        self.assertEqual(fields["Ownership"], "owned")
+        self.assertEqual(fields["Elapsed"], "30min")
+        self.assertIn("Maximum expiry", fields)
+        self.assertIn("Projected completion", fields)
+
+    def test_discord_topup_no_longer_sleeps_for_duration(self):
+        source = (Path(__file__).resolve().parents[1] / "growatt_guard" / "discord_control.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertNotIn("await asyncio.sleep(effective_minutes * 60)", source)
+        self.assertIn("Completion is persisted and monitored every 10 minutes", source)
 
     def test_build_dashboard_embed_parses_public_fixture_summary(self):
         status = json.loads(

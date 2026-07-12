@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -19,6 +20,7 @@ from growatt_guard.state import (
     clear_utility_hold_state,
     clear_waste_alert_mute,
     parse_utc_datetime,
+    read_utility_hold_state,
     read_topup_state,
     topup_is_active,
     utc_now,
@@ -54,6 +56,104 @@ def finalize_topup_state_after_sbu(resume_rc: int, sbu_rc: int) -> bool:
         return False
     clear_topup_state()
     return True
+
+
+def build_topup_status_payload(
+    hold: dict[str, Any] | None,
+    current_soc: float | None,
+    config: Config,
+    *,
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    now = now or utc_now()
+    if hold is None:
+        return {"active": False, "current_soc": current_soc}
+    try:
+        started_at = parse_utc_datetime(str(hold["started_at"]))
+        max_expiry = parse_utc_datetime(str(hold["max_expiry"]))
+    except (KeyError, ValueError) as exc:
+        return {"active": True, "valid": False, "error": str(exc), "current_soc": current_soc}
+
+    elapsed_minutes = max(0, math.floor((now - started_at).total_seconds() / 60))
+    remaining_to_expiry = max(0, math.ceil((max_expiry - now).total_seconds() / 60))
+    target_raw = hold.get("target_soc")
+    target_soc = float(target_raw) if isinstance(target_raw, (int, float)) else None
+    completion_policy = str(hold.get("completion_policy") or "soc")
+    projected_at = max_expiry
+    projected_basis = "maximum expiry"
+    projected_minutes = remaining_to_expiry
+
+    if completion_policy == "soc" and target_soc is not None and current_soc is not None:
+        if current_soc >= target_soc:
+            projected_at = now
+            projected_minutes = 0
+            projected_basis = "target already reached; next completion check"
+        elif config.battery_capacity_wh > 0 and config.battery_charge_rate_w > 0:
+            needed_wh = (target_soc - current_soc) / 100.0 * config.battery_capacity_wh
+            estimate_minutes = max(1, math.ceil(needed_wh / config.battery_charge_rate_w * 60))
+            estimate_at = now + dt.timedelta(minutes=estimate_minutes)
+            if estimate_at < max_expiry:
+                projected_at = estimate_at
+                projected_minutes = estimate_minutes
+                projected_basis = "configured capacity and charge rate"
+
+    return {
+        "active": True,
+        "valid": True,
+        "current_soc": current_soc,
+        "target_soc": target_soc,
+        "ownership": str(hold.get("ownership") or "unknown"),
+        "completion_policy": completion_policy,
+        "elapsed_minutes": elapsed_minutes,
+        "max_expiry": max_expiry,
+        "remaining_to_expiry_minutes": remaining_to_expiry,
+        "projected_completion": projected_at,
+        "projected_completion_minutes": projected_minutes,
+        "projected_basis": projected_basis,
+        "reason": str(hold.get("reason") or ""),
+    }
+
+
+def build_topup_status_embed(discord_module: Any, payload: dict[str, Any]) -> Any:
+    if not payload.get("active"):
+        embed = discord_module.Embed(title="Growatt Top-up Status", color=_COLOR_OK)
+        embed.description = "No active Guard-owned top-up."
+        embed.timestamp = dt.datetime.now(dt.timezone.utc)
+        return embed
+    if not payload.get("valid"):
+        embed = discord_module.Embed(title="Growatt Top-up Status", color=_COLOR_FAIL)
+        embed.description = f"Active top-up state is invalid: {payload.get('error', 'unknown error')}"
+        embed.timestamp = dt.datetime.now(dt.timezone.utc)
+        return embed
+
+    soc = payload.get("current_soc")
+    target = payload.get("target_soc")
+    projected_at = payload["projected_completion"]
+    expiry = payload["max_expiry"]
+    color = _COLOR_WARN
+    embed = discord_module.Embed(title="Growatt Top-up Status", color=color)
+    embed.add_field(name="Battery SOC", value=f"{soc:g}%" if soc is not None else "unavailable", inline=True)
+    embed.add_field(name="Target", value=f"{target:g}%" if target is not None else "time-based", inline=True)
+    embed.add_field(name="Ownership", value=payload["ownership"], inline=True)
+    embed.add_field(name="Policy", value=payload["completion_policy"], inline=True)
+    embed.add_field(name="Elapsed", value=_fmt_duration(payload["elapsed_minutes"]), inline=True)
+    embed.add_field(
+        name="Maximum expiry",
+        value=f"<t:{int(expiry.timestamp())}:f> (<t:{int(expiry.timestamp())}:R>)",
+        inline=False,
+    )
+    embed.add_field(
+        name="Projected completion",
+        value=(
+            f"<t:{int(projected_at.timestamp())}:f> (<t:{int(projected_at.timestamp())}:R>)\n"
+            f"Basis: {payload['projected_basis']}"
+        ),
+        inline=False,
+    )
+    if payload.get("reason"):
+        embed.add_field(name="Reason", value=payload["reason"], inline=False)
+    embed.timestamp = dt.datetime.now(dt.timezone.utc)
+    return embed
 
 
 def _read_state_file(relative_path: str) -> dict[str, Any] | None:
@@ -534,13 +634,13 @@ def command_serve_discord_bot(config: Config) -> int:
                 return
 
             reason = f"Discord top-up for {effective_minutes} minute(s)"
-            paused_until = utc_now() + dt.timedelta(minutes=effective_minutes)
             completion_policy = "soc" if target_soc > 0 else "time"
             max_expiry = (
                 utc_now() + dt.timedelta(minutes=effective_minutes * 1.2 + 15)
                 if completion_policy == "soc"
-                else paused_until
+                else utc_now() + dt.timedelta(minutes=effective_minutes)
             )
+            pause_minutes = max(1, math.ceil((max_expiry - utc_now()).total_seconds() / 60))
             write_utility_hold_state(
                 ownership="owned",
                 target_soc=float(target_soc) if target_soc > 0 else None,
@@ -557,11 +657,12 @@ def command_serve_discord_bot(config: Config) -> int:
             else:
                 hint = f"{effective_minutes} min"
             await interaction.response.send_message(
-                f"Starting top-up for {hint}. I will pause automation, switch to Utility, then return to SBU.",
+                f"Starting top-up for {hint}. Completion is persisted and monitored every 10 minutes; "
+                "the Discord bot does not need to stay attached.",
             )
 
             pause_rc, pause_out = await run_guard_command(
-                ["pause", "--hours", f"{effective_minutes / 60:.4f}", "--reason", reason]
+                ["pause", "--hours", f"{pause_minutes / 60:.4f}", "--reason", reason]
             )
             if pause_rc != 0:
                 clear_utility_hold_state()
@@ -582,17 +683,27 @@ def command_serve_discord_bot(config: Config) -> int:
                 )
                 return
 
-            await asyncio.sleep(effective_minutes * 60)
+            await interaction.channel.send(
+                "Top-up started. Use /growatt_topup_status for progress or /growatt_topup_cancel to stop it."
+            )
 
-            resume_rc, resume_out = await run_guard_command(["resume"])
-            await interaction.channel.send(command_result_text("topup resume", resume_rc, resume_out))
-            sbu_rc, sbu_out = await run_guard_command(["return-sbu"])
-            await interaction.channel.send(command_result_text("topup return-sbu", sbu_rc, sbu_out))
-            if not finalize_topup_state_after_sbu(resume_rc, sbu_rc):
-                await interaction.channel.send(
-                    "Top-up state preserved: SBU cleanup did not clear Utility ownership. "
-                    "Review the command result and retry safely."
-                )
+        await _guarded(config, interaction, action)
+
+    @tree.command(name="growatt_topup_status", description="Show active top-up progress and projected completion.", **command_scope)
+    async def growatt_topup_status(interaction: discord.Interaction) -> None:
+        async def action() -> None:
+            await interaction.response.defer(thinking=True, ephemeral=True)
+            hold = read_utility_hold_state()
+            current_soc = None
+            if hold is not None:
+                rc, out = await run_guard_command(["status"], timeout_seconds=60)
+                match = re.search(r"soc=(\d+(?:\.\d+)?)", out) if rc == 0 else None
+                current_soc = float(match.group(1)) if match else None
+            payload = build_topup_status_payload(hold, current_soc, config)
+            await interaction.followup.send(
+                embed=build_topup_status_embed(discord, payload),
+                ephemeral=True,
+            )
 
         await _guarded(config, interaction, action)
 

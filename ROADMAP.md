@@ -117,6 +117,10 @@ Why: Discord can write to the inverter, so every write should be easy to trace.
   next without writing.
 - Add a second confirmation path only for longer or riskier manual Utility
   holds.
+- [x] Remove the long-running Discord top-up sleep and make persisted,
+  restart-safe `topup-complete-check` the sole completion owner.
+- [x] Add `/growatt_topup_status` with SOC, target, elapsed time, expiry,
+  ownership, and projected completion.
 
 ### 7. Dashboard Mobile Polish
 

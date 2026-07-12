@@ -1,3 +1,4 @@
+import datetime as dt
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -630,3 +631,37 @@ class TopupCompleteFeedbackTests(unittest.TestCase):
         self.assertEqual(result, 2)
         clear_hold.assert_not_called()
         clear_topup.assert_not_called()
+
+    def test_canonical_time_hold_completes_without_discord_sleep(self):
+        from growatt_guard.topup import command_topup_complete_check
+
+        now = dt.datetime.now(dt.timezone.utc)
+        hold = {
+            "ownership": "owned",
+            "completion_policy": "time",
+            "started_at": (now - dt.timedelta(minutes=61)).isoformat(),
+            "max_expiry": (now - dt.timedelta(minutes=1)).isoformat(),
+            "minutes": 60,
+            "reason": "Discord top-up for 60 minute(s)",
+        }
+        normalized_topup = {
+            "started_at": hold["started_at"],
+            "paused_until": hold["max_expiry"],
+            "minutes": 60,
+            "reason": hold["reason"],
+        }
+
+        with (
+            patch("growatt_guard.topup.read_utility_hold_state", return_value=hold),
+            patch("growatt_guard.topup.read_topup_state", return_value=normalized_topup),
+            patch("growatt_guard.topup.topup_is_active", return_value=False),
+            patch("growatt_guard.topup._read_topup_end_soc", return_value=None),
+            patch("growatt_guard.topup.command_resume") as resume,
+            patch("growatt_guard.topup._return_sbu_and_clear_topup", return_value=0) as finish,
+            redirect_stdout(StringIO()),
+        ):
+            result = command_topup_complete_check(make_config())
+
+        self.assertEqual(result, 0)
+        resume.assert_called_once()
+        finish.assert_called_once()
