@@ -13,6 +13,7 @@
 21:00 daily       post Discord daily summary
 */30 always       alert once if battery SOC drops below 30%
 */20 22-23,0-2   start night auto-topup only if needed
+21:20 Sundays     post weekly operational review
 */10 22-23,0-6   complete an expired auto-topup and return to SBU
 21:10 Sundays     post weekly performance summary
 00:10 daily       prune old generated probe/temp files
@@ -58,8 +59,10 @@ audit rows, including lowest SOC, near-cutoff readings, and auto-topup behavior.
 `ops-review --days 7` is a read-only operational review of the latest dashboard
 snapshot, sunrise plan, mode audit rows, topup activity, estimated grid charge,
 target-reached, expired, legacy, and unclosed topup closures, failures, current
-automation state, and last mode change. Add `--notify` to post the review to Discord; delivery
-failure exits with an error.
+automation state, last mode change, stale command locks, and trends versus the
+previous equivalent window. Expired or unclosed top-ups and stale locks produce
+WARN recommendations. Add `--notify` to post the review to Discord; delivery
+failure exits with an error. The weekly Sunday schedule posts this review at 21:20.
 
 ## Pause Automation
 

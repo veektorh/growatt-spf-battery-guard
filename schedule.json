@@ -89,6 +89,13 @@
       "command": "weekly-summary"
     },
     {
+      "id": "weekly-ops-review",
+      "name": "Post weekly operational review",
+      "cron": "20 21 * * 0",
+      "command": "ops-review",
+      "args": ["--notify"]
+    },
+    {
       "id": "monthly-summary",
       "name": "Post monthly performance summary on the 1st",
       "cron": "10 21 1 * *",

@@ -23,6 +23,7 @@ from growatt_guard.state import (
     read_battery_alert_state,
     read_bypass_alert_state,
     read_command_lock_state,
+    command_lock_is_stale,
     read_growatt_cloud_failure_state,
     read_pause_state,
     read_topup_state,
@@ -221,7 +222,11 @@ def _audit_stats(rows: list[dict[str, str]]) -> dict[str, Any]:
 
 
 def _state_summary(now: dt.datetime | None = None) -> dict[str, Any]:
-    now_utc = utc_now()
+    now_utc = now or utc_now()
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=dt.timezone.utc)
+    else:
+        now_utc = now_utc.astimezone(dt.timezone.utc)
     pause = read_pause_state(now=now_utc)
     topup = read_topup_state()
     bypass = read_bypass_alert_state()
@@ -231,6 +236,7 @@ def _state_summary(now: dt.datetime | None = None) -> dict[str, Any]:
     return {
         "pause": "paused" if pause else "active",
         "topup_active": topup_is_active(now=now_utc),
+        "command_lock_stale": bool(lock and command_lock_is_stale()),
         "topup": topup,
         "bypass_alert": bypass,
         "battery_alert": battery,
@@ -261,7 +267,8 @@ def _recommendations(
 
     if live.get("bypass_detected"):
         soc = live.get("soc")
-        tips.append(f"Unexpected grid bypass is currently detected at SOC {_fmt_value(soc, '%')}; inspect inverter state.")
+        observed = "currently" if dashboard_age_min is not None and dashboard_age_min <= config.dashboard_stale_minutes else "last observed"
+        tips.append(f"Unexpected grid bypass {'is currently detected' if observed == 'currently' else 'was last observed'} at SOC {_fmt_value(soc, '%')}; inspect inverter state.")
         severity = "fail"
 
     quality_level = str(quality.get("level", "")).lower()
@@ -277,6 +284,12 @@ def _recommendations(
         severity = "warn" if severity == "ok" else severity
     elif topup_minutes == 0:
         tips.append("Tonight projection says no top-up is needed; current preserve/top-up logic looks aligned.")
+    if stats["expired_topups"] > 0:
+        tips.append(f"{stats['expired_topups']} top-up(s) expired before reaching target; review charge rate, load, and utility availability.")
+        severity = "warn" if severity == "ok" else severity
+    if stats["unclosed_topups"] > 0:
+        tips.append(f"{stats['unclosed_topups']} top-up hold(s) have no recorded closure; run topup-complete-check and verify SBU before manual changes.")
+        severity = "warn" if severity == "ok" else severity
 
     if stats["failures"] > 0:
         tips.append(f"{stats['failures']} automation failure(s) recorded in the review window; inspect logs before tuning.")
@@ -284,6 +297,16 @@ def _recommendations(
     if stats["watchdog_repairs"] >= 2:
         tips.append(f"Watchdog repaired SBU {stats['watchdog_repairs']} times; keep the 08:00 return and watchdog checks.")
         severity = "warn" if severity == "ok" else severity
+    if stats["failure_delta"] > 0:
+        tips.append(f"Automation failures increased by {stats['failure_delta']} versus the previous {stats['days']}-day window; investigate before changing thresholds.")
+        severity = "warn" if severity == "ok" else severity
+    elif stats["failure_delta"] < 0:
+        tips.append(f"Automation failures decreased by {-stats['failure_delta']} versus the previous {stats['days']}-day window.")
+    if stats["topups"] > stats["previous_topups"]:
+        tips.append(f"Auto-topups increased by {stats['topups'] - stats['previous_topups']} versus the previous {stats['days']}-day window; confirm the reserve and weather assumptions still match reality.")
+        severity = "warn" if severity == "ok" else severity
+    elif stats["topups"] < stats["previous_topups"] and stats["topups"] > 0:
+        tips.append(f"Auto-topups decreased by {stats['previous_topups'] - stats['topups']} versus the previous {stats['days']}-day window.")
     if stats["topups"] >= 4:
         tips.append(f"Auto-topup ran {stats['topups']} times; do not reduce reserve thresholds yet.")
     elif stats["topups"] == 0 and isinstance(stats["lowest_soc"], (int, float)) and stats["lowest_soc"] >= config.battery_bms_cutoff_soc + 12:
@@ -291,6 +314,9 @@ def _recommendations(
 
     if state["cloud_failure_count"] > 0:
         tips.append(f"Growatt cloud failure streak is {state['cloud_failure_count']}; watch for API instability.")
+        severity = "warn" if severity == "ok" else severity
+    if state["command_lock_stale"]:
+        tips.append("A stale mode-command lock is present; confirm no command is running, then clear the stale lock.")
         severity = "warn" if severity == "ok" else severity
     if state["topup_active"]:
         tips.append("A top-up or utility hold is currently active; avoid manual mode changes until it completes.")
@@ -314,7 +340,19 @@ def build_ops_review(
     now = now or dt.datetime.now()
     since = now - dt.timedelta(days=days)
     audit_rows = real_audit_rows(read_mode_audit_rows(since=since))
+    previous_since = since - dt.timedelta(days=days)
+    previous_rows = real_audit_rows(read_mode_audit_rows(since=previous_since))
+    previous_rows = [
+        row for row in previous_rows
+        if (timestamp := parse_audit_timestamp(row.get("timestamp", ""))) is not None and timestamp < since
+    ]
     stats = _audit_stats(audit_rows)
+    previous_stats = _audit_stats(previous_rows)
+    stats["days"] = days
+    stats["previous_failures"] = previous_stats["failures"]
+    stats["failure_delta"] = stats["failures"] - previous_stats["failures"]
+    stats["previous_topups"] = previous_stats["topups"]
+    stats["topup_delta"] = stats["topups"] - previous_stats["topups"]
     if config.battery_charge_rate_w > 0:
         stats["topup_estimated_grid_kwh"] = (
             stats["topup_minutes"] / 60.0 * config.battery_charge_rate_w / 1000.0
@@ -381,6 +419,7 @@ def build_ops_review(
         f"  Scheduled automation: {state['pause']}; active top-up/hold: {'yes' if state['topup_active'] else 'no'}",
         f"  Battery alert: {'active' if state['battery_alert'] and state['battery_alert'].get('active') else 'clear'}; bypass alert: {'active' if state['bypass_alert'] and state['bypass_alert'].get('active') else 'clear'}",
         f"  Cloud failure streak: {state['cloud_failure_count']}; command lock: {'present' if state['command_lock'] else 'clear'}",
+        f"  Command lock health: {'stale' if state['command_lock_stale'] else 'normal'}" if state['command_lock'] else "  Command lock health: none",
     ]
     if automation:
         lines.append(f"  Dashboard scheduled automation: {automation.get('pause', 'unknown')}; emergency alert {automation.get('emergency_alert', 'unknown')}")
@@ -420,6 +459,9 @@ def build_ops_review(
         "bypass_detected": bool(live.get("bypass_detected")),
         "projected_sunrise_soc": planner.get("projected_sunrise_soc"),
         "topup_minutes": planner.get("topup_minutes"),
+        "cloud_failure_count": state["cloud_failure_count"],
+        "command_lock_present": bool(state["command_lock"]),
+        "command_lock_stale": state["command_lock_stale"],
         **stats,
     }
     return OpsReview("\n".join(lines), recommendations, severity, metrics)
