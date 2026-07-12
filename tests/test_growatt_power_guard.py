@@ -31,7 +31,7 @@ from growatt_power_guard import (
     setup_logging,
 )
 from growatt_guard.schedule import HealthCheckItem as ScheduleHealthCheckItem
-from growatt_guard.health import health_embed_description, health_embed_fields
+from growatt_guard.health import disk_usage_check, health_embed_description, health_embed_fields
 
 
 class GrowattPowerGuardTests(unittest.TestCase):
@@ -480,6 +480,22 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertIn("morning-preserve", output)
         self.assertIn("morning-return", output)
         self.assertIn("morning-watchdog", output)
+
+    def test_disk_usage_check_warns_when_free_space_is_low(self):
+        usage = type("Usage", (), {"total": 1000, "used": 920, "free": 80})()
+        with patch("growatt_guard.health.shutil.disk_usage", return_value=usage):
+            check = disk_usage_check()
+
+        self.assertEqual(check.name, "Disk space")
+        self.assertEqual(check.status, "WARN")
+        self.assertIn("8.0%", check.detail)
+
+    def test_disk_usage_check_fails_when_free_space_is_critical(self):
+        usage = type("Usage", (), {"total": 1000, "used": 960, "free": 40})()
+        with patch("growatt_guard.health.shutil.disk_usage", return_value=usage):
+            check = disk_usage_check()
+
+        self.assertEqual(check.status, "FAIL")
 
     def test_health_check_pings_betterstack_heartbeat_when_configured(self):
         config = make_config(

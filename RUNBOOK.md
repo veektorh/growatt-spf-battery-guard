@@ -301,6 +301,11 @@ cd ~/automation
 ./update_server.sh
 ```
 
+Validation failures after the pull and before cron/service changes automatically
+reset the checkout to the previous commit. If rollback itself fails, stop and
+recover the repository manually before restarting services. Failures after
+cron/service changes still require reviewing service status and logs manually.
+
 `update_server.sh` runs `deployment-preflight` and prints a preflight summary before pulling code. If an
 auto-topup or Utility hold is active, the script refuses to continue until the
 hold completes or is cancelled, to avoid interrupting return-to-SBU automation

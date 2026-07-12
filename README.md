@@ -874,6 +874,10 @@ cd ~/automation
 ./update_server.sh
 ```
 
+If dependency installation, compilation, tests, or schedule validation fails
+after the pull, the script automatically resets the checkout to the previous
+commit before any cron or long-lived process changes are made.
+
 `update_server.sh` runs `deployment-preflight`, prints the same preflight summary, and refuses to continue while `state/topup_active.json` or `state/utility_hold.json` exists, so deploy after active Utility holds complete. Use `./update_server.sh --no-notify` if you want the health check printed only in the terminal.
 
 Pause the cloud schedule:

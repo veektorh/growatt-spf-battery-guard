@@ -278,6 +278,16 @@ class DeploymentPreflightTests(unittest.TestCase):
         self.assertLess(preflight_pos, pull_pos)
         self.assertNotIn("topup-complete-check", script)
 
+    def test_update_server_rolls_back_if_post_pull_validation_fails(self):
+        script = (Path(__file__).resolve().parents[1] / "update_server.sh").read_text(encoding="utf-8")
+
+        self.assertIn("rollback_validation_failure", script)
+        self.assertIn('git reset --hard "${PREVIOUS_COMMIT}"', script)
+        self.assertLess(script.index('ROLLBACK_ARMED=1'), script.index('pip install -r requirements.txt'))
+        validation_pos = script.index("growatt_power_guard.py validate-schedule")
+        rollback_disarm_pos = script.rindex("ROLLBACK_ARMED=0")
+        self.assertLess(validation_pos, rollback_disarm_pos)
+
     def test_preflight_allows_clear_state(self):
         from growatt_guard.diagnostics import build_deployment_preflight_payload, command_deployment_preflight
 
