@@ -193,6 +193,8 @@ class OpsReviewTests(unittest.TestCase):
                 )
 
         self.assertIn("Topup closures: 0 target reached, 1 expired, 0 legacy, 0 unclosed", review.text)
+        self.assertEqual(review.severity, "warn")
+        self.assertTrue(any("expired" in item for item in review.recommendations))
         self.assertIn("avg SOC gain --", review.text)
 
     def test_build_ops_review_counts_unclosed_topups(self):
@@ -225,6 +227,8 @@ class OpsReviewTests(unittest.TestCase):
                 review = build_ops_review(make_config(), days=7, now=now, dashboard_path=dashboard_path)
 
         self.assertIn("Topup closures: 0 target reached, 0 expired, 0 legacy, 1 unclosed", review.text)
+        self.assertEqual(review.severity, "warn")
+        self.assertTrue(any("no recorded closure" in item for item in review.recommendations))
 
     def test_build_ops_review_counts_return_sbu_as_legacy_topup_closure(self):
         now = dt.datetime(2026, 7, 4, 12, 0, 0)
