@@ -5,6 +5,30 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_BIN="${ROOT}/.venv/bin/python"
 NOTIFY=1
 
+PREVIOUS_COMMIT=""
+ROLLBACK_ARMED=0
+
+rollback_validation_failure() {
+  local status=$?
+  if [[ "${status}" -eq 0 || "${ROLLBACK_ARMED}" != "1" ]]; then
+    return "${status}"
+  fi
+
+  echo "Deployment validation failed; rolling back to ${PREVIOUS_COMMIT}..." >&2
+  trap - EXIT
+  set +e
+  git reset --hard "${PREVIOUS_COMMIT}"
+  local rollback_status=$?
+  if [[ "${rollback_status}" -ne 0 ]]; then
+    echo "Rollback failed; repository may require manual recovery." >&2
+  else
+    echo "Rollback complete. No cron or long-lived process changes were made." >&2
+  fi
+  exit "${status}"
+}
+
+trap rollback_validation_failure EXIT
+
 if [[ "${1:-}" == "--no-notify" ]]; then
   NOTIFY=0
 elif [[ "${1:-}" != "" ]]; then
@@ -22,7 +46,9 @@ fi
 "${PYTHON_BIN}" growatt_power_guard.py deployment-preflight
 
 echo "Pulling latest code..."
+PREVIOUS_COMMIT="$(git rev-parse HEAD)"
 git pull --ff-only
+ROLLBACK_ARMED=1
 
 echo "Installing dependencies..."
 "${PYTHON_BIN}" -m pip install -r requirements.txt
@@ -35,6 +61,8 @@ echo "Running tests..."
 
 echo "Validating schedule..."
 "${PYTHON_BIN}" growatt_power_guard.py validate-schedule
+ROLLBACK_ARMED=0
+trap - EXIT
 
 echo "Installing cron schedule..."
 ./install_cloud_cron.sh

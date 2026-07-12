@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import shutil
 from dataclasses import dataclass
 from typing import Any
 
@@ -41,6 +42,30 @@ class HealthCheckItem:
 
 
 _HEALTH_EMBED_MAX_PROBLEM_FIELDS = 6
+
+
+def disk_usage_check() -> HealthCheckItem:
+    """Report free space on the filesystem containing the automation checkout."""
+    try:
+        usage = shutil.disk_usage(__file__)
+    except OSError as exc:
+        return HealthCheckItem("Disk space", "WARN", f"could not inspect filesystem: {exc}")
+
+    free_percent = (usage.free / usage.total * 100.0) if usage.total else 0.0
+    free_gib = usage.free / (1024 ** 3)
+    if free_percent < 5:
+        status = "FAIL"
+    elif free_percent < 10:
+        status = "WARN"
+    else:
+        status = "OK"
+    return HealthCheckItem(
+        "Disk space",
+        status,
+        f"{free_gib:.1f} GiB free ({free_percent:.1f}%); thresholds WARN <10%, FAIL <5%.",
+    )
+
+
 _HEALTH_EMBED_FIELD_LIMIT = 360
 
 
@@ -74,6 +99,8 @@ def default_health_suggestion(check: HealthCheckItem) -> str:
         return "Set the missing custom params or switch back to the SPF driver."
     if "schedule override" in name:
         return "Inspect schedule_overrides.json or remove the bad date override."
+    if "disk space" in name:
+        return "Free space is low; rotate/prune logs and remove unneeded files before restarting services."
     if "schedule" in name or "cron" in name:
         return "Run validate-schedule, then reinstall cron with install_cloud_cron.sh if needed."
     if "battery soc" in name:
@@ -141,6 +168,7 @@ def command_health_check(config: Config, notify: bool = False) -> int:
             "DRY_RUN=true; mode-changing commands will only simulate." if config.dry_run else "DRY_RUN=false.",
         ),
     ]
+    checks.append(disk_usage_check())
 
     if config.emergency_soc_recovery <= config.emergency_soc:
         checks.append(
