@@ -835,10 +835,10 @@ def build_dashboard_html(
     )
     upcoming_override_rows_html = "\n".join(
         "<tr>"
-        f"<td>{esc(d)}</td>"
-        f"<td>{esc(n) if n else '<span class=\"muted\">—</span>'}</td>"
-        f"<td>{esc(a)}</td>"
-        "</tr>"
+        + f"<td>{esc(d)}</td>"
+        + "<td>{}</td>".format(esc(n) if n else '<span class="muted">—</span>')
+        + f"<td>{esc(a)}</td>"
+        + "</tr>"
         for d, n, a in upcoming_overrides
     )
     source_rows_html = "\n".join(

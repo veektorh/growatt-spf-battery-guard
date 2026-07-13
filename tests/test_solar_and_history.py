@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from helpers import make_config
+from growatt_guard.config import Config
 from growatt_power_guard import (
     DeviceRef,
     SPF_EXPECTED_OUTPUT_CONFIG,

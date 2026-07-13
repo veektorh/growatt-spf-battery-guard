@@ -1,0 +1,11 @@
+{
+  "include": [
+    "growatt_guard",
+    "growatt_power_guard.py",
+    "tests"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.10",
+  "typeCheckingMode": "off"
+}
