@@ -310,6 +310,51 @@ class GetTomorrowSolarKwhM2Tests(unittest.TestCase):
             result = get_tomorrow_solar_kwh_m2(cfg, now=dt.datetime(2026, 6, 20, 22, 0))
         self.assertIsNone(result)
 
+    def test_summarizes_tomorrow_as_rainy_cloudy(self):
+        from growatt_guard.weather import summarize_forecast_day_weather
+        tomorrow = dt.date(2026, 6, 21)
+        forecast = {
+            "hourly": {
+                "time": [f"{tomorrow.isoformat()}T{hour:02d}:00" for hour in range(24)],
+                "cloud_cover": [90.0] * 24,
+                "precipitation": [0.5] * 24,
+            }
+        }
+
+        result = summarize_forecast_day_weather(forecast, tomorrow)
+
+        self.assertEqual(result["weather_category"], "rainy/cloudy")
+        self.assertEqual(result["cloud_cover"], 90.0)
+        self.assertEqual(result["precipitation_mm"], 12.0)
+
+    def test_pv_forecast_includes_tomorrow_weather_regime(self):
+        from growatt_guard.weather import get_pv_forecast
+        cfg = make_config(
+            weather_lat=6.5,
+            weather_lon=3.4,
+            panel_kwp=8.0,
+            panel_performance_ratio=0.75,
+        )
+        now = dt.datetime(2026, 6, 20, 22, 0)
+        tomorrow = dt.date(2026, 6, 21)
+        forecast = {
+            "hourly": {
+                "time": [f"{tomorrow.isoformat()}T{hour:02d}:00" for hour in range(24)],
+                "shortwave_radiation": [250.0] * 24,
+                "cloud_cover": [80.0] * 24,
+                "precipitation": [0.25] * 24,
+            }
+        }
+
+        with patch("growatt_guard.weather.fetch_weather_forecast", return_value=forecast):
+            result = get_pv_forecast(cfg, now=now)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["tomorrow_kwh"], 36.0)
+        self.assertEqual(result["tomorrow_weather_category"], "rainy/cloudy")
+        self.assertEqual(result["tomorrow_cloud_cover"], 80.0)
+        self.assertEqual(result["tomorrow_precipitation_mm"], 6.0)
+
 
 if __name__ == "__main__":
     unittest.main()
