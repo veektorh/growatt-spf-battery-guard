@@ -419,7 +419,7 @@ def _render_night_view(view: dict[str, Any]) -> str:
         <article class="design-card design-mix-card">
           <div class="design-card-head"><span>Today mix</span><em>supply vs demand</em></div>
           <div class="design-mix-lines">
-            <div><p><span>Supply {esc(view['supply_total_display'])}</span><strong>{esc(view['pv_supply_display'])} solar</strong></p><i><b class="mix-pv" style="width:{supply_pv}"></b><b class="mix-grid" style="width:{supply_grid}"></b></i></div>
+            <div><p><span>Supply {esc(view['supply_total_display'])}</span><strong>{esc(view['pv_supply_display'])} solar</strong></p><i><b class="mix-pv" style="width:{supply_pv}"></b><b class="mix-grid-source" style="width:{supply_grid}"></b></i></div>
             <div><p><span>Demand {esc(view['demand_total_display'])}</span><strong>{esc(view['load_demand_display'])} house</strong></p><i><b class="mix-load" style="width:{demand_load}"></b><b class="mix-charge" style="width:{demand_charge}"></b></i></div>
             <div><p><span>Battery activity {esc(view['battery_activity_display'])}</span><strong>{esc(view['battery_net_display'])} net</strong></p><i><b class="mix-charge" style="width:{battery_charge}"></b><b class="mix-discharge" style="width:{battery_discharge}"></b></i></div>
           </div>

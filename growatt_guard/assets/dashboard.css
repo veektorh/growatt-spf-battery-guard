@@ -843,7 +843,7 @@
     .design-mix-lines p { display: flex; justify-content: space-between; gap: 12px; margin: 0 0 6px; color: #738093; font-size: 12px; }
     .design-mix-lines p strong { color: var(--design-ink); font-weight: 720; }
     .design-mix-lines i { height: 13px; display: flex; overflow: hidden; border-radius: 999px; background: rgba(22, 35, 58, 0.07); }
-    .design-mix-lines i b { height: 100%; } .mix-pv { background: #f5a623; } .mix-grid { background: #4c9aff; } .mix-load { background: #16233a; } .mix-charge { background: #12b886; } .mix-discharge { background: #c7ecdd; }
+    .design-mix-lines i b { height: 100%; } .mix-pv { background: #f5a623; } .mix-grid-source { background: #4c9aff; } .mix-load { background: #16233a; } .mix-charge { background: #12b886; } .mix-discharge { background: #c7ecdd; }
     .design-forecast-strip { display: grid; grid-template-columns: repeat(7, minmax(88px, 1fr)); gap: 10px; overflow-x: auto; }
     .design-forecast-day { min-width: 88px; padding: 13px 9px; text-align: center; border: 1px solid rgba(22, 35, 58, 0.06); border-radius: 16px; background: rgba(255, 255, 255, 0.48); }
     .design-forecast-day.forecast { border-color: rgba(47, 111, 214, 0.18); background: rgba(234, 243, 255, 0.66); }
