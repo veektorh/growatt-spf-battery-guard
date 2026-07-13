@@ -26,7 +26,7 @@ class OperationalStatusTests(unittest.TestCase):
         self.assertEqual(build_sbu_guard_status(101, audit_rows=[], utility_hold={})["state"], "misconfigured")
 
     def test_forecast_status_reports_readiness(self):
-        summary = {"sample_count": 5, "recommendation": "keep current setting"}
+        summary = {"rainy_sample_count": 5, "recommendation": "learned rainy/cloudy factor"}
         with patch("growatt_guard.operational_status.summarize_forecast_calibration", return_value=summary):
             result = build_forecast_calibration_status(
                 make_config(panel_kwp=6.0, weather_lat=1.0, weather_lon=2.0)
@@ -34,7 +34,7 @@ class OperationalStatusTests(unittest.TestCase):
 
         self.assertTrue(result["configured"])
         self.assertTrue(result["ready"])
-        self.assertIn("5 completed", result["detail"])
+        self.assertIn("5 completed rainy/cloudy", result["detail"])
 
 
 if __name__ == "__main__":

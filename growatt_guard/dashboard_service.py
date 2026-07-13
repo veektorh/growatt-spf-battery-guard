@@ -21,7 +21,7 @@ from growatt_guard.dashboard import (
     read_dashboard_metrics_history,
 )
 from growatt_guard.exceptions import GrowattGuardError
-from growatt_guard.forecast_calibration import update_forecast_calibration
+from growatt_guard.forecast_calibration import apply_weather_adjustment, update_forecast_calibration
 from growatt_guard.growatt_api import load_context
 from growatt_guard.notifications import notify_failure, send_discord_message
 from growatt_guard.pvoutput import publish_pvoutput_status_from_status
@@ -95,6 +95,7 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
     )
     if pv_forecast is not None:
         pv_forecast["calibration"] = calibration
+        apply_weather_adjustment(pv_forecast, calibration)
     json_payload = build_dashboard_data_payload(
         status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes,
         config.battery_capacity_wh, config.battery_bms_cutoff_soc,

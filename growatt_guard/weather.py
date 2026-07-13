@@ -17,6 +17,9 @@ WEATHER_CACHE_FILE = STATE_DIR / "weather_cache.json"
 WEATHER_CACHE_TTL_SECONDS = 15 * 60
 WEATHER_STALE_CACHE_TTL_SECONDS = 6 * 3600
 
+PV_RAINY_PRECIPITATION_MM = 1.0
+PV_CLOUDY_COVER_PCT = 70.0
+
 SUNRISE_CACHE_FILE = STATE_DIR / "sunrise_cache.json"
 SUNRISE_CACHE_TTL_SECONDS = 6 * 3600
 
@@ -250,7 +253,12 @@ def fetch_weather_forecast(config: Any) -> dict[str, Any]:
             logging.warning("Open-Meteo forecast unavailable; using stale weather cache (age %d min).", stale_age_min)
             return stale_cached
         raise weather_error("Open-Meteo forecast unavailable and no cached weather data is available.")
-def get_tomorrow_solar_kwh_m2(config: Any, now: dt.datetime | None = None) -> float | None:
+def get_tomorrow_solar_kwh_m2(
+    config: Any,
+    now: dt.datetime | None = None,
+    *,
+    forecast: dict[str, Any] | None = None,
+) -> float | None:
     """Return forecasted total solar irradiance (kWh/m²) for the next calendar day.
 
     Sums hourly shortwave_radiation values from Open-Meteo for tomorrow's date.
@@ -258,11 +266,12 @@ def get_tomorrow_solar_kwh_m2(config: Any, now: dt.datetime | None = None) -> fl
     """
     if not config.weather_lat or not config.weather_lon:
         return None
-    try:
-        forecast = fetch_weather_forecast(config)
-    except Exception as exc:  # noqa: BLE001
-        logging.debug("Solar forecast unavailable: %s", exc)
-        return None
+    if forecast is None:
+        try:
+            forecast = fetch_weather_forecast(config)
+        except Exception as exc:  # noqa: BLE001
+            logging.debug("Solar forecast unavailable: %s", exc)
+            return None
 
     hourly = forecast.get("hourly", {})
     times = hourly.get("time", [])
@@ -286,7 +295,12 @@ def get_tomorrow_solar_kwh_m2(config: Any, now: dt.datetime | None = None) -> fl
     return total_wh_m2 / 1000.0 if found else None
 
 
-def get_today_remaining_solar_kwh_m2(config: Any, now: dt.datetime | None = None) -> float | None:
+def get_today_remaining_solar_kwh_m2(
+    config: Any,
+    now: dt.datetime | None = None,
+    *,
+    forecast: dict[str, Any] | None = None,
+) -> float | None:
     """Return forecasted remaining solar irradiance (kWh/m²) for the rest of today.
 
     Sums hourly shortwave_radiation values from Open-Meteo for today's date,
@@ -294,11 +308,12 @@ def get_today_remaining_solar_kwh_m2(config: Any, now: dt.datetime | None = None
     """
     if not config.weather_lat or not config.weather_lon:
         return None
-    try:
-        forecast = fetch_weather_forecast(config)
-    except Exception as exc:  # noqa: BLE001
-        logging.debug("Solar forecast unavailable: %s", exc)
-        return None
+    if forecast is None:
+        try:
+            forecast = fetch_weather_forecast(config)
+        except Exception as exc:  # noqa: BLE001
+            logging.debug("Solar forecast unavailable: %s", exc)
+            return None
 
     hourly = forecast.get("hourly", {})
     times = hourly.get("time", [])
@@ -322,6 +337,52 @@ def get_today_remaining_solar_kwh_m2(config: Any, now: dt.datetime | None = None
     return total_wh_m2 / 1000.0 if found else None
 
 
+def summarize_forecast_day_weather(
+    forecast: dict[str, Any],
+    target_date: dt.date,
+) -> dict[str, Any]:
+    """Summarize the rain/cloud regime forecast for one calendar day."""
+    hourly = forecast.get("hourly", {})
+    times = hourly.get("time", [])
+    cloud_cover = hourly.get("cloud_cover", [])
+    precipitation = hourly.get("precipitation", [])
+    clouds: list[float] = []
+    rain: list[float] = []
+
+    for index, time_value in enumerate(times):
+        try:
+            forecast_date = parse_forecast_time(str(time_value)).date()
+        except ValueError:
+            continue
+        if forecast_date != target_date:
+            continue
+        if index < len(cloud_cover) and cloud_cover[index] is not None:
+            clouds.append(float(cloud_cover[index]))
+        if index < len(precipitation) and precipitation[index] is not None:
+            rain.append(float(precipitation[index]))
+
+    if not clouds and not rain:
+        return {}
+
+    average_cloud = sum(clouds) / len(clouds) if clouds else None
+    total_rain = sum(rain) if rain else None
+    rainy_cloudy = (
+        (total_rain is not None and total_rain >= PV_RAINY_PRECIPITATION_MM)
+        or (average_cloud is not None and average_cloud >= PV_CLOUDY_COVER_PCT)
+    )
+    sunny = (
+        not rainy_cloudy
+        and (total_rain is None or total_rain < PV_RAINY_PRECIPITATION_MM)
+        and average_cloud is not None
+        and average_cloud < 30.0
+    )
+    return {
+        "weather_category": "rainy/cloudy" if rainy_cloudy else ("sunny" if sunny else "normal"),
+        "cloud_cover": round(average_cloud, 1) if average_cloud is not None else None,
+        "precipitation_mm": round(total_rain, 1) if total_rain is not None else None,
+    }
+
+
 def get_pv_forecast(config: Any, now: dt.datetime | None = None) -> dict[str, Any] | None:
     """Return a PV generation forecast dict using Open-Meteo irradiance + panel config.
 
@@ -337,11 +398,30 @@ def get_pv_forecast(config: Any, now: dt.datetime | None = None) -> dict[str, An
     pr = float(config.panel_performance_ratio or 0.75)
     _now = now or dt.datetime.now()
 
-    ghi_tomorrow = get_tomorrow_solar_kwh_m2(config, now=_now)
+    try:
+        forecast = fetch_weather_forecast(config)
+    except Exception as exc:  # noqa: BLE001
+        logging.debug("PV forecast unavailable: %s", exc)
+        return None
+
+    ghi_tomorrow = get_tomorrow_solar_kwh_m2(config, now=_now, forecast=forecast)
     if ghi_tomorrow is None:
         return None
 
-    ghi_today_remaining = get_today_remaining_solar_kwh_m2(config, now=_now)
+    ghi_today_remaining = get_today_remaining_solar_kwh_m2(
+        config,
+        now=_now,
+        forecast=forecast,
+    )
+
+    tomorrow_weather: dict[str, Any] = {}
+    try:
+        tomorrow_weather = summarize_forecast_day_weather(
+            forecast,
+            (_now + dt.timedelta(days=1)).date(),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logging.debug("Tomorrow weather regime unavailable: %s", exc)
 
     tomorrow_kwh = round(ghi_tomorrow * panel_kwp * pr, 1)
     today_remaining_kwh = round(ghi_today_remaining * panel_kwp * pr, 1) if ghi_today_remaining is not None else None
@@ -352,6 +432,9 @@ def get_pv_forecast(config: Any, now: dt.datetime | None = None) -> dict[str, An
         "tomorrow_irradiance_kwh_m2": round(ghi_tomorrow, 2),
         "panel_kwp": panel_kwp,
         "performance_ratio": pr,
+        "tomorrow_weather_category": tomorrow_weather.get("weather_category"),
+        "tomorrow_cloud_cover": tomorrow_weather.get("cloud_cover"),
+        "tomorrow_precipitation_mm": tomorrow_weather.get("precipitation_mm"),
     }
 
 

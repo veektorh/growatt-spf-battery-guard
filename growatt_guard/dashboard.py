@@ -552,36 +552,45 @@ def build_dashboard_html(
     _tomorrow_pv_detail = "Open-Meteo estimate; actual output can be lower in local rain/cloud."
     _calibration = pv_forecast.get("calibration") if pv_forecast else None
     _calibration_value = "Learning"
-    _calibration_detail = "Collecting five completed forecast days before suggesting changes."
+    _calibration_detail = "Collecting five completed rainy/cloudy forecast days."
     if isinstance(_calibration, dict):
-        _calibration_samples = int(_calibration.get("sample_count") or 0)
-        _calibration_error = _calibration.get("mean_absolute_error_kwh")
+        _calibration_samples = int(_calibration.get("rainy_sample_count") or 0)
+        _calibration_error = _calibration.get("rainy_mean_absolute_error_kwh")
         _calibration_confidence = str(_calibration.get("confidence") or "learning").title()
         _calibration_value = f"{_calibration_confidence} ({_calibration_samples}d)"
         _calibration_detail = str(_calibration.get("recommendation") or _calibration_detail)
         if _calibration_samples > 0 and isinstance(_calibration_error, (int, float)):
             _tomorrow_pv_detail += (
-                f" Calibration: {_calibration_samples} completed days, "
+                f" Rain calibration: {_calibration_samples} comparable completed days, "
                 f"{_fmt_kwh(float(_calibration_error))} mean absolute error."
             )
         else:
-            _tomorrow_pv_detail += " Calibration is collecting completed forecast days."
+            _tomorrow_pv_detail += " Rain calibration is collecting comparable completed days."
     _weather_sensitive_pv = False
-    _rain = getattr(threshold_decision, "precipitation_mm", None)
-    _cloud = getattr(threshold_decision, "cloud_cover", None)
-    if isinstance(_tmr_value, (int, float)) and (
-        (isinstance(_rain, (int, float)) and _rain >= 1)
-        or (isinstance(_cloud, (int, float)) and _cloud >= 70)
-    ):
-        _low_tmr = _fmt_kwh(float(_tmr_value) * 0.6)
-        _tomorrow_pv_detail = f"Weather-sensitive estimate; plan around {_low_tmr}-{_tmr_str}."
+    if pv_forecast and pv_forecast.get("weather_adjusted"):
+        _base_tmr = pv_forecast.get("base_tomorrow_kwh")
+        _factor = pv_forecast.get("weather_adjustment_factor")
+        _factor_pct = f"{float(_factor) * 100:.0f}%" if isinstance(_factor, (int, float)) else "conservative"
+        _factor_source = str(pv_forecast.get("weather_adjustment_source") or "rainy/cloudy")
+        _condition_bits: list[str] = []
+        _tomorrow_cloud = pv_forecast.get("tomorrow_cloud_cover")
+        _tomorrow_rain = pv_forecast.get("tomorrow_precipitation_mm")
+        if isinstance(_tomorrow_cloud, (int, float)):
+            _condition_bits.append(f"{float(_tomorrow_cloud):.0f}% cloud")
+        if isinstance(_tomorrow_rain, (int, float)):
+            _condition_bits.append(f"{float(_tomorrow_rain):g} mm rain")
+        _conditions = f" Forecast: {', '.join(_condition_bits)}." if _condition_bits else ""
+        _tomorrow_pv_detail = (
+            f"Rain-adjusted from {_fmt_kwh(_base_tmr)} using a {_factor_pct} {_factor_source} factor."
+            f"{_conditions}"
+        )
         _weather_sensitive_pv = True
     _kwp = pv_forecast.get("panel_kwp", 0) if pv_forecast else 0
     _weather_category = str(getattr(threshold_decision, "weather_category", "") or "").strip().lower()
     _has_weather_signal = _weather_category not in {"", "disabled", "unavailable", "not configured", "unknown"}
     if isinstance(_kwp, (int, float)) and _kwp > 0:
         _forecast_source = _tomorrow_pv_detail + f" {_fmt_g(float(_kwp))} kWp system."
-        _forecast_short_str = "Weather-sensitive" if _weather_sensitive_pv else "Open-Meteo estimate"
+        _forecast_short_str = "Rain-adjusted" if _weather_sensitive_pv else "Open-Meteo estimate"
     elif _has_weather_signal:
         _forecast_source = "Set PANEL_KWP to convert Open-Meteo irradiance into PV kWh."
         _forecast_short_str = "Needs PANEL_KWP"

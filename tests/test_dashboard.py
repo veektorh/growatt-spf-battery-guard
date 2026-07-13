@@ -671,7 +671,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Live battery draw only 53 W", html)
         self.assertNotIn("413h", html)
 
-    def test_dashboard_pv_forecast_marks_rainy_forecast_as_weather_sensitive(self):
+    def test_dashboard_pv_forecast_shows_rain_adjusted_headline(self):
         status = {
             "device": {"capacity": "85%"},
             "storage_params": {
@@ -707,13 +707,24 @@ class DashboardTests(unittest.TestCase):
                     cloud_cover=90,
                     precipitation_mm=2,
                 ),
-                pv_forecast={"tomorrow_kwh": 30.5, "today_remaining_kwh": 8.2, "panel_kwp": 6.0},
+                pv_forecast={
+                    "tomorrow_kwh": 18.3,
+                    "base_tomorrow_kwh": 30.5,
+                    "today_remaining_kwh": 8.2,
+                    "panel_kwp": 6.0,
+                    "weather_adjusted": True,
+                    "weather_adjustment_factor": 0.6,
+                    "weather_adjustment_source": "conservative default",
+                    "tomorrow_cloud_cover": 90,
+                    "tomorrow_precipitation_mm": 2,
+                },
             )
 
         self.assertIn("Tomorrow PV", html)
-        self.assertIn("30.5 kWh", html)
-        self.assertIn("Weather-sensitive", html)
-        self.assertIn("plan around 18.3 kWh-30.5 kWh", html)
+        self.assertIn("18.3 kWh", html)
+        self.assertIn("Rain-adjusted", html)
+        self.assertIn("Rain-adjusted from 30.5 kWh", html)
+        self.assertIn("60% conservative default factor", html)
 
     def test_dashboard_asset_for_path_handles_missing_json(self):
         with TemporaryDirectory() as tmpdir:

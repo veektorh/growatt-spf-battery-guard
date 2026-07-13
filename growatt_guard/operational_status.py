@@ -77,14 +77,14 @@ def build_forecast_calibration_status(config: Any) -> dict[str, Any]:
         current_performance_ratio=config.panel_performance_ratio,
         sunny_threshold_kwh_m2=config.auto_topup_solar_skip_kwh_m2,
     )
-    samples = int(summary.get("sample_count") or 0)
+    samples = int(summary.get("rainy_sample_count") or 0)
     ready = samples >= FORECAST_CALIBRATION_MIN_SAMPLES
     if not configured:
         detail = "not configured; set PANEL_KWP and weather coordinates to collect day-ahead PV evidence."
     elif ready:
-        detail = f"ready with {samples} completed day(s); {summary.get('recommendation', '')}"
+        detail = f"ready with {samples} completed rainy/cloudy day(s); {summary.get('recommendation', '')}"
     else:
-        detail = f"learning with {samples}/{FORECAST_CALIBRATION_MIN_SAMPLES} completed day(s)."
+        detail = f"learning with {samples}/{FORECAST_CALIBRATION_MIN_SAMPLES} completed rainy/cloudy day(s)."
     return {
         "configured": configured,
         "ready": ready,
