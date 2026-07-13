@@ -467,9 +467,9 @@
       const btn = document.getElementById('layout-toggle-btn');
       const night = layout === 'night';
       html.classList.toggle('layout-night', night);
-      try { localStorage.setItem('dash-layout', night ? 'night' : 'current'); } catch(e) {}
+      try { localStorage.setItem('dash-view', night ? 'design' : 'operations'); } catch(e) {}
       if (btn) {
-        btn.textContent = night ? 'Dashboard' : 'Night ops';
+        btn.textContent = night ? 'Operations' : 'New design';
         btn.classList.toggle('layout-toggle-active', night);
       }
     }
@@ -485,7 +485,7 @@
     }
     (function() {
       try {
-        setDashLayout(localStorage.getItem('dash-layout') === 'night' ? 'night' : 'current');
+        setDashLayout(localStorage.getItem('dash-view') === 'operations' ? 'current' : 'night');
         if (localStorage.getItem('dash-theme') === 'light') {
           document.documentElement.classList.add('theme-light');
           const btn = document.getElementById('theme-toggle-btn');

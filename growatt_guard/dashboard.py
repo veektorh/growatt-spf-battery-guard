@@ -201,14 +201,16 @@ def build_dashboard_html(
         generated_at_iso = generated_at.isoformat(timespec="seconds")
         live_metrics = extract_dashboard_metrics(status, now=generated_at)
         metric_history = _history_with_live(metrics_history or [], live_metrics)
-        metric_history_json = json.dumps(build_dashboard_history_payload(metric_history, now=now))
+        history_payload = build_dashboard_history_payload(metric_history, now=now)
+        metric_history_json = json.dumps(history_payload)
     else:
         generated_at_iso = str(dashboard_data["generated_at"])
         generated_at = dt.datetime.fromisoformat(generated_at_iso)
         now = generated_at.replace(tzinfo=None)
         live_metrics = dict(dashboard_data["live"])
         metric_history = []
-        metric_history_json = json.dumps(dashboard_data["history"])
+        history_payload = dashboard_data["history"]
+        metric_history_json = json.dumps(history_payload)
     soc_result = extract_soc(status)
     soc = f"{soc_result[0]:g}%" if soc_result else "Not found"
     output_source = extract_spf_output_source(status)
@@ -869,6 +871,7 @@ def build_dashboard_html(
         if upcoming_overrides
         else ""
     )
+    dashboard_health_ok = alert == "clear" and cloud_streak == 0 and sbu_guard["state"] != "misconfigured"
     night_view_html = _render_night_view(
         {
             "bat_status": bat_status,
@@ -877,14 +880,29 @@ def build_dashboard_html(
             "battery_power_label": battery_power_label,
             "battery_throughput_display": battery_throughput_display,
             "charge_today_display": charge_today_display,
+            "charge_battery_pct": daily_mix.get("charge_battery_pct"),
+            "daily_history": history_payload.get("daily", {}),
+            "demand_total_display": demand_total_display,
             "discharge_today_display": discharge_today_display,
+            "discharge_battery_pct": daily_mix.get("discharge_battery_pct"),
             "est_runtime": est_runtime,
+            "expected_grid_kwh": _grid_forecast_str,
             "forecast_short": _forecast_short_str,
+            "generated_date": generated_at.strftime("%a %d %b"),
+            "generated_time": generated_at.strftime("%H:%M"),
+            "greeting": str(home_status.get("greeting", "Hello")),
             "grid_now_detail": grid_now_detail,
             "grid_power_display": grid_power_display,
+            "grid_supply_pct": daily_mix.get("grid_supply_pct"),
             "grid_status_text": grid_status_text,
             "grid_today_display": grid_today_display,
+            "headline": str(home_status.get("headline", "Home energy is stable")),
+            "health_badge_class": "badge-ok" if dashboard_health_ok else "badge-warn",
+            "health_display": "Health OK" if dashboard_health_ok else "Health needs attention",
+            "load_demand_display": _mix_pct_display("load_demand_pct"),
+            "load_demand_pct": daily_mix.get("load_demand_pct"),
             "load_power_display": load_power_display,
+            "load_pct": load_pct,
             "load_today_display": load_today_display,
             "mode": mode,
             "mode_badge_class": mode_badge_class,
@@ -892,9 +910,23 @@ def build_dashboard_html(
             "next_action_relative": next_action_relative,
             "next_action_title": next_action_title,
             "night_topup_class": "badge-fail" if tonight_badge_class == "badge-fail" else tonight_badge_class,
+            "bypass_label": bypass_badge_label,
+            "battery_activity_display": battery_activity_display,
+            "battery_net_display": battery_net_display,
+            "recommendations": recommendations,
+            "schedule_timeline": schedule_timeline,
+            "supply_total_display": supply_total_display,
+            "sunrise_display": sunrise_display,
+            "today_jobs": today_jobs,
+            "today_remaining_kwh": energy_outlook.get("today_remaining_kwh"),
+            "tonight_projection_value": tonight_projection,
+            "reserve_target_value": energy_outlook.get("reserve_target_soc"),
+            "pv_supply_display": _mix_pct_display("pv_supply_pct"),
+            "pv_supply_pct": daily_mix.get("pv_supply_pct"),
             "pv_cover_display": pv_cover_display,
             "pv_lifetime": pv_total_text or "--",
             "pv_power_display": pv_power_display,
+            "pv_today_kwh": live_metrics.get("pv_today_kwh"),
             "pv_today_display": pv_today_display,
             "pv_w": live_metrics.get("pv_w") or 0,
             "quality_badge_class": quality_badge_class,
@@ -906,6 +938,7 @@ def build_dashboard_html(
             "soc_health": soc_health,
             "soc_health_class": soc_health_class,
             "tomorrow_pv": _tmr_str,
+            "tomorrow_pv_kwh": _tmr_value,
             "tonight_detail": tonight_detail,
             "tonight_projection_display": tonight_projection_display,
             "tonight_title": tonight_title,
@@ -970,7 +1003,7 @@ def build_dashboard_html(
         <span class="pill">Mode: {esc(mode)}</span>
         <span class="pill">SOC: {esc(soc)}</span>
         <span class="pill">Refresh: 5min</span>
-        <button class="theme-toggle" id="layout-toggle-btn" onclick="toggleDashLayout()">Night ops</button>
+        <button class="theme-toggle" id="layout-toggle-btn" onclick="toggleDashLayout()">New design</button>
         <button class="theme-toggle" id="theme-toggle-btn" onclick="toggleDashTheme()">Light</button>
       </div>
     </header>
