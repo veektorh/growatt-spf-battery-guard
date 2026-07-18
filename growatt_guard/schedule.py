@@ -162,11 +162,11 @@ def check_cron_schedule(schedule: dict[str, Any]) -> list[HealthCheckItem]:
         cron = str(job["cron"]).strip()
         job_id = schedule_job_id(job, index)
         tokens = schedule_job_tokens(job, index)
-        wrapper_fragment = f"growatt_power_guard.py run-scheduled {job_id}"
+        wrapper_fragment = f" run-scheduled {job_id} "
         direct_fragment = "growatt_power_guard.py " + " ".join(tokens)
         found = any(
             line.startswith(f"{cron} ")
-            and (wrapper_fragment in line or direct_fragment in line)
+            and (wrapper_fragment in f" {line} " or direct_fragment in line)
             and "# growatt-power-guard" in line
             for line in cron_lines
         )

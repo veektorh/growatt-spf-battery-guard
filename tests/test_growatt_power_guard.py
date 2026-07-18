@@ -453,6 +453,35 @@ class GrowattPowerGuardTests(unittest.TestCase):
 
         self.assertTrue(all(check.status == "OK" for check in checks))
 
+    def test_check_cron_schedule_accepts_packaged_entrypoint_jobs(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "morning-health", "cron": "10 6 * * *", "command": "health-check", "args": ["--notify"]},
+            ],
+        }
+        crontab = "\n".join(
+            [
+                "CRON_TZ=Africa/Lagos",
+                (
+                    "10 6 * * * cd /home/ubuntu/automation/.deploy/current && "
+                    "GROWATT_GUARD_HOME=/home/ubuntu/automation/.deploy/current "
+                    "GROWATT_GUARD_DATA_DIR=/home/ubuntu/automation "
+                    "/home/ubuntu/automation/.deploy/current/growatt-guard "
+                    "run-scheduled morning-health >> /home/ubuntu/automation/logs/cron.log "
+                    "2>&1 # growatt-power-guard"
+                ),
+            ]
+        )
+
+        with patch("growatt_guard.schedule.os.name", "posix"), patch(
+            "growatt_guard.schedule.subprocess.run",
+            return_value=subprocess.CompletedProcess(["crontab", "-l"], 0, stdout=crontab, stderr=""),
+        ):
+            checks = check_cron_schedule(schedule)
+
+        self.assertTrue(all(check.status == "OK" for check in checks))
+
     def test_command_health_check_reports_ok_when_everything_is_available(self):
         config = make_config(dry_run=False, discord_webhook_url="https://discord.com/api/webhooks/example")
         status = {"device": {"capacity": "50%"}, "storage_params": {"outputConfig": "0"}}
