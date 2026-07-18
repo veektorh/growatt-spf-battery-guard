@@ -2,12 +2,24 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON_BIN="${ROOT}/.venv/bin/python"
+RUNTIME_ROOT="${GROWATT_GUARD_RUNTIME_ROOT:-${ROOT}}"
+DATA_ROOT="${GROWATT_GUARD_DATA_DIR:-${ROOT}}"
+GUARD_SCRIPT=""
+if [[ -z "${GUARD_BIN:-}" ]]; then
+  if [[ -x "${RUNTIME_ROOT}/growatt-guard" ]]; then
+    GUARD_BIN="${RUNTIME_ROOT}/growatt-guard"
+  elif [[ -x "${RUNTIME_ROOT}/.venv/bin/growatt-guard" ]]; then
+    GUARD_BIN="${RUNTIME_ROOT}/.venv/bin/growatt-guard"
+  else
+    GUARD_BIN="${RUNTIME_ROOT}/.venv/bin/python"
+    GUARD_SCRIPT="${RUNTIME_ROOT}/growatt_power_guard.py"
+  fi
+fi
 SERVICE_USER="${SUDO_USER:-$(id -un)}"
 
-if [[ ! -x "${PYTHON_BIN}" ]]; then
-  echo "Virtual environment not found at ${PYTHON_BIN}"
-  echo "Run: python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt"
+if [[ ! -x "${GUARD_BIN}" || ( -n "${GUARD_SCRIPT}" && ! -f "${GUARD_SCRIPT}" ) ]]; then
+  echo "Packaged Growatt Guard executable not found at ${GUARD_BIN}"
+  echo "Run ./update_server.sh to create and activate a release."
   exit 1
 fi
 
@@ -20,8 +32,10 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=${SERVICE_USER}
-WorkingDirectory=${ROOT}
-ExecStart=${PYTHON_BIN} ${ROOT}/growatt_power_guard.py serve-discord-bot
+WorkingDirectory=${RUNTIME_ROOT}
+Environment="GROWATT_GUARD_HOME=${RUNTIME_ROOT}"
+Environment="GROWATT_GUARD_DATA_DIR=${DATA_ROOT}"
+ExecStart=${GUARD_BIN}${GUARD_SCRIPT:+ ${GUARD_SCRIPT}} serve-discord-bot
 Restart=always
 RestartSec=15
 

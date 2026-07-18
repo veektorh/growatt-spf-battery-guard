@@ -13,7 +13,10 @@ except ImportError:  # pragma: no cover - handled at runtime for friendlier outp
     load_dotenv = None
 
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+from growatt_guard.paths import DATA_HOME
+
+
+BASE_DIR = DATA_HOME
 
 
 @dataclass(frozen=True)

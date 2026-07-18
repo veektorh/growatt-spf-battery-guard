@@ -5,6 +5,10 @@ schedule_overrides.json
 dashboard.html
 dashboard.json
 .venv/
+.deploy/
+dist/
+build/
+*.egg-info/
 logs/
 state/
 growatt-probe-*.json

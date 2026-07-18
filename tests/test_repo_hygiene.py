@@ -17,6 +17,9 @@ class GitignoreHygieneTests(unittest.TestCase):
             "dashboard.json",
             "growatt-probe-*.json",
             "backups/",
+            ".deploy/",
+            "dist/",
+            "*.egg-info/",
             "*.backup.json",
             "*.ics",
         ):
@@ -28,6 +31,11 @@ class GitignoreHygieneTests(unittest.TestCase):
         self.assertIn('echo "== Shell syntax =="', verify_script)
         self.assertIn("git ls-files '*.sh'", verify_script)
         self.assertIn('bash -n "$script"', verify_script)
+
+    def test_packaged_entrypoint_is_executable(self):
+        entrypoint = ROOT / "packaged_entrypoint.sh"
+
+        self.assertTrue(entrypoint.stat().st_mode & 0o100)
 
 
 if __name__ == "__main__":

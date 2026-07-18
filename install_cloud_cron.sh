@@ -2,8 +2,20 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-${ROOT}/.venv/bin/python}"
-SCHEDULE_FILE="${ROOT}/schedule.json"
+RUNTIME_ROOT="${GROWATT_GUARD_RUNTIME_ROOT:-${ROOT}}"
+DATA_ROOT="${GROWATT_GUARD_DATA_DIR:-${ROOT}}"
+GUARD_SCRIPT=""
+if [[ -z "${GUARD_BIN:-}" ]]; then
+  if [[ -x "${RUNTIME_ROOT}/growatt-guard" ]]; then
+    GUARD_BIN="${RUNTIME_ROOT}/growatt-guard"
+  elif [[ -x "${RUNTIME_ROOT}/.venv/bin/growatt-guard" ]]; then
+    GUARD_BIN="${RUNTIME_ROOT}/.venv/bin/growatt-guard"
+  else
+    GUARD_BIN="${RUNTIME_ROOT}/.venv/bin/python"
+    GUARD_SCRIPT="${RUNTIME_ROOT}/growatt_power_guard.py"
+  fi
+fi
+SCHEDULE_FILE="${RUNTIME_ROOT}/schedule.json"
 CURRENT_CRON="$(mktemp)"
 PROPOSED_CRON="$(mktemp)"
 DRY_RUN=false
@@ -43,9 +55,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
-  echo "Python interpreter not found or not executable: ${PYTHON_BIN}"
-  echo "Set PYTHON_BIN to a valid interpreter, or run: python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt"
+if [[ ! -x "${GUARD_BIN}" || ( -n "${GUARD_SCRIPT}" && ! -f "${GUARD_SCRIPT}" ) ]]; then
+  echo "Growatt Guard executable not found: ${GUARD_BIN}"
+  echo "Run ./update_server.sh to create and activate a packaged release."
   exit 1
 fi
 
@@ -59,7 +71,7 @@ crontab -l > "${CURRENT_CRON}" 2>/dev/null || true
 grep -v "# growatt-power-guard" "${CURRENT_CRON}" \
   | grep -v "^CRON_TZ=Africa/Lagos$" > "${PROPOSED_CRON}" || true
 
-"${PYTHON_BIN}" - "${SCHEDULE_FILE}" "${ROOT}" "${PYTHON_BIN}" >> "${PROPOSED_CRON}" <<'PYCRON'
+python3 - "${SCHEDULE_FILE}" "${RUNTIME_ROOT}" "${DATA_ROOT}" "${GUARD_BIN}" "${GUARD_SCRIPT}" >> "${PROPOSED_CRON}" <<'PYCRON'
 import json
 import shlex
 import sys
@@ -67,7 +79,9 @@ from pathlib import Path
 
 schedule_path = Path(sys.argv[1])
 root = sys.argv[2]
-python_bin = sys.argv[3]
+data_root = sys.argv[3]
+guard_bin = sys.argv[4]
+guard_script = sys.argv[5]
 
 schedule = json.loads(schedule_path.read_text(encoding="utf-8"))
 timezone = schedule.get("timezone", "Africa/Lagos")
@@ -88,9 +102,13 @@ for job in jobs:
     if not job_id or not cron or not command:
         raise SystemExit(f"Invalid schedule job: {job}")
     print(
-        f"{cron} cd {shlex.quote(root)} && {shlex.quote(python_bin)} "
-        f"growatt_power_guard.py run-scheduled {shlex.quote(job_id)} >> "
-        f"{shlex.quote(str(Path(root) / 'logs' / 'cron.log'))} 2>&1 # growatt-power-guard"
+        f"{cron} cd {shlex.quote(root)} && "
+        f"GROWATT_GUARD_HOME={shlex.quote(root)} "
+        f"GROWATT_GUARD_DATA_DIR={shlex.quote(data_root)} "
+        f"{shlex.quote(guard_bin)} "
+        f"{(shlex.quote(guard_script) + ' ') if guard_script else ''}"
+        f"run-scheduled {shlex.quote(job_id)} >> "
+        f"{shlex.quote(str(Path(data_root) / 'logs' / 'cron.log'))} 2>&1 # growatt-power-guard"
     )
 PYCRON
 
@@ -108,6 +126,6 @@ fi
 
 crontab "${PROPOSED_CRON}"
 
-mkdir -p "${ROOT}/logs"
+mkdir -p "${DATA_ROOT}/logs"
 echo "Installed Growatt cron schedule from ${SCHEDULE_FILE}."
 crontab -l | grep "growatt-power-guard" || true

@@ -14,6 +14,7 @@ from growatt_guard.exceptions import GrowattGuardError
 import requests
 
 from growatt_guard.notifications import record_growatt_cloud_success
+from growatt_guard.paths import DATA_HOME
 
 try:
     from dotenv import load_dotenv as _load_dotenv
@@ -26,7 +27,7 @@ except ImportError:  # pragma: no cover - handled at runtime for friendlier outp
     growattServer = None
 
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = DATA_HOME
 LOG_DIR = BASE_DIR / "logs"
 
 SOC_KEYS = (

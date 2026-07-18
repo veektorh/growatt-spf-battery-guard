@@ -43,7 +43,7 @@ class InstallCloudCronTests(unittest.TestCase):
             fake_crontab.chmod(fake_crontab.stat().st_mode | stat.S_IXUSR)
             env = os.environ.copy()
             env["PATH"] = f"{tmp_path}{os.pathsep}{env['PATH']}"
-            env["PYTHON_BIN"] = sys.executable
+            env["GUARD_BIN"] = sys.executable
 
             completed = subprocess.run(
                 [str(INSTALLER), "--dry-run"],
@@ -59,7 +59,9 @@ class InstallCloudCronTests(unittest.TestCase):
         self.assertIn("+++ proposed-crontab", completed.stdout)
         self.assertIn("-0 1 * * * cd /old && python old.py # growatt-power-guard", completed.stdout)
         self.assertIn("MAILTO=ops@example.invalid", completed.stdout)
-        self.assertIn("growatt_power_guard.py run-scheduled", completed.stdout)
+        self.assertIn("GROWATT_GUARD_HOME=", completed.stdout)
+        self.assertIn("GROWATT_GUARD_DATA_DIR=", completed.stdout)
+        self.assertIn("run-scheduled", completed.stdout)
         self.assertNotIn("install attempted", completed.stderr)
 
     def test_script_syntax_is_valid(self):

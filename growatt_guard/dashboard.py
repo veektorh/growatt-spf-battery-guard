@@ -112,9 +112,10 @@ from growatt_guard.dashboard_render_components import (
     _stat_block,
 )
 from growatt_guard.weather import choose_preserve_threshold, get_pv_forecast, hours_until_next_sunrise
+from growatt_guard.paths import DATA_HOME
 
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = DATA_HOME
 LOG_DIR = BASE_DIR / "logs"
 DASHBOARD_FILE = BASE_DIR / "dashboard.html"
 DASHBOARD_JSON_FILE = BASE_DIR / "dashboard.json"

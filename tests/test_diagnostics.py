@@ -289,12 +289,26 @@ class DeploymentPreflightTests(unittest.TestCase):
     def test_update_server_rolls_back_if_post_pull_validation_fails(self):
         script = (Path(__file__).resolve().parents[1] / "update_server.sh").read_text(encoding="utf-8")
 
-        self.assertIn("rollback_validation_failure", script)
-        self.assertIn('git reset --hard "${PREVIOUS_COMMIT}"', script)
-        self.assertLess(script.index('ROLLBACK_ARMED=1'), script.index('pip install -r requirements.txt'))
+        self.assertIn("rollback_deployment_failure", script)
+        self.assertIn('git -C "${ROOT}" reset --hard "${PREVIOUS_COMMIT}"', script)
+        rollback_arm_pos = script.index('SOURCE_ROLLBACK_ARMED=1')
+        post_pull_install_pos = script.index('pip install -r "${ROOT}/requirements.lock"', rollback_arm_pos)
+        self.assertLess(rollback_arm_pos, post_pull_install_pos)
         validation_pos = script.index("growatt_power_guard.py validate-schedule")
-        rollback_disarm_pos = script.rindex("ROLLBACK_ARMED=0")
+        rollback_disarm_pos = script.rindex("SOURCE_ROLLBACK_ARMED=0")
         self.assertLess(validation_pos, rollback_disarm_pos)
+
+    def test_update_server_stages_wheel_before_atomic_activation(self):
+        script = (Path(__file__).resolve().parents[1] / "update_server.sh").read_text(encoding="utf-8")
+
+        self.assertIn("pip wheel --no-deps --no-build-isolation", script)
+        self.assertIn("requirements.lock", script)
+        self.assertIn("entry-point shebangs embed that path", script)
+        self.assertIn("packaged_entrypoint.sh", script)
+        self.assertIn('mv -Tf "${CURRENT_LINK}.new" "${CURRENT_LINK}"', script)
+        self.assertIn("GROWATT_GUARD_DATA_DIR", script)
+        self.assertLess(script.index("Validating staged release"), script.index('mv -Tf "${CURRENT_LINK}.new"'))
+        self.assertGreaterEqual(script.count("run_deployment_preflight"), 3)
 
     def test_preflight_allows_clear_state(self):
         from growatt_guard.diagnostics import build_deployment_preflight_payload, command_deployment_preflight

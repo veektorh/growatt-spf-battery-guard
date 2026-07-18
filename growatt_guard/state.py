@@ -10,8 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from growatt_guard.paths import DATA_HOME
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = DATA_HOME
 
 
 def _default_state_dir() -> Path:

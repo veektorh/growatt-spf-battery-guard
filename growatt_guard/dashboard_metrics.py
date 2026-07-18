@@ -11,8 +11,9 @@ from growatt_guard.growatt_api import (
     extract_channel_metric_sum, extract_first_metric, extract_soc,
     extract_spf_output_source, parse_number,
 )
+from growatt_guard.paths import DATA_HOME
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = DATA_HOME
 LOG_DIR = BASE_DIR / "logs"
 DASHBOARD_FILE = BASE_DIR / "dashboard.html"
 DASHBOARD_JSON_FILE = BASE_DIR / "dashboard.json"
@@ -430,5 +431,4 @@ def build_dashboard_history_payload(
             "grid_kwh": [_series_value(latest_by_date.get(day.isoformat(), {}), "grid_today_kwh") for day in dates],
         },
     }
-
 

@@ -10,11 +10,12 @@ from pathlib import Path
 from typing import Any
 
 from growatt_guard.exceptions import GrowattGuardError
+from growatt_guard.paths import APP_HOME, DATA_HOME
 
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = APP_HOME
 SCHEDULE_FILE = BASE_DIR / "schedule.json"
-SCHEDULE_OVERRIDES_FILE = BASE_DIR / "schedule_overrides.json"
+SCHEDULE_OVERRIDES_FILE = DATA_HOME / "schedule_overrides.json"
 
 SCHEDULE_COMMANDS = {
     "preserve-battery",

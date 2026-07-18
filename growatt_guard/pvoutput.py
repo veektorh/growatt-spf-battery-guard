@@ -19,10 +19,11 @@ from growatt_guard.growatt_api import (
     parse_number,
 )
 from growatt_guard.state import read_json_state, write_json_state
+from growatt_guard.paths import DATA_HOME
 
 PVOUTPUT_URL = "https://pvoutput.org/service/r2/addstatus.jsp"
 PVOUTPUT_GETOUTPUT_URL = "https://pvoutput.org/service/r2/getoutput.jsp"
-PVOUTPUT_STATE_FILE = Path(__file__).resolve().parents[1] / "state" / "pvoutput_last.json"
+PVOUTPUT_STATE_FILE = DATA_HOME / "state" / "pvoutput_last.json"
 
 # Keys tried in order; first non-empty value wins.
 # v1 must be PV generation energy — charge-energy fields (eacChargeToday, eChargeToday)

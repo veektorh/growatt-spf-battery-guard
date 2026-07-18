@@ -16,8 +16,9 @@ import growatt_guard.state as state_module
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import extract_spf_output_source, load_context
 from growatt_guard.schedule import validate_schedule, validate_schedule_overrides
+from growatt_guard.paths import DATA_HOME
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = DATA_HOME
 BACKUP_DIR = BASE_DIR / "backups"
 BACKUP_SCHEMA_VERSION = 1
 MAX_RESTORED_HOLD_HOURS = 24

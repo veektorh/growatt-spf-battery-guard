@@ -19,6 +19,7 @@ from growatt_guard.diagnostics import (
 )
 from growatt_guard.discord_control import command_serve_discord_bot
 from growatt_guard.notifications import notify_failure
+from growatt_guard.paths import DATA_HOME
 from growatt_guard.pvoutput import command_pvoutput_upload
 from growatt_guard.schedule import command_validate_schedule
 from growatt_guard.schedule_overrides import command_outage_profile, command_schedule_override
@@ -26,7 +27,7 @@ from growatt_guard.schedule_views import command_schedule_calendar
 from growatt_guard.topup_status import command_topup_status
 
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = DATA_HOME
 LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "growatt_power_guard.log"
 LOG_MAX_BYTES = 5 * 1024 * 1024

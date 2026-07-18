@@ -13,6 +13,7 @@ import growatt_guard.state as state_module
 
 from growatt_guard.config import Config
 from growatt_guard.exceptions import GrowattGuardError
+from growatt_guard.paths import DATA_HOME
 from growatt_guard.state import (
     battery_alert_is_muted,
     clear_battery_alert_mute,
@@ -32,8 +33,7 @@ from growatt_guard.state import (
 from growatt_guard.topup_status import build_topup_status_payload
 
 
-BASE_DIR = Path(__file__).resolve().parents[1]
-SCRIPT_PATH = BASE_DIR / "growatt_power_guard.py"
+BASE_DIR = DATA_HOME
 MAX_DISCORD_MESSAGE = 1800
 
 _COLOR_OK = 0x57F287
@@ -377,7 +377,8 @@ def is_authorized_interaction(config: Config, interaction: Any) -> bool:
 async def run_guard_command(tokens: list[str], timeout_seconds: int = 1800) -> tuple[int, str]:
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
-        str(SCRIPT_PATH),
+        "-m",
+        "growatt_guard",
         *tokens,
         cwd=str(BASE_DIR),
         stdout=asyncio.subprocess.PIPE,

@@ -13,8 +13,9 @@ from growatt_guard.schedule import (
     validate_schedule,
     validate_schedule_overrides,
 )
+from growatt_guard.paths import DATA_HOME
 
-SCHEDULE_OVERRIDES_FILE = BASE_DIR / "schedule_overrides.json"
+SCHEDULE_OVERRIDES_FILE = DATA_HOME / "schedule_overrides.json"
 
 def _load_overrides_raw() -> dict[str, Any]:
     if not SCHEDULE_OVERRIDES_FILE.exists():

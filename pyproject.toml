@@ -11,15 +11,18 @@ requires-python = ">=3.10"
 dependencies = [
     "growattServer==2.2.0",
     "python-dotenv==1.2.2",
-    "requests>=2.31.0",
-    "discord.py>=2.3,<3",
+    "requests==2.34.2",
+    "discord.py==2.7.1",
 ]
 
 [project.scripts]
 growatt-guard = "growatt_guard.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["growatt_guard*"]
+include = ["growatt_guard*", "scripts*"]
+
+[tool.setuptools]
+py-modules = ["growatt_power_guard"]
 
 [tool.setuptools.package-data]
 growatt_guard = ["assets/*.css", "assets/*.js"]

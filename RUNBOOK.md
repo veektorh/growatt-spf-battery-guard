@@ -301,10 +301,13 @@ cd ~/automation
 ./update_server.sh
 ```
 
-Validation failures after the pull and before cron/service changes automatically
-reset the checkout to the previous commit. If rollback itself fails, stop and
-recover the repository manually before restarting services. Failures after
-cron/service changes still require reviewing service status and logs manually.
+The checkout controls immutable packaged runtimes under `.deploy/releases/`.
+Each update installs `requirements.lock`, verifies the source, builds and
+validates a wheel, then atomically switches `.deploy/current`. Operational data
+remains in the checkout and the three newest releases are retained. Validation
+or post-activation failures restore the previous checkout and runtime. If
+rollback itself fails, stop and recover the repository manually before
+restarting services.
 
 `update_server.sh` runs `deployment-preflight` and prints a preflight summary before pulling code. If an
 auto-topup or Utility hold is active, the script refuses to continue until the

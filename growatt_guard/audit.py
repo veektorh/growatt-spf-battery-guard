@@ -15,9 +15,10 @@ from growatt_guard.growatt_api import (
     format_metric,
 )
 from growatt_guard.state import pause_message, read_pause_state
+from growatt_guard.paths import DATA_HOME
 
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = DATA_HOME
 LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "growatt_power_guard.log"
 MODE_AUDIT_FILE = LOG_DIR / "mode_decisions.csv"

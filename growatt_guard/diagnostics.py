@@ -20,6 +20,7 @@ from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import deep_values, extract_soc, extract_spf_output_source, load_context
 from growatt_guard.pvoutput import extract_pvoutput_fields, read_pvoutput_state
 from growatt_guard.operational_status import build_forecast_calibration_status, build_sbu_guard_status
+from growatt_guard.paths import DATA_HOME
 from growatt_guard.schedule import (
     check_cron_schedule,
     lint_schedule,
@@ -43,7 +44,7 @@ SERVICE_UNITS = (
     "growatt-dashboard-stale-alert.timer",
     "growatt-discord-control.service",
 )
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = DATA_HOME
 LOG_FILE = BASE_DIR / "logs" / "growatt_power_guard.log"
 PV_METRIC_KEYS = {
     "ppv",

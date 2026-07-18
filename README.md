@@ -937,9 +937,19 @@ cd ~/automation
 ./update_server.sh
 ```
 
-If dependency installation, compilation, tests, or schedule validation fails
-after the pull, the script automatically resets the checkout to the previous
-commit before any cron or long-lived process changes are made.
+The checkout is now a deployment controller rather than the live runtime.
+`update_server.sh` installs the fully pinned `requirements.lock`, runs the
+offline verification suite, builds a wheel, and stages it in
+`.deploy/releases/<commit>`. Mutable `.env`, `state/`, `logs/`, backups,
+schedule overrides, and dashboard files remain under `~/automation`. After the
+staged wheel and schedule pass validation, `.deploy/current` switches
+atomically and cron/systemd are restarted against that release. The three most
+recent packaged releases are retained.
+
+If dependency installation, compilation, tests, schedule validation, service
+restart, or the final health check fails, the script restores the previous
+checkout/runtime before returning an error. On the first packaged deployment,
+it can fall back to the former checkout-based services.
 
 `update_server.sh` runs `deployment-preflight`, prints the same preflight summary, and refuses to continue while `state/topup_active.json` or `state/utility_hold.json` exists. To wait safely without cancelling or changing the hold, use `./update_server.sh --wait-for-clear 120`; it rechecks once per minute and exits without updating if the window never clears. Use `--no-notify` as well if you want the health check printed only in the terminal.
 
@@ -953,8 +963,8 @@ Reinstall the current schedule:
 
 ```bash
 cd ~/automation
-.venv/bin/python growatt_power_guard.py validate-schedule
-./install_cloud_cron.sh
+.deploy/current/growatt-guard validate-schedule
+GROWATT_GUARD_RUNTIME_ROOT="$PWD/.deploy/current" ./install_cloud_cron.sh
 ```
 
 ## Public Repo Safety
@@ -968,6 +978,8 @@ growatt_power_guard.py
 growatt_guard/
 pyproject.toml
 requirements.txt
+requirements.lock
+requirements-build.lock
 verify_local.sh
 README.md
 RUNBOOK.md

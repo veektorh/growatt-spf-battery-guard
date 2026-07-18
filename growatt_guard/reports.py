@@ -13,9 +13,10 @@ from growatt_guard.config import Config
 from growatt_guard.growatt_api import load_context
 from growatt_guard.notifications import embed_summary, send_discord_embed
 from growatt_guard.weather import choose_preserve_threshold
+from growatt_guard.paths import DATA_HOME
 
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = DATA_HOME
 LOG_DIR = BASE_DIR / "logs"
 ROTATE_LOG_PROTECTED_FILES = {
     "cron.log",
