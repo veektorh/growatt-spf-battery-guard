@@ -312,6 +312,11 @@ def build_weekly_summary(
     now: dt.datetime | None = None,
     solar_this_week: dict[str, int] | None = None,
     solar_last_week: dict[str, int] | None = None,
+    solar_this_week_source: str = "",
+    solar_last_week_source: str = "",
+    solar_this_week_expected_days: int = 7,
+    solar_last_week_expected_days: int = 7,
+    solar_data_notes: list[str] | None = None,
     charge_rate_w: float = 0.0,
     low_battery_soc: float | None = None,
     battery_bms_cutoff_soc: float = 25.0,
@@ -384,22 +389,35 @@ def build_weekly_summary(
         days = len(solar_this_week)
         total_wh = sum(solar_this_week.values())
         avg_wh = total_wh / days
+        this_completeness = f"{days}/{solar_this_week_expected_days} days"
+        this_source = f"; source: {solar_this_week_source}" if solar_this_week_source else ""
         lines.append(
             f"Solar this week: {total_wh / 1000:.1f} kWh total, "
-            f"{avg_wh / 1000:.2f} kWh/day avg ({days} day{'s' if days != 1 else ''} data)"
+            f"{avg_wh / 1000:.2f} kWh/day avg ({this_completeness}{this_source})"
         )
         if solar_last_week:
             days_last = len(solar_last_week)
             total_last_wh = sum(solar_last_week.values())
             avg_last_wh = total_last_wh / days_last
+            last_completeness = f"{days_last}/{solar_last_week_expected_days} days"
+            last_source = f"; source: {solar_last_week_source}" if solar_last_week_source else ""
             lines.append(
                 f"Solar last week: {total_last_wh / 1000:.1f} kWh total, "
-                f"{avg_last_wh / 1000:.2f} kWh/day avg"
+                f"{avg_last_wh / 1000:.2f} kWh/day avg ({last_completeness}{last_source})"
             )
-            if avg_last_wh > 0:
+            if (
+                avg_last_wh > 0
+                and days >= solar_this_week_expected_days
+                and days_last >= solar_last_week_expected_days
+            ):
                 solar_yield_change = (avg_wh - avg_last_wh) / avg_last_wh * 100
                 direction = "▲" if solar_yield_change >= 0 else "▼"
                 lines.append(f"Week-over-week yield: {direction} {abs(solar_yield_change):.0f}%")
+            elif avg_last_wh > 0:
+                lines.append("Week-over-week yield: unavailable (incomplete solar data).")
+    if solar_data_notes:
+        lines.append("Solar data notes:")
+        lines.extend(f"  - {note}" for note in solar_data_notes)
 
     recommendations = _weekly_recommendations(
         preserve_rows=preserve_rows,
