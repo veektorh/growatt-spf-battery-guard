@@ -243,7 +243,7 @@ from growatt_guard.weather import (
 )
 
 PAUSABLE_COMMANDS = {"preserve-battery", "utility-check", "morning-check", "return-sbu", "watchdog-sbu"}
-LOCKED_COMMANDS = PAUSABLE_COMMANDS | {"force-utility", "adopt-utility", "topup-complete-check"}
+LOCKED_COMMANDS = PAUSABLE_COMMANDS | {"force-utility", "adopt-utility"}
 
 
 if __name__ == "__main__":

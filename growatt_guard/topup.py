@@ -28,7 +28,7 @@ from growatt_guard.notifications import (
     embed_topup_soc_started,
     send_discord_embed,
 )
-from growatt_guard.pause import command_pause, command_resume
+from growatt_guard.pause import command_pause, command_resume, run_with_command_lock
 from growatt_guard.state import (
     append_charge_rate_reading,
     append_discharge_rate_reading,
@@ -428,6 +428,26 @@ def _return_sbu_and_clear_topup(config: Config) -> int:
 
 
 def command_topup_complete_check(config: Config) -> int:
+    """Complete an active top-up without blocking unrelated scheduled mode jobs.
+
+    This command runs every ten minutes. Avoid taking the global mode-command
+    lock for the usual no-op path so fixed-time preserve/return jobs cannot lose
+    a lock race to an idle completion check.
+    """
+    hold_state = read_utility_hold_state()
+    topup_state = read_topup_state()
+    if hold_state is None and topup_state is None and find_overdue_unclosed_topup() is None:
+        print("No active topup.")
+        return 0
+
+    return run_with_command_lock(
+        config,
+        "topup-complete-check",
+        lambda: _command_topup_complete_check_locked(config),
+    )
+
+
+def _command_topup_complete_check_locked(config: Config) -> int:
     hold_state = read_utility_hold_state()
     topup_state = read_topup_state()
 

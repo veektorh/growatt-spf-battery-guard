@@ -516,6 +516,52 @@ class TestTopupCompleteCheckSoc(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("No active topup", captured.getvalue())
 
+    def test_no_state_does_not_compete_for_mode_command_lock(self):
+        from growatt_guard.state import acquire_command_lock, release_command_lock
+        from growatt_guard.topup import command_topup_complete_check
+
+        cfg = make_config()
+        token = acquire_command_lock("preserve-battery")
+        self.assertIsNotNone(token)
+        try:
+            with patch("growatt_guard.audit.find_overdue_unclosed_topup", return_value=None):
+                import io, sys
+                captured = io.StringIO()
+                sys.stdout = captured
+                try:
+                    rc = command_topup_complete_check(cfg)
+                finally:
+                    sys.stdout = sys.__stdout__
+        finally:
+            release_command_lock(token or "")
+
+        self.assertEqual(rc, 0)
+        self.assertIn("No active topup", captured.getvalue())
+        self.assertNotIn("already running", captured.getvalue())
+
+    def test_active_state_still_uses_mode_command_lock(self):
+        from growatt_guard.state import acquire_command_lock, release_command_lock, write_utility_hold_state
+        from growatt_guard.topup import command_topup_complete_check
+
+        cfg = make_config(discord_notify_skip=False)
+        expiry = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)
+        write_utility_hold_state("owned", 40.0, expiry, start_soc=32.0)
+        token = acquire_command_lock("preserve-battery")
+        self.assertIsNotNone(token)
+        try:
+            import io, sys
+            captured = io.StringIO()
+            sys.stdout = captured
+            try:
+                rc = command_topup_complete_check(cfg)
+            finally:
+                sys.stdout = sys.__stdout__
+        finally:
+            release_command_lock(token or "")
+
+        self.assertEqual(rc, 0)
+        self.assertIn("already running", captured.getvalue())
+
     def test_target_reached_returns_sbu(self):
         from growatt_guard.topup import command_topup_complete_check
         from growatt_guard.state import write_utility_hold_state, read_utility_hold_state
