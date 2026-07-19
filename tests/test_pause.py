@@ -8,6 +8,7 @@ from unittest.mock import patch
 from helpers import make_config
 from growatt_power_guard import (
     GrowattGuardError,
+    LOCKED_COMMANDS,
     acquire_command_lock,
     command_clear_stale_lock,
     ensure_not_paused,
@@ -19,6 +20,9 @@ from growatt_power_guard import (
 
 
 class PauseTests(unittest.TestCase):
+    def test_topup_completion_owns_its_conditional_lock(self):
+        self.assertNotIn("topup-complete-check", LOCKED_COMMANDS)
+
     def test_write_and_read_pause_state(self):
         with TemporaryDirectory() as tmpdir, patch("growatt_guard.state.STATE_DIR", Path(tmpdir)), patch(
             "growatt_guard.state.PAUSE_FILE", Path(tmpdir) / "automation_pause.json"
