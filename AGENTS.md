@@ -6,6 +6,12 @@ This file is for coding agents working on this repository. Read it before editin
 
 This project automates battery-preservation mode switching for a Growatt SPF inverter through the Growatt/ShinePhone cloud API. It is safety-sensitive because some commands can change inverter output-source mode.
 
+## Development Workflow
+
+- Do all implementation, tests, commits, and branch work in `/home/ubuntu/automation-dev` only.
+- Treat `/home/ubuntu/automation` as the production/runtime checkout: use it for deployment and read-only operational checks, not code edits.
+- Publish changes through a focused pull request, run the required verification, and merge the PR before updating the production checkout.
+
 ## Safety Rules
 
 - Never commit `.env`, credentials, Discord webhook URLs, real Growatt plant/device IDs, generated probe data, logs, state files, `dashboard.html`, or local override files.

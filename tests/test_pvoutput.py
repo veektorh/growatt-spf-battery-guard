@@ -383,6 +383,39 @@ class WeeklySolarYieldTests(unittest.TestCase):
         self.assertIn("Solar last week", result)
         self.assertIn("Week-over-week yield", result)
 
+    def test_partial_solar_data_is_labeled_and_not_compared(self):
+        from growatt_guard.audit import build_weekly_summary
+        result = build_weekly_summary(
+            now=dt.datetime(2026, 6, 21),
+            solar_this_week={"2026-06-21": 19400},
+            solar_last_week={"2026-06-14": 15000},
+            solar_this_week_source="PVOutput (incomplete)",
+            solar_last_week_source="PVOutput",
+        )
+        self.assertIn("1/7 days; source: PVOutput (incomplete)", result)
+        self.assertIn("Week-over-week yield: unavailable (incomplete solar data).", result)
+
+    def test_local_history_uses_latest_snapshot_per_day(self):
+        from growatt_guard.reports import _local_solar_daily_outputs
+        now = dt.datetime(2026, 6, 21, 21, 0)
+        history = [
+            {"timestamp": "2026-06-15T12:00:00+01:00", "pv_today_kwh": 8.0},
+            {"timestamp": "2026-06-15T23:50:00+01:00", "pv_today_kwh": 12.5},
+            {"timestamp": "2026-06-21T20:50:00+01:00", "pv_today_kwh": 19.4},
+        ]
+        with patch("growatt_guard.reports.read_dashboard_metrics_history", return_value=history):
+            result = _local_solar_daily_outputs(now)
+        self.assertEqual(result, {"2026-06-15": 12500, "2026-06-21": 19400})
+
+    def test_weekly_summary_raises_when_discord_delivery_fails(self):
+        from growatt_guard.exceptions import GrowattGuardError
+        from growatt_guard.reports import command_weekly_summary
+        config = make_config(discord_webhook_url="https://example.invalid/hook")
+        with patch("growatt_guard.reports.read_dashboard_metrics_history", return_value=[]), \
+             patch("growatt_guard.reports.send_discord_embed", return_value=False):
+            with self.assertRaisesRegex(GrowattGuardError, "could not be sent"):
+                command_weekly_summary(config)
+
     def test_no_solar_section_when_no_data(self):
         from growatt_guard.audit import build_weekly_summary
         result = build_weekly_summary(now=dt.datetime(2026, 6, 21))
@@ -397,6 +430,8 @@ class WeeklySolarYieldTests(unittest.TestCase):
             now=dt.datetime(2026, 6, 21),
             solar_this_week=solar_this,
             solar_last_week=solar_last,
+            solar_this_week_expected_days=1,
+            solar_last_week_expected_days=1,
         )
         self.assertIn("panel cleanliness", result)
 
@@ -409,6 +444,8 @@ class WeeklySolarYieldTests(unittest.TestCase):
             now=dt.datetime(2026, 6, 21),
             solar_this_week=solar_this,
             solar_last_week=solar_last,
+            solar_this_week_expected_days=1,
+            solar_last_week_expected_days=1,
         )
         self.assertNotIn("panel cleanliness", result)
 
