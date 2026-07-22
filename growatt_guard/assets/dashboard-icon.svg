@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Growatt energy dashboard</title>
+  <rect x="24" y="24" width="464" height="464" rx="104" fill="#0f1318"/>
+  <circle cx="160" cy="147" r="54" fill="#f5a82a"/>
+  <path fill="#35c4a0" fill-rule="evenodd" d="M142 190h218a38 38 0 0 1 38 38v13h20a12 12 0 0 1 12 12v56a12 12 0 0 1-12 12h-20v13a38 38 0 0 1-38 38H142a38 38 0 0 1-38-38V228a38 38 0 0 1 38-38Zm6 26a18 18 0 0 0-18 18v94a18 18 0 0 0 18 18h206a18 18 0 0 0 18-18v-94a18 18 0 0 0-18-18H148Z"/>
+  <path d="m273 218-68 78h48l-24 48 88-78h-50l6-48Z" fill="#fff"/>
+</svg>

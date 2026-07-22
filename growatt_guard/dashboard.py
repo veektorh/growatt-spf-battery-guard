@@ -956,7 +956,16 @@ def build_dashboard_html(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f1318">
+  <meta name="color-scheme" content="dark light">
+  <meta name="application-name" content="Growatt Energy Dashboard">
+  <meta name="apple-mobile-web-app-title" content="Growatt">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta http-equiv="refresh" content="300">
+  <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+  <link rel="icon" href="/dashboard-icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/dashboard-icon-180.png" sizes="180x180">
   <title>Growatt Dashboard</title>
   <style>{DASHBOARD_CSS}</style>
 </head>
