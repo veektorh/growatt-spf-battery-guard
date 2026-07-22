@@ -92,6 +92,10 @@ class DashboardTests(unittest.TestCase):
             json_asset = dashboard_asset_for_path(output, "/dashboard.json")
 
         self.assertIn("Growatt Dashboard", html)
+        self.assertIn('rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials"', html)
+        self.assertIn('rel="icon" href="/dashboard-icon.svg" type="image/svg+xml"', html)
+        self.assertIn('rel="apple-touch-icon" href="/dashboard-icon-180.png"', html)
+        self.assertIn('<meta name="theme-color" content="#0f1318">', html)
         self.assertIn("Solar Inverter", html)
         self.assertIn("app-shell", html)
         self.assertIn("sidebar-nav", html)
@@ -745,6 +749,33 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(asset[1], "application/json; charset=utf-8")
         self.assertEqual(json.loads(asset[2])["error"], "dashboard_json_not_generated")
         self.assertIsNone(dashboard_asset_for_path(output, "/not-found"))
+
+    def test_dashboard_asset_for_path_serves_install_assets(self):
+        with TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "dashboard.html"
+            manifest_asset = dashboard_asset_for_path(output, "/manifest.webmanifest?version=1")
+            svg_asset = dashboard_asset_for_path(output, "/dashboard-icon.svg")
+            icon_assets = {
+                size: dashboard_asset_for_path(output, f"/dashboard-icon-{size}.png")
+                for size in (180, 192, 512)
+            }
+            maskable_asset = dashboard_asset_for_path(output, "/dashboard-icon-maskable-512.png")
+
+        self.assertEqual(manifest_asset[0:2], (200, "application/manifest+json; charset=utf-8"))
+        manifest = json.loads(manifest_asset[2])
+        self.assertEqual(manifest["id"], "/dashboard.html")
+        self.assertEqual(manifest["start_url"], "/dashboard.html")
+        self.assertEqual(manifest["display"], "standalone")
+        self.assertEqual({icon["sizes"] for icon in manifest["icons"]}, {"192x192", "512x512"})
+        self.assertTrue(any(icon["purpose"] == "maskable" for icon in manifest["icons"]))
+        self.assertEqual(svg_asset[0:2], (200, "image/svg+xml; charset=utf-8"))
+        self.assertIn(b"Growatt energy dashboard", svg_asset[2])
+        for size, asset in icon_assets.items():
+            self.assertEqual(asset[0:2], (200, "image/png"))
+            self.assertEqual(int.from_bytes(asset[2][16:20]), size)
+            self.assertEqual(int.from_bytes(asset[2][20:24]), size)
+        self.assertEqual(maskable_asset[0:2], (200, "image/png"))
+        self.assertEqual(int.from_bytes(maskable_asset[2][16:20]), 512)
 
 class TodayJobRowsTests(unittest.TestCase):
     SCHEDULE = {

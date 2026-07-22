@@ -20,6 +20,14 @@ from growatt_guard.dashboard import (
     dashboard_freshness,
     read_dashboard_metrics_history,
 )
+from growatt_guard.dashboard_assets import (
+    DASHBOARD_ICON_180,
+    DASHBOARD_ICON_192,
+    DASHBOARD_ICON_512,
+    DASHBOARD_ICON_MASKABLE_512,
+    DASHBOARD_ICON_SVG,
+    DASHBOARD_MANIFEST,
+)
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.forecast_calibration import apply_weather_adjustment, update_forecast_calibration
 from growatt_guard.growatt_api import load_context
@@ -305,6 +313,18 @@ def dashboard_asset_for_path(output_path: Path, request_path: str) -> tuple[int,
             ).encode("utf-8")
             return 503, "application/json; charset=utf-8", body
         return 200, "application/json; charset=utf-8", json_path.read_bytes()
+
+    packaged_assets = {
+        "/manifest.webmanifest": ("application/manifest+json; charset=utf-8", DASHBOARD_MANIFEST),
+        "/dashboard-icon.svg": ("image/svg+xml; charset=utf-8", DASHBOARD_ICON_SVG),
+        "/dashboard-icon-180.png": ("image/png", DASHBOARD_ICON_180),
+        "/dashboard-icon-192.png": ("image/png", DASHBOARD_ICON_192),
+        "/dashboard-icon-512.png": ("image/png", DASHBOARD_ICON_512),
+        "/dashboard-icon-maskable-512.png": ("image/png", DASHBOARD_ICON_MASKABLE_512),
+    }
+    if parsed_path in packaged_assets:
+        content_type, body = packaged_assets[parsed_path]
+        return 200, content_type, body
 
     return None
 
