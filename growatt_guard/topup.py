@@ -51,6 +51,19 @@ from growatt_guard.weather import hours_until_next_sunrise
 
 _TOPUP_EXPIRY_BUFFER_FACTOR = 1.2
 _TOPUP_EXPIRY_BUFFER_MIN_MINUTES = 15.0
+_LIVE_LOAD_UPLIFT_TRIGGER_FACTOR = 1.15
+_LIVE_LOAD_UPLIFT_CAP_FACTOR = 1.35
+_LATE_SAFETY_MIN_HOURS_TO_SUNRISE = 1.0
+
+
+def _planning_load_w(live_load_w: float, learned_load_w: float | None) -> float:
+    """Use history normally, with a capped uplift when live demand is unusually high."""
+    if learned_load_w is None:
+        return live_load_w
+    if live_load_w <= learned_load_w * _LIVE_LOAD_UPLIFT_TRIGGER_FACTOR:
+        return learned_load_w
+    return min(live_load_w, learned_load_w * _LIVE_LOAD_UPLIFT_CAP_FACTOR)
+
 
 def _projected_sunrise_soc(
     soc: float,
@@ -152,9 +165,14 @@ def command_auto_topup_check(config: Config) -> int:
     if hrs is None or hrs <= 0:
         print("Sunrise unavailable or already past; skipping auto-topup.")
         return 0
-    if config.auto_topup_min_hours_to_sunrise > 0 and hrs < config.auto_topup_min_hours_to_sunrise:
+    late_safety_window = (
+        config.auto_topup_min_hours_to_sunrise > 0
+        and hrs < config.auto_topup_min_hours_to_sunrise
+    )
+    if late_safety_window and hrs < _LATE_SAFETY_MIN_HOURS_TO_SUNRISE:
         print(
-            f"Too close to sunrise ({hrs:.1f}h < {config.auto_topup_min_hours_to_sunrise:g}h cutoff); skipping auto-topup."
+            f"Too close to sunrise ({hrs:.1f}h < {_LATE_SAFETY_MIN_HOURS_TO_SUNRISE:g}h safety cutoff); "
+            "skipping auto-topup."
         )
         return 0
 
@@ -166,21 +184,50 @@ def command_auto_topup_check(config: Config) -> int:
     previous_mode = describe_status_output_source(status)
 
     _pd = extract_first_metric(status, ("pDischarge", "pDischarge1"))
-    load_w = parse_number(_pd[0]) if _pd else None
-    if not load_w or load_w <= 0:
+    live_load_w = parse_number(_pd[0]) if _pd else None
+    if not live_load_w or live_load_w <= 0:
         print(f"Battery not discharging; no auto-topup needed.")
         return 0
 
-    append_discharge_rate_reading(load_w, aggregate_nightly=True)
+    append_discharge_rate_reading(live_load_w, aggregate_nightly=True)
     history = read_discharge_rate_history()
     learned_load = select_overnight_load(history)
-    if learned_load["rate_w"] is not None:
-        avg_load_w = float(learned_load["rate_w"])
+    learned_load_w = (
+        float(learned_load["rate_w"])
+        if learned_load["rate_w"] is not None
+        else None
+    )
+    load_w = _planning_load_w(live_load_w, learned_load_w)
+    if learned_load_w is not None:
         logging.info(
-            "Using learned discharge rate %.0f W (%s) instead of live %.0f W",
-            avg_load_w, learned_load["source"], load_w,
+            "Planning with %.0f W from learned %.0f W (%s) and live %.0f W",
+            load_w, learned_load_w, learned_load["source"], live_load_w,
         )
-        load_w = avg_load_w
+
+    safety_floor_soc = max(
+        config.battery_bms_cutoff_soc,
+        config.auto_topup_sunrise_floor_soc,
+    )
+    projected_sunrise_soc = _projected_sunrise_soc(
+        soc,
+        load_w,
+        config.battery_capacity_wh,
+        config.battery_bms_cutoff_soc,
+        hrs,
+    )
+    if late_safety_window and (
+        projected_sunrise_soc is None or projected_sunrise_soc >= safety_floor_soc
+    ):
+        projected_text = (
+            "unknown"
+            if projected_sunrise_soc is None
+            else f"{projected_sunrise_soc:.0f}%"
+        )
+        print(
+            f"Late safety check: projected sunrise SOC {projected_text} is not below "
+            f"the {safety_floor_soc:g}% floor; skipping auto-topup."
+        )
+        return 0
 
     survival_topup_min_f = estimate_topup_for_sunrise(
         soc, load_w, config.battery_capacity_wh, config.battery_bms_cutoff_soc,
@@ -192,6 +239,8 @@ def command_auto_topup_check(config: Config) -> int:
         config.battery_charge_rate_w, hrs + margin_minutes / 60.0,
     ) if margin_minutes > 0 else survival_topup_min_f
     effective_target_soc = max(config.battery_bms_cutoff_soc, config.auto_topup_target_soc)
+    if late_safety_window:
+        effective_target_soc = max(effective_target_soc, safety_floor_soc)
     target_topup_min_f = estimate_topup_for_sunrise(
         soc, load_w, config.battery_capacity_wh, effective_target_soc,
         config.battery_charge_rate_w, hrs,
@@ -209,7 +258,11 @@ def command_auto_topup_check(config: Config) -> int:
     # Floor at 1 min: topup_min_f can be e.g. 0.3 (passes the >0 check above) yet
     # round to 0, which would make command_pause raise on a 0-hour pause.
     topup_min = max(1, round(topup_min_f))
-    if config.auto_topup_min_minutes > 0 and topup_min_f < config.auto_topup_min_minutes:
+    if (
+        not late_safety_window
+        and config.auto_topup_min_minutes > 0
+        and topup_min_f < config.auto_topup_min_minutes
+    ):
         calculated_text = f"{topup_min_f:.1f}min"
         msg = (
             f"Calculated topup {calculated_text} is below AUTO_TOPUP_MIN_MINUTES="
@@ -229,7 +282,7 @@ def command_auto_topup_check(config: Config) -> int:
         return 0
     topup_min = min(topup_min, config.discord_topup_max_minutes)
 
-    if config.auto_topup_solar_skip_kwh_m2 > 0:
+    if config.auto_topup_solar_skip_kwh_m2 > 0 and not late_safety_window:
         from growatt_guard.weather import get_tomorrow_solar_kwh_m2
         tomorrow_kwh = get_tomorrow_solar_kwh_m2(config)
         if tomorrow_kwh is not None and tomorrow_kwh >= config.auto_topup_solar_skip_kwh_m2:
@@ -279,7 +332,8 @@ def command_auto_topup_check(config: Config) -> int:
                         )
             return 0
 
-    reason = f"Auto-topup: {topup_min}min needed for {hrs:.1f}h until sunrise"
+    reason_prefix = "Late safety topup" if late_safety_window else "Auto-topup"
+    reason = f"{reason_prefix}: {topup_min}min needed for {hrs:.1f}h until sunrise"
     if margin_minutes > 0:
         reason += f" (+{margin_minutes:.0f}min margin)"
     if effective_target_soc > config.battery_bms_cutoff_soc:

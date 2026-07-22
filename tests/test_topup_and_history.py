@@ -339,6 +339,102 @@ class AutoTopupMinMinutesTests(unittest.TestCase):
         self.assertGreater(written["minutes"], 20)
 
 
+class AutoTopupLateSafetyTests(unittest.TestCase):
+    def _make_status(self, soc: float, discharge_w: float) -> dict:
+        return {
+            "datalogSn": "SN1",
+            "deviceSn": "SN1",
+            "data": {
+                "soc": soc,
+                "pDischarge": discharge_w,
+                "outputConfig": "0",
+            },
+        }
+
+    def _run_check(self, *, hours: float, soc: float, discharge_w: float):
+        from growatt_guard.topup import command_auto_topup_check
+        from growatt_guard import state as state_mod
+
+        cfg = make_config(
+            auto_topup_enabled=True,
+            auto_topup_min_hours_to_sunrise=4.0,
+            auto_topup_min_minutes=20.0,
+            auto_topup_target_soc=35.0,
+            auto_topup_sunrise_floor_soc=35.0,
+            auto_topup_solar_skip_kwh_m2=4.0,
+            auto_topup_solar_skip_min_margin_minutes=0.0,
+            battery_capacity_wh=30000.0,
+            battery_charge_rate_w=3000.0,
+            battery_bms_cutoff_soc=25.0,
+            dry_run=True,
+        )
+        status = self._make_status(soc, discharge_w)
+        captured: dict = {}
+
+        def fake_write_hold(**kwargs):
+            captured.update(kwargs)
+
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            with (
+                patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "topup_active.json"),
+                patch.object(state_mod, "PAUSE_FILE", tmp / "pause.json"),
+                patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", tmp / "dr.json"),
+                patch("growatt_guard.topup.read_pause_state", return_value=None),
+                patch("growatt_guard.topup.topup_is_active", return_value=False),
+                patch("growatt_guard.topup.hours_until_next_sunrise", return_value=hours),
+                patch("growatt_guard.topup.load_context", return_value=(None, None, status)) as load_mock,
+                patch("growatt_guard.topup.set_mode", return_value="ok") as set_mode_mock,
+                patch("growatt_guard.topup.command_pause", return_value=0),
+                patch("growatt_guard.topup.write_utility_hold_state", side_effect=fake_write_hold),
+                patch("growatt_guard.topup.append_mode_audit"),
+                patch("growatt_guard.weather.get_tomorrow_solar_kwh_m2") as solar_mock,
+                redirect_stdout(StringIO()) as output,
+            ):
+                command_auto_topup_check(cfg)
+
+        return captured, load_mock, set_mode_mock, solar_mock, output.getvalue()
+
+    def test_late_safety_starts_subminimum_topup_for_projected_floor_breach(self):
+        captured, _, set_mode_mock, solar_mock, output = self._run_check(
+            hours=3.0,
+            soc=44.0,
+            discharge_w=1000.0,
+        )
+
+        self.assertGreater(captured["minutes"], 0)
+        self.assertLess(captured["minutes"], 20)
+        self.assertIn("Late safety topup", captured["reason"])
+        set_mode_mock.assert_called_once()
+        solar_mock.assert_not_called()
+        self.assertIn(f"Auto-topup started: {captured['minutes']}min", output)
+
+    def test_late_safety_does_nothing_when_floor_is_safe(self):
+        captured, _, set_mode_mock, solar_mock, output = self._run_check(
+            hours=3.0,
+            soc=60.0,
+            discharge_w=1000.0,
+        )
+
+        self.assertEqual(captured, {})
+        set_mode_mock.assert_not_called()
+        solar_mock.assert_not_called()
+        self.assertIn("projected sunrise SOC 50%", output)
+
+    def test_late_safety_hard_stop_avoids_api_call(self):
+        captured, load_mock, set_mode_mock, solar_mock, output = self._run_check(
+            hours=0.8,
+            soc=30.0,
+            discharge_w=2000.0,
+        )
+
+        self.assertEqual(captured, {})
+        load_mock.assert_not_called()
+        set_mode_mock.assert_not_called()
+        solar_mock.assert_not_called()
+        self.assertIn("safety cutoff", output)
+
+
 class ChargeRateHistoryTests(unittest.TestCase):
     def test_append_and_read_single_reading(self):
         from growatt_guard import state as state_mod
