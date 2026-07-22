@@ -73,7 +73,7 @@
     {
       "id": "auto-topup-check",
       "name": "Start night topup if battery won't reach sunrise",
-      "cron": "*/20 22-23,0-2 * * *",
+      "cron": "*/20 22-23,0-5 * * *",
       "command": "auto-topup-check"
     },
     {

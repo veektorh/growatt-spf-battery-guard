@@ -427,10 +427,16 @@ class DischargeRateAverageTests(unittest.TestCase):
     def test_uses_average_when_history_has_prior_readings(self):
         cfg = self._make_cfg()
         with TemporaryDirectory() as tmpdir:
-            # With only one prior matching night the model conservatively falls
-            # back to the two-night overall average.
+            # The two-night average is 1800 W, then high live demand applies the
+            # capped 35% safety uplift rather than trusting either extreme.
             result = self._run_check(cfg, tmpdir, discharge_w=3000.0, prior_readings=[600.0])
-        self.assertAlmostEqual(result["start_load_w"], 1800.0, delta=1.0)
+        self.assertAlmostEqual(result["start_load_w"], 2430.0, delta=1.0)
+
+    def test_uses_learned_load_when_live_uplift_is_below_trigger(self):
+        cfg = self._make_cfg()
+        with TemporaryDirectory() as tmpdir:
+            result = self._run_check(cfg, tmpdir, discharge_w=1600.0, prior_readings=[1400.0])
+        self.assertAlmostEqual(result["start_load_w"], 1500.0, delta=1.0)
 
     def test_average_produces_different_topup_than_spike(self):
         cfg = self._make_cfg()
