@@ -173,6 +173,37 @@ class IdempotencyTests(unittest.TestCase):
         self.assertEqual(result, 0)
         mock_set.assert_not_called()
 
+
+    def test_preserve_battery_retry_preserves_existing_hold_target(self):
+        from growatt_guard.modes import command_preserve_battery
+        from growatt_guard.state import read_utility_hold_state, write_utility_hold_state
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from tempfile import TemporaryDirectory
+        import datetime as dt
+
+        config = make_config(low_battery_soc=50, dry_run=False)
+        status = {
+            "device": {"capacity": "40 %"},
+            "storage_params": {"storageBean": {"outputConfig": "2"}},
+        }
+        expiry = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)
+        with TemporaryDirectory() as tmpdir:
+            hold_file = Path(tmpdir) / "utility_hold.json"
+            with self._audit_patch(tmpdir)[0], self._audit_patch(tmpdir)[1], \
+                 patch("growatt_guard.state.UTILITY_HOLD_FILE", hold_file):
+                write_utility_hold_state("owned", 45.0, expiry, start_soc=41.0)
+                with patch("growatt_guard.modes.load_context", return_value=(None, DeviceRef("p", "s", "storage", {}), status)), \
+                     patch("growatt_guard.modes.set_mode") as mock_set, \
+                     patch("growatt_guard.modes.ensure_not_paused", return_value=False), \
+                     redirect_stdout(StringIO()):
+                    result = command_preserve_battery(config)
+                state = read_utility_hold_state()
+
+        self.assertEqual(result, 0)
+        mock_set.assert_not_called()
+        self.assertEqual(state["target_soc"], 45.0)
+        self.assertEqual(state["start_soc"], 41.0)
     def test_preserve_battery_retries_failed_utility_switch(self):
         from growatt_guard.exceptions import GrowattGuardError
         from growatt_guard.modes import command_preserve_battery

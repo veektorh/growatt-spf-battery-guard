@@ -312,7 +312,6 @@ def command_preserve_battery(config: Config) -> int:
         current_source = extract_spf_output_source(status)
         if current_source and current_source[0] == "2":
             logging.info("Battery SOC %.1f%% is below %.1f%% but already in Utility; skipping switch.", soc, threshold)
-            _record_preserve_utility_hold(config, soc, threshold)
             append_mode_audit(
                 config,
                 "preserve-battery",
