@@ -428,9 +428,9 @@ class DischargeRateAverageTests(unittest.TestCase):
         cfg = self._make_cfg()
         with TemporaryDirectory() as tmpdir:
             # The two-night average is 1800 W, then high live demand applies the
-            # capped 35% safety uplift rather than trusting either extreme.
+            # capped 20% safety uplift rather than trusting either extreme.
             result = self._run_check(cfg, tmpdir, discharge_w=3000.0, prior_readings=[600.0])
-        self.assertAlmostEqual(result["start_load_w"], 2430.0, delta=1.0)
+        self.assertAlmostEqual(result["start_load_w"], 2160.0, delta=1.0)
 
     def test_uses_learned_load_when_live_uplift_is_below_trigger(self):
         cfg = self._make_cfg()
