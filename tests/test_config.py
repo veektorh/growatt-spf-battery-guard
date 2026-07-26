@@ -86,12 +86,6 @@ class ValidateConfigTests(unittest.TestCase):
 
         self.assertTrue(any("MIN_SBU_RETURN_SOC" in warning for warning in warnings))
 
-    def test_invalid_auto_topup_learned_load_factor_warns(self):
-        warnings = validate_config(make_config(auto_topup_learned_load_factor=0.4))
-
-        self.assertTrue(any("AUTO_TOPUP_LEARNED_LOAD_FACTOR" in warning for warning in warnings))
-
-
 class LoadConfigTests(unittest.TestCase):
     def _load_with_env(self, env):
         with patch("growatt_guard.config.load_dotenv", return_value=None), patch.dict("os.environ", env, clear=True):
@@ -106,7 +100,6 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(config.discord_control_allowed_user_ids, ())
         self.assertEqual(config.panel_performance_ratio, 0.75)
         self.assertEqual(config.min_sbu_return_soc, 30)
-        self.assertEqual(config.auto_topup_learned_load_factor, 1.0)
 
     def test_load_config_parses_typed_values(self):
         config = self._load_with_env(
@@ -122,7 +115,6 @@ class LoadConfigTests(unittest.TestCase):
                 "AUTO_TOPUP_ENABLED": "yes",
                 "BATTERY_CAPACITY_WH": "30000",
                 "BATTERY_CHARGE_RATE_W": "2500",
-                "AUTO_TOPUP_LEARNED_LOAD_FACTOR": "0.8",
                 "GROWATT_SESSION_TTL_MINUTES": "60",
                 "PANEL_KWP": "8.2",
                 "PANEL_PERFORMANCE_RATIO": "0.7",
@@ -139,7 +131,6 @@ class LoadConfigTests(unittest.TestCase):
         self.assertTrue(config.auto_topup_enabled)
         self.assertEqual(config.battery_capacity_wh, 30000)
         self.assertEqual(config.battery_charge_rate_w, 2500)
-        self.assertEqual(config.auto_topup_learned_load_factor, 0.8)
         self.assertEqual(config.growatt_session_ttl_minutes, 60)
         self.assertEqual(config.panel_kwp, 8.2)
         self.assertEqual(config.panel_performance_ratio, 0.7)

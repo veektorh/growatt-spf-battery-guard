@@ -52,27 +52,17 @@ from growatt_guard.weather import hours_until_next_sunrise
 _TOPUP_EXPIRY_BUFFER_FACTOR = 1.2
 _TOPUP_EXPIRY_BUFFER_MIN_MINUTES = 15.0
 _LIVE_LOAD_UPLIFT_TRIGGER_FACTOR = 1.15
-_LIVE_LOAD_UPLIFT_CAP_FACTOR = 1.2
+_LIVE_LOAD_UPLIFT_CAP_FACTOR = 1.0
 _LATE_SAFETY_MIN_HOURS_TO_SUNRISE = 1.0
 
 
-def _planning_load_w(
-    live_load_w: float,
-    learned_load_w: float | None,
-    learned_load_factor: float = 1.0,
-) -> float:
-    """Use calibrated history, with a capped uplift for unusually high live demand."""
+def _planning_load_w(live_load_w: float, learned_load_w: float | None) -> float:
+    """Use learned demand without allowing a transient live spike to inflate it."""
     if learned_load_w is None:
         return live_load_w
-
-    # Keep a bad local override from suppressing more than half of the learned
-    # demand. validate_config reports the same range during health checks.
-    factor = min(1.0, max(0.5, learned_load_factor))
     if live_load_w <= learned_load_w * _LIVE_LOAD_UPLIFT_TRIGGER_FACTOR:
-        planning_load_w = learned_load_w
-    else:
-        planning_load_w = min(live_load_w, learned_load_w * _LIVE_LOAD_UPLIFT_CAP_FACTOR)
-    return planning_load_w * factor
+        return learned_load_w
+    return min(live_load_w, learned_load_w * _LIVE_LOAD_UPLIFT_CAP_FACTOR)
 
 
 def _projected_sunrise_soc(
@@ -207,16 +197,11 @@ def command_auto_topup_check(config: Config) -> int:
         if learned_load["rate_w"] is not None
         else None
     )
-    load_w = _planning_load_w(
-        live_load_w,
-        learned_load_w,
-        config.auto_topup_learned_load_factor,
-    )
+    load_w = _planning_load_w(live_load_w, learned_load_w)
     if learned_load_w is not None:
         logging.info(
-            "Planning with %.0f W from learned %.0f W (%s), factor %.2f, and live %.0f W",
-            load_w, learned_load_w, learned_load["source"],
-            config.auto_topup_learned_load_factor, live_load_w,
+            "Planning with %.0f W from learned %.0f W (%s) and live %.0f W",
+            load_w, learned_load_w, learned_load["source"], live_load_w,
         )
 
     safety_floor_soc = max(

@@ -211,7 +211,6 @@ AUTO_TOPUP_ENABLED=true
 AUTO_TOPUP_MIN_HOURS_TO_SUNRISE=4
 AUTO_TOPUP_MIN_MINUTES=0
 AUTO_TOPUP_TARGET_SOC=0
-AUTO_TOPUP_LEARNED_LOAD_FACTOR=1.0
 AUTO_TOPUP_SUNRISE_FLOOR_SOC=35
 AUTO_TOPUP_SOLAR_SKIP_KWH_M2=0
 AUTO_TOPUP_SOLAR_SKIP_MIN_MARGIN_MINUTES=60
@@ -222,8 +221,6 @@ Requires `BATTERY_CAPACITY_WH`, `BATTERY_CHARGE_RATE_W`, `WEATHER_LAT`, and `WEA
 `AUTO_TOPUP_MIN_HOURS_TO_SUNRISE` marks the late safety window. Inside it, topups run only when projected sunrise SOC would fall below `AUTO_TOPUP_SUNRISE_FLOOR_SOC`; checks stop entirely inside the final hour before sunrise. Set to `0` to disable late safety behavior.
 
 `AUTO_TOPUP_MIN_MINUTES` skips tiny topups: if the calculated charge duration is below this value, the inverter stays in SBU. Set to `0` to allow any positive topup duration.
-
-`AUTO_TOPUP_LEARNED_LOAD_FACTOR` calibrates learned overnight demand when actual morning SOC is consistently higher than planned. Keep `1.0` until several nights of evidence exist; `0.8` uses 80% of learned demand. Values are constrained to `0.5`–`1.0`, and first-night live readings are never discounted.
 
 `AUTO_TOPUP_TARGET_SOC` is an optional reserve target for sunrise. `AUTO_TOPUP_SOLAR_SKIP_KWH_M2` may skip only optional reserve topups on sunny forecasts; it will not skip topups needed to reach sunrise plus `AUTO_TOPUP_SOLAR_SKIP_MIN_MARGIN_MINUTES`.
 
