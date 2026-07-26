@@ -8,9 +8,10 @@ This project automates battery-preservation mode switching for a Growatt SPF inv
 
 ## Development Workflow
 
-- Do all implementation, tests, commits, and branch work in `/home/ubuntu/automation-dev` only.
-- Treat `/home/ubuntu/automation` as the production/runtime checkout: use it for deployment and read-only operational checks, not code edits.
-- Publish changes through a focused pull request, run the required verification, and merge the PR before updating the production checkout.
+- Do all implementation, tests, commits, and branch work in the local checkout at `/home/victor/work/personal/automation`.
+- Treat `/home/ubuntu/automation` on the VPS as the production/runtime checkout: use it only for deployment and read-only operational checks, not code edits.
+- The old VPS development clone at `/home/ubuntu/automation-dev` is no longer the normal development workspace. Use it only when the user explicitly requests server-side development.
+- Publish changes through a focused pull request and run the required verification. Merges to `main` deploy through `.github/workflows/deploy-production.yml`; verify that workflow and the production health checks rather than editing production code directly.
 
 ## Safety Rules
 

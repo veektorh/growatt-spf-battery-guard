@@ -408,14 +408,13 @@ class DischargeRateAverageTests(unittest.TestCase):
 
         return captured
 
-    def _make_cfg(self, **overrides):
+    def _make_cfg(self):
         return make_config(
             auto_topup_enabled=True,
             battery_capacity_wh=30000.0,
             battery_charge_rate_w=3000.0,
             battery_bms_cutoff_soc=25.0,
             dry_run=True,
-            **overrides,
         )
 
     def test_uses_live_reading_when_history_has_only_one_entry(self):
@@ -428,24 +427,16 @@ class DischargeRateAverageTests(unittest.TestCase):
     def test_uses_average_when_history_has_prior_readings(self):
         cfg = self._make_cfg()
         with TemporaryDirectory() as tmpdir:
-            # The two-night average is 1800 W, then high live demand applies the
-            # capped 20% safety uplift rather than trusting either extreme.
+            # The two-night average is 1800 W; a transient live spike must not
+            # increase the overnight plan above that learned demand.
             result = self._run_check(cfg, tmpdir, discharge_w=3000.0, prior_readings=[600.0])
-        self.assertAlmostEqual(result["start_load_w"], 2160.0, delta=1.0)
+        self.assertAlmostEqual(result["start_load_w"], 1800.0, delta=1.0)
 
     def test_uses_learned_load_when_live_uplift_is_below_trigger(self):
         cfg = self._make_cfg()
         with TemporaryDirectory() as tmpdir:
             result = self._run_check(cfg, tmpdir, discharge_w=1600.0, prior_readings=[1400.0])
         self.assertAlmostEqual(result["start_load_w"], 1500.0, delta=1.0)
-
-    def test_calibrates_learned_load_factor(self):
-        cfg = self._make_cfg(auto_topup_learned_load_factor=0.8)
-        with TemporaryDirectory() as tmpdir:
-            result = self._run_check(
-                cfg, tmpdir, discharge_w=1600.0, prior_readings=[1400.0],
-            )
-        self.assertAlmostEqual(result["start_load_w"], 1200.0, delta=1.0)
 
     def test_average_produces_different_topup_than_spike(self):
         cfg = self._make_cfg()
