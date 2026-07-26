@@ -259,8 +259,7 @@ def command_auto_topup_check(config: Config) -> int:
     # round to 0, which would make command_pause raise on a 0-hour pause.
     topup_min = max(1, round(topup_min_f))
     if (
-        not late_safety_window
-        and config.auto_topup_min_minutes > 0
+        config.auto_topup_min_minutes > 0
         and topup_min_f < config.auto_topup_min_minutes
     ):
         calculated_text = f"{topup_min_f:.1f}min"

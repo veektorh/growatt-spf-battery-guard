@@ -395,19 +395,17 @@ class AutoTopupLateSafetyTests(unittest.TestCase):
 
         return captured, load_mock, set_mode_mock, solar_mock, output.getvalue()
 
-    def test_late_safety_starts_subminimum_topup_for_projected_floor_breach(self):
+    def test_late_safety_skips_subminimum_topup_for_projected_floor_breach(self):
         captured, _, set_mode_mock, solar_mock, output = self._run_check(
             hours=3.0,
             soc=44.0,
             discharge_w=1000.0,
         )
 
-        self.assertGreater(captured["minutes"], 0)
-        self.assertLess(captured["minutes"], 20)
-        self.assertIn("Late safety topup", captured["reason"])
-        set_mode_mock.assert_called_once()
+        self.assertEqual(captured, {})
+        set_mode_mock.assert_not_called()
         solar_mock.assert_not_called()
-        self.assertIn(f"Auto-topup started: {captured['minutes']}min", output)
+        self.assertIn("below AUTO_TOPUP_MIN_MINUTES=20", output)
 
     def test_late_safety_does_nothing_when_floor_is_safe(self):
         captured, _, set_mode_mock, solar_mock, output = self._run_check(
