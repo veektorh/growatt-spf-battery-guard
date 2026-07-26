@@ -251,9 +251,11 @@ BATTERY_CHARGE_TARGET_SOC=0
 
 # Auto-topup: charge at night when battery won't last until sunrise (requires weather)
 AUTO_TOPUP_ENABLED=false
-AUTO_TOPUP_MIN_HOURS_TO_SUNRISE=4    # skip topup if sunrise is less than N hours away (0 = disabled)
+AUTO_TOPUP_MIN_HOURS_TO_SUNRISE=4    # begin floor-only late safety checks within N hours (0 = disabled)
 AUTO_TOPUP_MIN_MINUTES=0             # skip calculated topups shorter than N minutes (0 = disabled)
 AUTO_TOPUP_TARGET_SOC=0              # optional reserve SOC at sunrise
+AUTO_TOPUP_LEARNED_LOAD_FACTOR=1.0   # calibrate learned demand after repeated overprediction (0.5-1.0)
+AUTO_TOPUP_SUNRISE_FLOOR_SOC=35      # minimum projected SOC for late safety topups
 AUTO_TOPUP_SOLAR_SKIP_KWH_M2=0       # sunny forecast skip threshold (0 = disabled)
 AUTO_TOPUP_SOLAR_SKIP_MIN_MARGIN_MINUTES=60
 

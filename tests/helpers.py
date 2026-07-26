@@ -53,6 +53,7 @@ def make_config(**overrides):
         "auto_topup_min_hours_to_sunrise": 4.0,
         "auto_topup_min_minutes": 0.0,
         "auto_topup_target_soc": 0.0,
+        "auto_topup_learned_load_factor": 1.0,
         "auto_topup_solar_skip_kwh_m2": 0.0,
         "auto_topup_solar_skip_min_margin_minutes": 60.0,
         "runtime_alert_minutes": 0.0,
