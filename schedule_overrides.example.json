@@ -3,6 +3,8 @@
     "2026-06-26": {
       "note": "Example: skip the Friday afternoon outage window.",
       "skip": [
+        "afternoon-preserve-early",
+        "afternoon-preserve-retry",
         "afternoon-preserve",
         "afternoon-return-sbu",
         "afternoon-watchdog"

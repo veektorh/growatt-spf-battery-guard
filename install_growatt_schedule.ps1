@@ -37,6 +37,7 @@ function Remove-StaleGrowattTask {
 }
 
 Remove-StaleGrowattTask -Name "Utility Check Midday"
+Remove-StaleGrowattTask -Name "Utility Check Afternoon"
 
 Register-GrowattTask `
     -Name "Morning Health Report" `
@@ -59,7 +60,17 @@ Register-GrowattTask `
     -Command "run-scheduled morning-watchdog"
 
 Register-GrowattTask `
-    -Name "Utility Check Afternoon" `
+    -Name "Utility Check Afternoon Early" `
+    -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "13:30") `
+    -Command "run-scheduled afternoon-preserve-early"
+
+Register-GrowattTask `
+    -Name "Utility Check Afternoon Retry" `
+    -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "14:00") `
+    -Command "run-scheduled afternoon-preserve-retry"
+
+Register-GrowattTask `
+    -Name "Utility Check Afternoon Final" `
     -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "14:30") `
     -Command "run-scheduled afternoon-preserve"
 
