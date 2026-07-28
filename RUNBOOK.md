@@ -7,14 +7,16 @@
 06:30 daily       preserve-battery if SOC is below 50%
 07:55 daily       return to SBU before the 08:00 outage
 08:01 daily       verify SBU and retry once if needed
-14:30 weekdays    preserve-battery if SOC is below 50%
+13:30 weekdays    begin conditional afternoon battery preservation
+14:00 weekdays    retry if SOC became low after the first check
+14:30 weekdays    final preserve check before the afternoon outage
 15:25 weekdays    return to SBU before the 15:30 outage
 15:31 weekdays    verify SBU and retry once if needed
 21:00 daily       post Discord daily summary
 */30 always       alert once if battery SOC drops below 30%
-*/20 22-23,0-2   start night auto-topup only if needed
+*/20 18-23,0-5   start evening/night auto-topup only if needed
 21:20 Sundays     post weekly operational review
-*/10 22-23,0-6   complete an expired auto-topup and return to SBU
+*/10 always       complete an expired auto-topup and return to SBU
 21:10 Sundays     post weekly performance summary
 00:10 daily       prune old generated probe/temp files
 00:20 monthly     prune audit CSV rows older than retention
@@ -158,13 +160,15 @@ Expected jobs:
 30 6 * * *
 55 7 * * *
 1 8 * * *
+30 13 * * 1-5
+0 14 * * 1-5
 30 14 * * 1-5
 25 15 * * 1-5
 31 15 * * 1-5
 0 21 * * *
 */30 * * * *
-*/20 22-23,0-2 * * *
-*/10 22-23,0-6 * * *
+*/20 18-23,0-5 * * *
+*/10 * * * *
 10 21 * * 0
 10 0 * * *
 ```

@@ -229,11 +229,15 @@ Auto-topup pause and start notifications include the computed topup target SOC s
 The bundled schedule uses 20-minute start checks and an all-day 10-minute completion safety net:
 
 ```text
-*/20 22-23,0-5 * * *  auto-topup-check      # starts a topup if needed, exits immediately
+*/20 18-23,0-5 * * *  auto-topup-check      # starts a topup if needed, exits immediately
 */10 * * * *          topup-complete-check  # resumes automation once the topup window expires
 ```
 
 `auto-topup-check` is non-blocking: it evaluates whether a topup is needed, starts one if so (pausing automation, switching to Utility, writing state), and exits in seconds. `topup-complete-check` detects when the window has elapsed, resumes automation, and calls `return-sbu`.
+
+Checks begin at 18:00 so a needed overnight reserve can be built while estate
+Utility is still available. Starting the checks does not force a topup:
+adequately charged batteries remain in SBU.
 
 Overnight-load learning keeps one averaged sample per night. It uses separate weekday/weekend averages after at least three matching nights; until then it falls back to the broader recent average. `topup-status` reports an active hold's SOC gain, configured/learned/observed charge rates, revised completion estimate, and stalled-charging warnings:
 
@@ -400,7 +404,9 @@ The automation should therefore:
 06:40 daily       retry preserve-battery if the first Utility switch failed
 07:55 daily       return to SBU before the 08:00 outage
 08:01 daily       verify SBU and retry once if needed
-14:30 weekdays    preserve-battery if SOC is below 50%
+13:30 weekdays    begin conditional afternoon battery preservation
+14:00 weekdays    retry if SOC became low after the first check
+14:30 weekdays    final preserve check before the afternoon outage
 15:25 weekdays    return to SBU before the 15:30 outage
 15:31 weekdays    verify SBU and retry once if needed
 21:00 daily       post Discord daily summary
@@ -470,7 +476,9 @@ schtasks /Create /F /TN "Growatt Utility Check Morning" /SC DAILY /ST 06:30 /TR 
 schtasks /Create /F /TN "Growatt Utility Check Morning Retry" /SC DAILY /ST 06:40 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-preserve-retry"
 schtasks /Create /F /TN "Growatt SBU Before Morning Outage" /SC DAILY /ST 07:55 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-return-sbu"
 schtasks /Create /F /TN "Growatt SBU Watchdog Morning" /SC DAILY /ST 08:01 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-watchdog"
-schtasks /Create /F /TN "Growatt Utility Check Afternoon" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-preserve"
+schtasks /Create /F /TN "Growatt Utility Check Afternoon Early" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 13:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-preserve-early"
+schtasks /Create /F /TN "Growatt Utility Check Afternoon Retry" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:00 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-preserve-retry"
+schtasks /Create /F /TN "Growatt Utility Check Afternoon Final" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-preserve"
 schtasks /Create /F /TN "Growatt SBU Before Afternoon Outage" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:25 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-return-sbu"
 schtasks /Create /F /TN "Growatt SBU Watchdog Afternoon" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:31 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-watchdog"
 schtasks /Create /F /TN "Growatt Daily Summary" /SC DAILY /ST 21:00 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled daily-summary"
@@ -906,6 +914,8 @@ Example: skip the afternoon outage automation on a specific date:
     "2026-06-26": {
       "note": "No afternoon outage today",
       "skip": [
+        "afternoon-preserve-early",
+        "afternoon-preserve-retry",
         "afternoon-preserve",
         "afternoon-return-sbu",
         "afternoon-watchdog"
