@@ -334,9 +334,9 @@ class FetchPvoutputDailyOutputsTests(unittest.TestCase):
         result = fetch_pvoutput_daily_outputs(cfg, dt.date(2026, 6, 13), dt.date(2026, 6, 20))
         self.assertEqual(result, {})
 
-    def test_parses_csv_response(self):
+    def test_parses_semicolon_delimited_response(self):
         from growatt_guard.pvoutput import fetch_pvoutput_daily_outputs
-        csv = "20260613,12500,0,\n20260614,14200,0,\n20260615,9800,0,\n"
+        csv = "20260613,12500,0,;20260614,14200,0,;20260615,9800,0,;"
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.text = csv
@@ -347,6 +347,18 @@ class FetchPvoutputDailyOutputsTests(unittest.TestCase):
         self.assertEqual(result["2026-06-13"], 12500)
         self.assertEqual(result["2026-06-14"], 14200)
         self.assertEqual(result["2026-06-15"], 9800)
+
+    def test_parses_newline_delimited_response(self):
+        from growatt_guard.pvoutput import fetch_pvoutput_daily_outputs
+        csv = "20260613,12500,0,\n20260614,14200,0,\n"
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = csv
+        with patch("growatt_guard.pvoutput.requests.get", return_value=mock_resp):
+            result = fetch_pvoutput_daily_outputs(
+                self._config(), dt.date(2026, 6, 13), dt.date(2026, 6, 14)
+            )
+        self.assertEqual(result, {"2026-06-13": 12500, "2026-06-14": 14200})
 
     def test_returns_empty_on_non_200(self):
         from growatt_guard.pvoutput import fetch_pvoutput_daily_outputs
