@@ -289,8 +289,10 @@ def fetch_pvoutput_daily_outputs(
         logging.warning("PVOutput getoutput returned HTTP %s: %s", response.status_code, response.text[:200])
         return {}
     result: dict[str, int] = {}
-    for line in response.text.strip().splitlines():
-        parts = line.split(",")
+    # PVOutput separates output records with semicolons. Accept newlines too so
+    # fixtures and any line-wrapped responses remain compatible.
+    for record in response.text.replace(";", "\n").splitlines():
+        parts = record.split(",")
         if len(parts) < 2:
             continue
         try:
