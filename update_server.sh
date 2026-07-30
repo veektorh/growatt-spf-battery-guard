@@ -9,6 +9,7 @@ CURRENT_LINK="${DEPLOY_ROOT}/current"
 RELEASE_KEEP_COUNT="${GROWATT_GUARD_RELEASE_KEEP_COUNT:-3}"
 NOTIFY=1
 WAIT_FOR_CLEAR_MINUTES=0
+EXPECTED_RELEASE_SHA=""
 
 PREVIOUS_COMMIT=""
 PREVIOUS_RELEASE=""
@@ -100,8 +101,16 @@ while [[ "$#" -gt 0 ]]; do
       WAIT_FOR_CLEAR_MINUTES="$2"
       shift 2
       ;;
+    --release-sha)
+      if [[ "${2:-}" == "" || ! "${2:-}" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "--release-sha requires a lowercase 40-character commit SHA." >&2
+        exit 2
+      fi
+      EXPECTED_RELEASE_SHA="$2"
+      shift 2
+      ;;
     *)
-      echo "Usage: ./update_server.sh [--no-notify] [--wait-for-clear MINUTES]"
+      echo "Usage: ./update_server.sh [--no-notify] [--wait-for-clear MINUTES] [--release-sha SHA]"
       exit 2
       ;;
   esac
@@ -150,6 +159,13 @@ echo "Pulling latest source..."
 PREVIOUS_COMMIT="$(git rev-parse HEAD)"
 git pull --ff-only
 SOURCE_ROLLBACK_ARMED=1
+if [[ -n "${EXPECTED_RELEASE_SHA}" ]]; then
+  checked_out_sha="$(git rev-parse HEAD)"
+  if [[ "${checked_out_sha}" != "${EXPECTED_RELEASE_SHA}" ]]; then
+    echo "Checked-out release ${checked_out_sha} does not match expected release ${EXPECTED_RELEASE_SHA}." >&2
+    exit 1
+  fi
+fi
 
 echo "Synchronizing the pinned verification environment..."
 "${CONTROL_PYTHON}" -m pip install -r "${ROOT}/requirements-build.lock"

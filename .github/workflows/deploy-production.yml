@@ -54,10 +54,11 @@ jobs:
           RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
           ssh \
             -i "$HOME/.ssh/deploy_key" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "set -e; cd '$DEPLOY_PATH'; git fetch --quiet origin main; test \"\$(git rev-parse origin/main)\" = '$RELEASE_SHA'; ./update_server.sh --no-notify --wait-for-clear 15"
+            "GROWATT_DEPLOY_ROOT='$DEPLOY_PATH' /usr/local/bin/growatt-deploy '$RELEASE_SHA'"
