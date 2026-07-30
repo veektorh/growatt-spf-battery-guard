@@ -326,6 +326,31 @@ or issuing any inverter command, run:
 ./update_server.sh --wait-for-clear 120
 ```
 
+### Restricted CI deployment entrypoint
+
+Production CI should call the root-owned deployment entrypoint instead of
+sending an arbitrary shell command over SSH. Install the reviewed repository
+version before updating the workflow or deployment account:
+
+```bash
+sudo install -o root -g root -m 0755 \
+  deploy/growatt-deploy.sh /usr/local/bin/growatt-deploy
+```
+
+The entrypoint accepts only one lowercase 40-character commit SHA, fetches
+`origin/main`, verifies that the requested SHA is the current verified main
+commit, and then invokes `update_server.sh` with the normal safe-window wait
+and the expected SHA. The deployment controller verifies the checked-out
+commit again after its own pull and rolls back if `main` advanced in between.
+Keep the existing deployment identity available until a deployment through the
+entrypoint has completed and production health checks pass.
+
+When migrating to a dedicated SSH identity, configure its authorized key with
+OpenSSH `restrict` and a forced command that validates the original request,
+sets the fixed production checkout path, and invokes this root-owned
+entrypoint as the runtime owner. Do not grant the deployment account a general
+shell, Docker-group membership, or unrestricted sudo.
+
 If Discord reports `Schedule job ... has unsupported command` after an update, the VPS is running a stale Python process or mismatched files. Run:
 
 ```bash

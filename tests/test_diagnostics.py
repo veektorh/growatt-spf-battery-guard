@@ -298,6 +298,17 @@ class DeploymentPreflightTests(unittest.TestCase):
         rollback_disarm_pos = script.rindex("SOURCE_ROLLBACK_ARMED=0")
         self.assertLess(validation_pos, rollback_disarm_pos)
 
+    def test_update_server_rejects_a_post_pull_release_sha_mismatch(self):
+        script = (Path(__file__).resolve().parents[1] / "update_server.sh").read_text(encoding="utf-8")
+
+        pull_pos = script.index("git pull --ff-only")
+        rollback_arm_pos = script.index("SOURCE_ROLLBACK_ARMED=1", pull_pos)
+        release_check_pos = script.index('checked_out_sha="$(git rev-parse HEAD)"', rollback_arm_pos)
+        self.assertLess(pull_pos, rollback_arm_pos)
+        self.assertLess(rollback_arm_pos, release_check_pos)
+        self.assertIn("--release-sha requires a lowercase 40-character commit SHA", script)
+        self.assertIn('checked_out_sha}" != "${EXPECTED_RELEASE_SHA}', script)
+
     def test_update_server_stages_wheel_before_atomic_activation(self):
         script = (Path(__file__).resolve().parents[1] / "update_server.sh").read_text(encoding="utf-8")
 
