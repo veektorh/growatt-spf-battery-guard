@@ -55,10 +55,16 @@ def summarize_today_log_counts() -> dict[str, int]:
     if not LOG_FILE.exists():
         return counts
 
+    discord_reconnect_pending = False
     for line in LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines():
         if not line.startswith(today):
             continue
         lower = line.lower()
+        if "error attempting a reconnect in " in lower:
+            discord_reconnect_pending = True
+            continue
+        if "successfully resumed session" in lower:
+            discord_reconnect_pending = False
         if "inv_set_success" in lower or "mode response" in lower:
             counts["success"] += 1
         if _line_counts_as_failure(lower):
@@ -69,6 +75,8 @@ def summarize_today_log_counts() -> dict[str, int]:
             counts["preserve_actions"] += 1
         if "sbu mode response" in lower:
             counts["return_sbu_actions"] += 1
+    if discord_reconnect_pending:
+        counts["failure"] += 1
     return counts
 
 
