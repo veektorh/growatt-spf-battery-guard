@@ -303,7 +303,7 @@ class DashboardTests(unittest.TestCase):
                 {
                     "id": "morning-return",
                     "name": "Morning Return",
-                    "cron": "0 8 * * *",
+                    "cron": "55 7 * * *",
                     "command": "return-sbu",
                 },
                 {
