@@ -219,6 +219,39 @@ def embed_automation_failure(command: str, message: str) -> dict:
     return _embed(f"❌ Automation error: {command}", _COLOR_FAIL, fields)
 
 
+def embed_app_health_failed(
+    app_name: str,
+    failures: int,
+    threshold: int,
+    detail: str,
+    recovery: str,
+) -> dict:
+    fields = [
+        _f("Application", app_name),
+        _f("Failures", f"{failures}/{threshold}"),
+        _f("Health check", detail[:500], inline=False),
+        _f("Recovery", recovery[:500], inline=False),
+    ]
+    return _embed(f"❌ {app_name} health check failed", _COLOR_FAIL, fields)
+
+
+def embed_app_health_auto_recovered(app_name: str, failures: int, detail: str) -> dict:
+    fields = [
+        _f("Application", app_name),
+        _f("Consecutive failures", str(failures)),
+        _f("Recovery", detail[:500], inline=False),
+    ]
+    return _embed(f"⚠️ {app_name} recovered automatically", _COLOR_WARN, fields)
+
+
+def embed_app_health_recovered(app_name: str, failures: int) -> dict:
+    fields = [
+        _f("Application", app_name),
+        _f("Previous failures", str(failures)),
+    ]
+    return _embed(f"✅ {app_name} health recovered", _COLOR_OK, fields)
+
+
 def embed_summary(title: str, text: str) -> dict:
     return _embed(title, _COLOR_OK, [], description=text[:4096])
 

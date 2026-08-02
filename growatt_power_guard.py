@@ -67,6 +67,12 @@ from growatt_guard.dashboard_service import (
     resolve_dashboard_json_output,
     write_dashboard_from_status,
 )
+from growatt_guard.app_health import (
+    AppHealthResult,
+    command_app_health_monitor,
+    probe_app_health,
+    restart_app_container,
+)
 from growatt_guard.diagnostics import (
     DiagnosticItem,
     build_diagnostic_bundle,

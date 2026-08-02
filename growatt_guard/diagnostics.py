@@ -39,6 +39,7 @@ from growatt_guard.topup_status import collect_topup_status, format_topup_status
 
 
 SERVICE_UNITS = (
+    "growatt-app-health-monitor.timer",
     "growatt-dashboard-refresh.service",
     "growatt-dashboard-server.service",
     "growatt-dashboard-stale-alert.timer",

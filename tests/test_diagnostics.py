@@ -58,6 +58,7 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertIn("Schedule", names)
         self.assertIn("Dashboard freshness", names)
         self.assertIn("growatt-dashboard-refresh.service", names)
+        self.assertIn("growatt-app-health-monitor.timer", names)
 
 
     def test_systemd_status_includes_enabled_and_restart_detail(self):
@@ -320,6 +321,11 @@ class DeploymentPreflightTests(unittest.TestCase):
         self.assertIn("GROWATT_GUARD_DATA_DIR", script)
         self.assertLess(script.index("Validating staged release"), script.index('mv -Tf "${CURRENT_LINK}.new"'))
         self.assertGreaterEqual(script.count("run_deployment_preflight"), 3)
+
+    def test_update_server_installs_app_health_monitor_for_activation_and_rollback(self):
+        script = (Path(__file__).resolve().parents[1] / "update_server.sh").read_text(encoding="utf-8")
+
+        self.assertGreaterEqual(script.count("install_app_health_monitor_service.sh"), 2)
 
     def test_preflight_allows_clear_state(self):
         from growatt_guard.diagnostics import build_deployment_preflight_payload, command_deployment_preflight

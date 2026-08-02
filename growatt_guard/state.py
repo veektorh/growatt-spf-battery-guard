@@ -28,6 +28,7 @@ def configure_state_dir(path: str | os.PathLike[str]) -> Path:
     global STATE_DIR
     global PAUSE_FILE, BATTERY_ALERT_FILE, BATTERY_ALERT_MUTED_FILE, BYPASS_ALERT_FILE
     global COMMAND_LOCK_FILE, DASHBOARD_STALE_ALERT_FILE, GROWATT_CLOUD_FAILURE_FILE
+    global APP_HEALTH_MONITOR_FILE
     global LOGIN_COOLDOWN_FILE, SESSION_CACHE_FILE, SESSION_REFRESH_LOCK_FILE
     global TOPUP_STATE_FILE, TOPUP_SKIP_NOTIFICATION_FILE
     global CHARGE_RATE_HISTORY_FILE, DISCHARGE_RATE_HISTORY_FILE, FORECAST_CALIBRATION_FILE, RUNTIME_ALERT_FILE
@@ -40,6 +41,7 @@ def configure_state_dir(path: str | os.PathLike[str]) -> Path:
     BYPASS_ALERT_FILE = STATE_DIR / "bypass_alert.json"
     COMMAND_LOCK_FILE = STATE_DIR / "mode_command.lock"
     DASHBOARD_STALE_ALERT_FILE = STATE_DIR / "dashboard_stale_alert.json"
+    APP_HEALTH_MONITOR_FILE = STATE_DIR / "app_health_monitor.json"
     GROWATT_CLOUD_FAILURE_FILE = STATE_DIR / "growatt_cloud_failures.json"
     LOGIN_COOLDOWN_FILE = STATE_DIR / "growatt_login_cooldown.json"
     SESSION_CACHE_FILE = STATE_DIR / "growatt_session.json"
@@ -347,6 +349,14 @@ def write_dashboard_stale_alert_state(state: dict[str, Any]) -> None:
 
 def clear_dashboard_stale_alert_state() -> None:
     clear_state_file(DASHBOARD_STALE_ALERT_FILE)
+
+
+def read_app_health_monitor_state() -> dict[str, Any] | None:
+    return read_json_state(APP_HEALTH_MONITOR_FILE, "app health monitor")
+
+
+def write_app_health_monitor_state(state: dict[str, Any]) -> None:
+    write_json_state(APP_HEALTH_MONITOR_FILE, state)
 
 
 def read_growatt_cloud_failure_state() -> dict[str, Any] | None:

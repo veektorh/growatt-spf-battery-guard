@@ -77,6 +77,11 @@ growatt_guard.dashboard_viewmodel / dashboard_render_components
 growatt_guard.dashboard_service
   Owns observability refresh, atomic output writes, static serving, and stale alerts.
 
+growatt_guard.app_health
+  Checks explicitly configured loopback health endpoints, persists consecutive
+  failure state, sends Discord incident/recovery embeds, and performs one
+  cooldown-limited Docker restart per incident when enabled.
+
 growatt_guard.pvoutput
   Owns PVOutput field extraction, upload, extended-field fallback, and upload state.
 
@@ -226,6 +231,11 @@ serve-dashboard
 ```
 
 `dashboard-stale-alert` checks the generated file age and sends Discord alerts when refreshes stop.
+
+`app-health-monitor` checks configured local application endpoints without
+calling Growatt. A systemd timer runs it every five minutes. Recovery is limited
+to validated container names from `APP_HEALTH_TARGETS`, after the configured
+consecutive-failure threshold and cooldown.
 
 ## Testing Strategy
 

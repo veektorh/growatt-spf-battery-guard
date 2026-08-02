@@ -410,6 +410,31 @@ DASHBOARD_STALE_MINUTES=30
 
 If a separate 10-minute `pvoutput-upload` cron job exists, remove it after installing the dashboard service. `observability-refresh` replaces that duplicate poller.
 
+## Local Application Health Watchdog
+
+Configure `APP_HEALTH_TARGETS` with loopback `/health` endpoints and their
+allowlisted Docker container names, then install the timer:
+
+```bash
+cd ~/automation
+./install_app_health_monitor_service.sh
+systemctl status growatt-app-health-monitor.timer
+.deploy/current/growatt-guard app-health-monitor
+```
+
+Automatic recovery requires the service user to belong to the Docker group.
+Without that access, monitoring continues and the restart denial is included in
+the incident alert.
+
+The default policy alerts after three consecutive failures and permits one
+Docker restart per incident, with a 60-minute cooldown across incidents. Review
+`state/app_health_monitor.json` and the service journal when an incident remains
+active:
+
+```bash
+journalctl -u growatt-app-health-monitor.service --since today
+```
+
 ## Discord Control Bot
 
 The control bot is optional and separate from the send-only Discord webhook. It should only be invited to a private control channel and allowlisted to your Discord user ID.

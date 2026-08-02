@@ -820,6 +820,44 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py dashboard-stale-alert
 ```
 
+## Local application health watchdog
+
+The optional watchdog checks other applications on the same host without
+calling Growatt. Targets must use loopback HTTP endpoints and explicit Docker
+container names:
+
+```text
+APP_HEALTH_TARGETS=Summa|http://127.0.0.1:5080/health|summa-app-1,Garage|http://127.0.0.1:5081/health|garage-app-1,Family OS|http://127.0.0.1:5082/health|family-os-app-1
+APP_HEALTH_FAILURE_THRESHOLD=3
+APP_HEALTH_TIMEOUT_SECONDS=5
+APP_HEALTH_RECOVERY_ENABLED=true
+APP_HEALTH_RECOVERY_COOLDOWN_MINUTES=60
+APP_HEALTH_RECOVERY_WAIT_SECONDS=10
+```
+
+Install the five-minute systemd timer:
+
+```bash
+cd ~/automation
+./install_app_health_monitor_service.sh
+```
+
+The service user must belong to the Docker group when automatic recovery is
+enabled. Health checks and alerts still work without Docker access; a denied
+restart is reported as the incident's recovery failure.
+
+The first two failed checks only advance the persisted streak. At the third,
+the watchdog sends one Discord incident notification and, when recovery is
+enabled, makes one container restart attempt. It verifies health after the
+restart and sends an automatic-recovery notification. A failed incident is not
+restarted repeatedly; a later incident must also clear the one-hour cooldown.
+
+Run a manual check without changing inverter mode:
+
+```bash
+.deploy/current/growatt-guard app-health-monitor
+```
+
 ## PVOutput Upload
 
 Enable PVOutput in `.env`:
@@ -1000,6 +1038,7 @@ install_cloud_cron.sh
 install_growatt_schedule.ps1
 update_server.sh
 install_dashboard_service.sh
+install_app_health_monitor_service.sh
 install_dashboard_proxy.sh
 install_discord_bot_service.sh
 schedule_overrides.example.json
