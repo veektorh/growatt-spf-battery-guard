@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from growatt_guard.exceptions import GrowattGuardError
 
@@ -17,6 +19,13 @@ from growatt_guard.paths import DATA_HOME
 
 
 BASE_DIR = DATA_HOME
+
+
+@dataclass(frozen=True)
+class AppHealthTarget:
+    name: str
+    url: str
+    container: str
 
 
 @dataclass(frozen=True)
@@ -86,6 +95,12 @@ class Config:
     panel_kwp: float = 0.0
     panel_performance_ratio: float = 0.75
     min_sbu_return_soc: float = 30.0
+    app_health_targets: tuple[AppHealthTarget, ...] = ()
+    app_health_failure_threshold: int = 3
+    app_health_timeout_seconds: float = 5.0
+    app_health_recovery_enabled: bool = False
+    app_health_recovery_cooldown_minutes: float = 60.0
+    app_health_recovery_wait_seconds: float = 10.0
 
 
 def config_error(message: str) -> GrowattGuardError:
@@ -118,6 +133,44 @@ def csv_env(name: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in value.split(",") if part.strip())
 
 
+def parse_app_health_targets(value: str) -> tuple[AppHealthTarget, ...]:
+    if not value.strip():
+        return ()
+
+    targets: list[AppHealthTarget] = []
+    names: set[str] = set()
+    for raw_target in value.split(","):
+        parts = tuple(part.strip() for part in raw_target.split("|"))
+        if len(parts) != 3 or not all(parts):
+            raise config_error(
+                "APP_HEALTH_TARGETS entries must use name|http://127.0.0.1:port/health|container."
+            )
+        name, url, container = parts
+        normalized_name = name.lower()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}", name):
+            raise config_error(f"Invalid app health target name: {name!r}.")
+        if normalized_name in names:
+            raise config_error(f"Duplicate app health target name: {name!r}.")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", container):
+            raise config_error(f"Invalid app health container name for {name!r}.")
+
+        parsed = urlsplit(url)
+        if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+            raise config_error(f"App health target {name!r} must use a loopback HTTP URL.")
+        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise config_error(f"App health target {name!r} URL must not contain credentials, query, or fragment.")
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise config_error(f"Invalid app health target port for {name!r}.") from exc
+        if port is None or not parsed.path.startswith("/"):
+            raise config_error(f"App health target {name!r} requires an explicit port and path.")
+
+        names.add(normalized_name)
+        targets.append(AppHealthTarget(name=name, url=url, container=container))
+    return tuple(targets)
+
+
 def validate_config(config: Config) -> list[str]:
     warnings: list[str] = []
     if not 0 <= config.min_sbu_return_soc <= 100:
@@ -139,6 +192,16 @@ def validate_config(config: Config) -> list[str]:
         warnings.append(
             "AUTO_TOPUP_ENABLED requires BATTERY_CAPACITY_WH and BATTERY_CHARGE_RATE_W to be configured"
         )
+    if config.app_health_failure_threshold < 1:
+        warnings.append("APP_HEALTH_FAILURE_THRESHOLD must be at least 1")
+    if config.app_health_timeout_seconds <= 0:
+        warnings.append("APP_HEALTH_TIMEOUT_SECONDS must be greater than 0")
+    if config.app_health_recovery_cooldown_minutes < 1:
+        warnings.append("APP_HEALTH_RECOVERY_COOLDOWN_MINUTES must be at least 1")
+    if config.app_health_recovery_wait_seconds < 0:
+        warnings.append("APP_HEALTH_RECOVERY_WAIT_SECONDS must not be negative")
+    if config.app_health_recovery_enabled and not config.app_health_targets:
+        warnings.append("APP_HEALTH_RECOVERY_ENABLED=true has no effect without APP_HEALTH_TARGETS")
     return warnings
 
 
@@ -225,4 +288,10 @@ def load_config() -> Config:
         panel_kwp=float(env("PANEL_KWP", "0")),
         panel_performance_ratio=float(env("PANEL_PERFORMANCE_RATIO", "0.75")),
         min_sbu_return_soc=float(env("MIN_SBU_RETURN_SOC", "30")),
+        app_health_targets=parse_app_health_targets(env("APP_HEALTH_TARGETS")),
+        app_health_failure_threshold=int(env("APP_HEALTH_FAILURE_THRESHOLD", "3")),
+        app_health_timeout_seconds=float(env("APP_HEALTH_TIMEOUT_SECONDS", "5")),
+        app_health_recovery_enabled=str_to_bool(env("APP_HEALTH_RECOVERY_ENABLED"), default=False),
+        app_health_recovery_cooldown_minutes=float(env("APP_HEALTH_RECOVERY_COOLDOWN_MINUTES", "60")),
+        app_health_recovery_wait_seconds=float(env("APP_HEALTH_RECOVERY_WAIT_SECONDS", "10")),
     )

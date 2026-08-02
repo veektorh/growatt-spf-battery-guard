@@ -171,6 +171,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override DASHBOARD_STALE_MINUTES for this check.",
     )
+    subparsers.add_parser(
+        "app-health-monitor",
+        help="Check configured local app health endpoints and perform bounded recovery.",
+    )
     serve_parser = subparsers.add_parser("serve-dashboard", help="Serve dashboard.html without calling Growatt.")
     serve_parser.add_argument("--host", default="127.0.0.1", help="Bind host. Use 127.0.0.1 for SSH tunnel access.")
     serve_parser.add_argument("--port", type=int, default=8080, help="Bind port.")
@@ -376,6 +380,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_observability_refresh(config, args.output, args.interval_minutes, args.loop)
         if command == "dashboard-stale-alert":
             return app.command_dashboard_stale_alert(config, args.output, args.max_age_minutes)
+        if command == "app-health-monitor":
+            return app.command_app_health_monitor(config)
         if command == "serve-dashboard":
             return app.command_serve_dashboard(config, args.host, args.port, args.output)
         if command == "serve-discord-bot":

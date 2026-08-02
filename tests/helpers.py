@@ -65,6 +65,12 @@ def make_config(**overrides):
         "panel_kwp": 0.0,
         "panel_performance_ratio": 0.75,
         "min_sbu_return_soc": 30.0,
+        "app_health_targets": (),
+        "app_health_failure_threshold": 3,
+        "app_health_timeout_seconds": 5.0,
+        "app_health_recovery_enabled": False,
+        "app_health_recovery_cooldown_minutes": 60.0,
+        "app_health_recovery_wait_seconds": 10.0,
     }
     values.update(overrides)
     return Config(**values)

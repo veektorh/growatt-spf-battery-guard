@@ -13,6 +13,9 @@ from growatt_power_guard import (
 )
 from growatt_guard.notifications import (
     embed_automation_failure,
+    embed_app_health_auto_recovered,
+    embed_app_health_failed,
+    embed_app_health_recovered,
     embed_battery_alert,
     embed_battery_cleared,
     embed_cloud_failure,
@@ -218,6 +221,23 @@ class EmbedBuilderTests(unittest.TestCase):
         self.assertIn("validate-schedule", embed["title"])
         self.assertIn("Command", self._field_names(embed))
         self.assertIn("Error", self._field_names(embed))
+
+    def test_app_health_failure_embed_includes_recovery(self):
+        embed = embed_app_health_failed("Garage", 3, 3, "connection refused", "docker unavailable")
+
+        self.assertEqual(embed["color"], _COLOR_FAIL)
+        self.assertIn("Recovery", self._field_names(embed))
+
+    def test_app_health_auto_recovery_embed_is_warning(self):
+        embed = embed_app_health_auto_recovered("Garage", 3, "container restart completed")
+
+        self.assertEqual(embed["color"], _COLOR_WARN)
+        self.assertIn("recovered automatically", embed["title"])
+
+    def test_app_health_recovered_embed_is_green(self):
+        embed = embed_app_health_recovered("Garage", 4)
+
+        self.assertEqual(embed["color"], _COLOR_OK)
 
     def test_embed_automation_failure_truncates_long_message(self):
         long_msg = "x" * 2000

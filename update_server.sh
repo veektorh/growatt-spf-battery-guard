@@ -32,6 +32,9 @@ install_runtime_integrations() {
   GROWATT_GUARD_RUNTIME_ROOT="${CURRENT_LINK}" \
     GROWATT_GUARD_DATA_DIR="${ROOT}" \
     "${ROOT}/install_dashboard_service.sh"
+  GROWATT_GUARD_RUNTIME_ROOT="${CURRENT_LINK}" \
+    GROWATT_GUARD_DATA_DIR="${ROOT}" \
+    "${ROOT}/install_app_health_monitor_service.sh"
   if systemctl cat growatt-discord-control.service >/dev/null 2>&1; then
     GROWATT_GUARD_RUNTIME_ROOT="${CURRENT_LINK}" \
       GROWATT_GUARD_DATA_DIR="${ROOT}" \
@@ -70,6 +73,7 @@ rollback_deployment_failure() {
       rm -f -- "${CURRENT_LINK}"
       PYTHON_BIN="${CONTROL_PYTHON}" "${ROOT}/install_cloud_cron.sh"
       "${ROOT}/install_dashboard_service.sh"
+      "${ROOT}/install_app_health_monitor_service.sh"
       if systemctl cat growatt-discord-control.service >/dev/null 2>&1; then
         "${ROOT}/install_discord_bot_service.sh"
       fi

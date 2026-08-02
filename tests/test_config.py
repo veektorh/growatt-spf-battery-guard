@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from helpers import make_config
-from growatt_guard.config import load_config, validate_config
+from growatt_guard.config import AppHealthTarget, load_config, parse_app_health_targets, validate_config
 
 
 class ValidateConfigTests(unittest.TestCase):
@@ -86,6 +86,42 @@ class ValidateConfigTests(unittest.TestCase):
 
         self.assertTrue(any("MIN_SBU_RETURN_SOC" in warning for warning in warnings))
 
+    def test_recovery_without_targets_warns(self):
+        warnings = validate_config(make_config(app_health_recovery_enabled=True))
+
+        self.assertTrue(any("APP_HEALTH_TARGETS" in warning for warning in warnings))
+
+
+class AppHealthTargetConfigTests(unittest.TestCase):
+    def test_parses_allowlisted_loopback_targets(self):
+        targets = parse_app_health_targets(
+            "Summa|http://127.0.0.1:5080/health|summa-app-1,"
+            "Garage|http://localhost:5081/health|garage-app-1"
+        )
+
+        self.assertEqual(
+            targets,
+            (
+                AppHealthTarget("Summa", "http://127.0.0.1:5080/health", "summa-app-1"),
+                AppHealthTarget("Garage", "http://localhost:5081/health", "garage-app-1"),
+            ),
+        )
+
+    def test_rejects_non_loopback_target(self):
+        with self.assertRaises(Exception) as ctx:
+            parse_app_health_targets("Garage|https://example.invalid/health|garage-app-1")
+
+        self.assertIn("loopback", str(ctx.exception))
+
+    def test_rejects_duplicate_names(self):
+        with self.assertRaises(Exception) as ctx:
+            parse_app_health_targets(
+                "Garage|http://127.0.0.1:5081/health|garage-app-1,"
+                "garage|http://127.0.0.1:5082/health|other-app-1"
+            )
+
+        self.assertIn("Duplicate", str(ctx.exception))
+
 class LoadConfigTests(unittest.TestCase):
     def _load_with_env(self, env):
         with patch("growatt_guard.config.load_dotenv", return_value=None), patch.dict("os.environ", env, clear=True):
@@ -100,6 +136,8 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(config.discord_control_allowed_user_ids, ())
         self.assertEqual(config.panel_performance_ratio, 0.75)
         self.assertEqual(config.min_sbu_return_soc, 30)
+        self.assertEqual(config.app_health_targets, ())
+        self.assertFalse(config.app_health_recovery_enabled)
 
     def test_load_config_parses_typed_values(self):
         config = self._load_with_env(
@@ -119,6 +157,9 @@ class LoadConfigTests(unittest.TestCase):
                 "PANEL_KWP": "8.2",
                 "PANEL_PERFORMANCE_RATIO": "0.7",
                 "MIN_SBU_RETURN_SOC": "28",
+                "APP_HEALTH_TARGETS": "Garage|http://127.0.0.1:5081/health|garage-app-1",
+                "APP_HEALTH_FAILURE_THRESHOLD": "4",
+                "APP_HEALTH_RECOVERY_ENABLED": "true",
             }
         )
 
@@ -135,6 +176,9 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(config.panel_kwp, 8.2)
         self.assertEqual(config.panel_performance_ratio, 0.7)
         self.assertEqual(config.min_sbu_return_soc, 28)
+        self.assertEqual(config.app_health_targets[0].name, "Garage")
+        self.assertEqual(config.app_health_failure_threshold, 4)
+        self.assertTrue(config.app_health_recovery_enabled)
 
     def test_load_config_custom_driver_without_params_falls_back_to_spf5000(self):
         config = self._load_with_env(

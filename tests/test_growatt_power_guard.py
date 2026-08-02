@@ -282,6 +282,11 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertEqual(args.command, "dashboard-stale-alert")
         self.assertEqual(args.max_age_minutes, 20)
 
+    def test_app_health_monitor_command_is_available(self):
+        args = build_parser().parse_args(["app-health-monitor"])
+
+        self.assertEqual(args.command, "app-health-monitor")
+
     def test_serve_dashboard_command_is_available(self):
         args = build_parser().parse_args(["serve-dashboard", "--host", "127.0.0.1", "--port", "8080"])
 
