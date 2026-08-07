@@ -393,17 +393,17 @@ Estate power is unavailable during these windows:
 
 ```text
 Weekdays: 08:00-10:30 and 15:30-18:00
-Weekends: 08:00-10:30
+Weekends: no scheduled rationing
 ```
 
 The automation should therefore:
 
 ```text
 06:10 daily       post Discord health report
-06:30 daily       preserve-battery if SOC is below 50%
-06:40 daily       retry preserve-battery if the first Utility switch failed
-07:55 daily       return to SBU before the 08:00 outage
-08:01 daily       verify SBU and retry once if needed
+06:30 weekdays    preserve-battery if SOC is below 50%
+06:40 weekdays    retry preserve-battery if the first Utility switch failed
+07:55 weekdays    return to SBU before the 08:00 outage
+08:01 weekdays    verify SBU and retry once if needed
 13:30 weekdays    begin conditional afternoon battery preservation
 14:00 weekdays    retry if SOC became low after the first check
 14:30 weekdays    final preserve check before the afternoon outage
@@ -472,10 +472,10 @@ Or create them manually:
 
 ```powershell
 schtasks /Create /F /TN "Growatt Morning Health Report" /SC DAILY /ST 06:10 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-health"
-schtasks /Create /F /TN "Growatt Utility Check Morning" /SC DAILY /ST 06:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-preserve"
-schtasks /Create /F /TN "Growatt Utility Check Morning Retry" /SC DAILY /ST 06:40 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-preserve-retry"
-schtasks /Create /F /TN "Growatt SBU Before Morning Outage" /SC DAILY /ST 07:55 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-return-sbu"
-schtasks /Create /F /TN "Growatt SBU Watchdog Morning" /SC DAILY /ST 08:01 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-watchdog"
+schtasks /Create /F /TN "Growatt Utility Check Morning" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 06:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-preserve"
+schtasks /Create /F /TN "Growatt Utility Check Morning Retry" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 06:40 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-preserve-retry"
+schtasks /Create /F /TN "Growatt SBU Before Morning Outage" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 07:55 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-return-sbu"
+schtasks /Create /F /TN "Growatt SBU Watchdog Morning" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:01 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-watchdog"
 schtasks /Create /F /TN "Growatt Utility Check Afternoon Early" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 13:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-preserve-early"
 schtasks /Create /F /TN "Growatt Utility Check Afternoon Retry" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:00 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-preserve-retry"
 schtasks /Create /F /TN "Growatt Utility Check Afternoon Final" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-preserve"

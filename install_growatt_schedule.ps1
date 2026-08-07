@@ -46,17 +46,17 @@ Register-GrowattTask `
 
 Register-GrowattTask `
     -Name "Utility Check Morning" `
-    -ScheduleArgs @("/SC", "DAILY", "/ST", "06:30") `
+    -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "06:30") `
     -Command "run-scheduled morning-preserve"
 
 Register-GrowattTask `
     -Name "SBU Before Morning Outage" `
-    -ScheduleArgs @("/SC", "DAILY", "/ST", "07:55") `
+    -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "07:55") `
     -Command "run-scheduled morning-return-sbu"
 
 Register-GrowattTask `
     -Name "SBU Watchdog Morning" `
-    -ScheduleArgs @("/SC", "DAILY", "/ST", "08:01") `
+    -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "08:01") `
     -Command "run-scheduled morning-watchdog"
 
 Register-GrowattTask `
