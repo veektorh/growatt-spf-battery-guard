@@ -379,6 +379,39 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertIn("PV power: 1234.0 W", summary)
         self.assertIn("Successful mode responses: 2", summary)
 
+    def test_build_daily_summary_reports_grid_import_separately_from_ac_charge(self):
+        status = {
+            "storage_energy_overview": {"eToUserToday": "18.4"},
+            "storage_params": {"storageDetailBean": {"eacChargeToday": "11.7"}},
+        }
+
+        with patch("growatt_guard.audit.summarize_today_log_counts", return_value={
+            "success": 0,
+            "failure": 0,
+            "watchdog_repairs": 0,
+            "preserve_actions": 0,
+            "return_sbu_actions": 0,
+        }):
+            summary = build_daily_summary(status)
+
+        self.assertIn("Grid import today: 18.4 kWh", summary)
+        self.assertIn("AC charge today: 11.7 kWh", summary)
+
+    def test_build_daily_summary_omits_grid_import_when_unreported(self):
+        status = {"storage_params": {"storageDetailBean": {"eacChargeToday": "11.7"}}}
+
+        with patch("growatt_guard.audit.summarize_today_log_counts", return_value={
+            "success": 0,
+            "failure": 0,
+            "watchdog_repairs": 0,
+            "preserve_actions": 0,
+            "return_sbu_actions": 0,
+        }):
+            summary = build_daily_summary(status)
+
+        self.assertNotIn("Grid import today", summary)
+        self.assertIn("AC charge today: 11.7 kWh", summary)
+
     def test_format_health_report_summarizes_failures(self):
         report = format_health_report(
             [
