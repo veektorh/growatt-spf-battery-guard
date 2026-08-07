@@ -4,9 +4,9 @@
 
 ```text
 06:10 daily       post Discord health report
-06:30 daily       preserve-battery if SOC is below 50%
-07:55 daily       return to SBU before the 08:00 outage
-08:01 daily       verify SBU and retry once if needed
+06:30 weekdays    preserve-battery if SOC is below 50%
+07:55 weekdays    return to SBU before the 08:00 outage
+08:01 weekdays    verify SBU and retry once if needed
 13:30 weekdays    begin conditional afternoon battery preservation
 14:00 weekdays    retry if SOC became low after the first check
 14:30 weekdays    final preserve check before the afternoon outage
@@ -157,9 +157,9 @@ Expected jobs:
 
 ```text
 10 6 * * *
-30 6 * * *
-55 7 * * *
-1 8 * * *
+30 6 * * 1-5
+55 7 * * 1-5
+1 8 * * 1-5
 30 13 * * 1-5
 0 14 * * 1-5
 30 14 * * 1-5

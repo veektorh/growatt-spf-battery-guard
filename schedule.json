@@ -13,25 +13,25 @@
     {
       "id": "morning-preserve",
       "name": "Preserve battery before morning outage",
-      "cron": "30 6 * * *",
+      "cron": "30 6 * * 1-5",
       "command": "preserve-battery"
     },
     {
       "id": "morning-preserve-retry",
       "name": "Retry morning preserve if the first Utility switch failed",
-      "cron": "40 6 * * *",
+      "cron": "40 6 * * 1-5",
       "command": "preserve-battery"
     },
     {
       "id": "morning-return-sbu",
       "name": "Return to SBU before morning outage",
-      "cron": "55 7 * * *",
+      "cron": "55 7 * * 1-5",
       "command": "return-sbu"
     },
     {
       "id": "morning-watchdog",
       "name": "Verify SBU after morning outage starts",
-      "cron": "1 8 * * *",
+      "cron": "1 8 * * 1-5",
       "command": "watchdog-sbu"
     },
     {
