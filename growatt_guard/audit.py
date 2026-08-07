@@ -647,6 +647,21 @@ def build_daily_summary(status: dict[str, Any], tomorrow_kwh_m2: float | None = 
         ("Battery charge power", ("pChargeText", "pCharge"), " W"),
         ("Battery discharge power", ("pDischargeText", "pDischarge"), " W"),
         ("Energy charged today", ("eChargeTodayText", "eChargeToday"), " kWh"),
+        # Total utility import; "AC charge today" below is only the share that reached the battery.
+        (
+            "Grid import today",
+            (
+                "eToUserToday",
+                "eToUserTodayText",
+                "eGridToday",
+                "eGridTodayText",
+                "eImportToday",
+                "eImportTodayText",
+                "eBuyToday",
+                "eBuyTodayText",
+            ),
+            " kWh",
+        ),
         ("AC charge today", ("eacChargeToday", "eacChargeTodayText"), " kWh"),
         ("Energy discharged today", ("eDischargeTodayText", "eDischargeToday"), " kWh"),
     ]
