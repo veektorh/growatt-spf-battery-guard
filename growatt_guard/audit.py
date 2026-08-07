@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from growatt_guard.growatt_api import (
+    extract_max_metric,
     extract_soc,
     extract_spf_output_source,
     format_metric,
@@ -22,6 +23,17 @@ BASE_DIR = DATA_HOME
 LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "growatt_power_guard.log"
 MODE_AUDIT_FILE = LOG_DIR / "mode_decisions.csv"
+
+GRID_IMPORT_TODAY_KEYS = (
+    "eToUserToday",
+    "eToUserTodayText",
+    "eGridToday",
+    "eGridTodayText",
+    "eImportToday",
+    "eImportTodayText",
+    "eBuyToday",
+    "eBuyTodayText",
+)
 
 MODE_AUDIT_FIELDS = (
     "timestamp",
@@ -647,21 +659,6 @@ def build_daily_summary(status: dict[str, Any], tomorrow_kwh_m2: float | None = 
         ("Battery charge power", ("pChargeText", "pCharge"), " W"),
         ("Battery discharge power", ("pDischargeText", "pDischarge"), " W"),
         ("Energy charged today", ("eChargeTodayText", "eChargeToday"), " kWh"),
-        # Total utility import; "AC charge today" below is only the share that reached the battery.
-        (
-            "Grid import today",
-            (
-                "eToUserToday",
-                "eToUserTodayText",
-                "eGridToday",
-                "eGridTodayText",
-                "eImportToday",
-                "eImportTodayText",
-                "eBuyToday",
-                "eBuyTodayText",
-            ),
-            " kWh",
-        ),
         ("AC charge today", ("eacChargeToday", "eacChargeTodayText"), " kWh"),
         ("Energy discharged today", ("eDischargeTodayText", "eDischargeToday"), " kWh"),
     ]
@@ -669,6 +666,11 @@ def build_daily_summary(status: dict[str, Any], tomorrow_kwh_m2: float | None = 
         formatted = format_metric(status, label, keys, unit)
         if formatted:
             lines.append(formatted)
+
+    # Total utility import, of which "AC charge today" is only the battery share.
+    grid_import_kwh = extract_max_metric(status, GRID_IMPORT_TODAY_KEYS)
+    if grid_import_kwh is not None:
+        lines.append(f"Grid import today: {grid_import_kwh:g} kWh")
 
     try:
         from growatt_guard.pvoutput import read_pvoutput_state

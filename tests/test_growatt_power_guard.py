@@ -380,9 +380,14 @@ class GrowattPowerGuardTests(unittest.TestCase):
         self.assertIn("Successful mode responses: 2", summary)
 
     def test_build_daily_summary_reports_grid_import_separately_from_ac_charge(self):
+        # The inverter repeats eToUserToday as zero in the detail beans, so the
+        # summary must read the largest copy rather than the first one found.
         status = {
+            "storage_params": {
+                "storageDetailBean": {"eacChargeToday": "11.7", "eToUserToday": 0}
+            },
             "storage_energy_overview": {"eToUserToday": "18.4"},
-            "storage_params": {"storageDetailBean": {"eacChargeToday": "11.7"}},
+            "storage_params_fallback": {"storageDetailBean": {"eToUserToday": 0}},
         }
 
         with patch("growatt_guard.audit.summarize_today_log_counts", return_value={
