@@ -173,6 +173,23 @@ def extract_first_metric(data: dict[str, Any], keys: tuple[str, ...]) -> tuple[A
     return None
 
 
+def extract_max_metric(data: dict[str, Any], keys: tuple[str, ...]) -> float | None:
+    """Return the largest numeric value across every matching key.
+
+    Growatt repeats several daily counters in more than one bean, and the
+    duplicates are often zero, so the maximum is the only reliable reading.
+    """
+    values: list[float] = []
+    wanted = set(keys)
+    for path, value in deep_values(data):
+        if path.split(".")[-1] not in wanted:
+            continue
+        parsed = parse_number(value)
+        if parsed is not None:
+            values.append(parsed)
+    return max(values) if values else None
+
+
 def format_metric(data: dict[str, Any], label: str, keys: tuple[str, ...], unit: str = "") -> str | None:
     result = extract_first_metric(data, keys)
     if not result:

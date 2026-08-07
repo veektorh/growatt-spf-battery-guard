@@ -85,6 +85,7 @@ from growatt_guard.growatt_telemetry import (
     extract_battery_status,
     extract_channel_metric_sum,
     extract_first_metric,
+    extract_max_metric,
     extract_soc,
     extract_spf_output_source,
     format_duration_minutes,
