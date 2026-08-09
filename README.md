@@ -644,7 +644,7 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py ops-review --days 7 --notify
 ```
 
-`ops-review` summarizes the latest dashboard snapshot, sunrise plan, mode audit rows, topup activity, estimated grid charge, target-reached, expired, legacy, and unclosed topup closures, failures, automation state, last mode change, and recommended follow-up. It is read-only unless `--notify` is used, which posts the same review to Discord and exits with an error if delivery fails.
+`ops-review` summarizes the latest dashboard snapshot, sunrise plan, mode audit rows, topup activity, estimated grid charge, target-reached, expired, legacy, and unclosed topup closures, failures, automation state, last mode change, and recommended follow-up. Its outcome scorecard compares planned and actual duration, SOC gain, load, charge rate, and measured grid import; classifications fail closed when evidence is incomplete, and tuning advice requires three comparable outcomes. It is read-only unless `--notify` is used, which posts the same review to Discord and exits with an error if delivery fails.
 
 Run the emergency battery alert check manually:
 

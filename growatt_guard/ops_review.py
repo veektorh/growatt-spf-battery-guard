@@ -17,6 +17,7 @@ from growatt_guard.audit import (
 )
 from growatt_guard.config import Config
 from growatt_guard.dashboard import DASHBOARD_JSON_FILE
+from growatt_guard.dashboard_metrics import read_dashboard_metrics_history
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.notifications import send_discord_embed
 from growatt_guard.state import (
@@ -30,6 +31,7 @@ from growatt_guard.state import (
     topup_is_active,
     utc_now,
 )
+from growatt_guard.topup_outcomes import TopupScorecard, build_topup_scorecard
 
 
 _COLOR_OK = 0x57F287
@@ -99,6 +101,14 @@ def _fmt_age(minutes: float | None) -> str:
     if hours < 48:
         return f"{hours:.1f} h ago"
     return f"{hours / 24.0:.1f} d ago"
+
+
+def _fmt_outcome_counts(counts: dict[str, int]) -> str:
+    return ", ".join(
+        f"{name.replace('-', ' ')} {count}"
+        for name, count in counts.items()
+        if count
+    ) or "none"
 
 
 def _age_minutes(timestamp: dt.datetime | None, now: dt.datetime) -> float | None:
@@ -254,6 +264,7 @@ def _recommendations(
     state: dict[str, Any],
     dashboard_age_min: float | None,
     config: Config,
+    scorecard: TopupScorecard,
 ) -> tuple[list[str], str]:
     tips: list[str] = []
     severity = "ok"
@@ -289,6 +300,10 @@ def _recommendations(
         severity = "warn" if severity == "ok" else severity
     if stats["unclosed_topups"] > 0:
         tips.append(f"{stats['unclosed_topups']} top-up hold(s) have no recorded closure; run topup-complete-check and verify SBU before manual changes.")
+        severity = "warn" if severity == "ok" else severity
+
+    tips.append(scorecard.recommendation)
+    if scorecard.recommendation_status in {"review-load", "review-charge"}:
         severity = "warn" if severity == "ok" else severity
 
     if stats["failures"] > 0:
@@ -369,6 +384,11 @@ def build_ops_review(
     planner = planner_wrapper.get("outlook") if isinstance(planner_wrapper.get("outlook"), dict) else {}
     automation = dashboard.get("automation") if isinstance(dashboard.get("automation"), dict) else {}
     state = _state_summary(now=now)
+    scorecard = build_topup_scorecard(
+        audit_rows,
+        read_dashboard_metrics_history(now=now, days=days),
+        configured_charge_rate_w=config.battery_charge_rate_w,
+    )
 
     recommendations, severity = _recommendations(
         live=live,
@@ -378,6 +398,7 @@ def build_ops_review(
         state=state,
         dashboard_age_min=dashboard_age_min,
         config=config,
+        scorecard=scorecard,
     )
 
     lines = [
@@ -411,6 +432,27 @@ def build_ops_review(
             f"{stats['unclosed_topups']} unclosed; "
             f"avg SOC gain {_fmt_value(stats['avg_topup_soc_gain'], '%')}; "
             f"avg implied charge {_fmt_w(stats['avg_implied_charge_rate_w'])}"
+        ),
+        "",
+        "Top-up outcome scorecard:",
+        (
+            f"  Classified outcomes: {len(scorecard.outcomes)}; "
+            f"{_fmt_outcome_counts(scorecard.classification_counts)}"
+        ),
+        (
+            f"  Grid use: {_fmt_outcome_counts(scorecard.grid_use_counts)}; "
+            f"measured import {_fmt_kwh(scorecard.measured_grid_import_kwh)}"
+        ),
+        (
+            f"  Planned vs actual duration: "
+            f"{_fmt_value(scorecard.average_planned_minutes, ' min')} / "
+            f"{_fmt_value(scorecard.average_actual_minutes, ' min')}; "
+            f"avg SOC gain {_fmt_value(scorecard.average_soc_gain, '%')}"
+        ),
+        (
+            f"  Comparable evidence: {scorecard.comparable_count}/"
+            f"{scorecard.minimum_comparable_count} required; "
+            f"{scorecard.recommendation}"
         ),
         f"  Failures: {stats['failures']}",
         f"  SOC range: lowest {_fmt_value(stats['lowest_soc'], '%')}; avg preserve {_fmt_value(stats['avg_preserve_soc'], '%')}; avg topup start {_fmt_value(stats['avg_topup_soc'], '%')}",
@@ -462,6 +504,7 @@ def build_ops_review(
         "cloud_failure_count": state["cloud_failure_count"],
         "command_lock_present": bool(state["command_lock"]),
         "command_lock_stale": state["command_lock_stale"],
+        "topup_scorecard": scorecard.to_dict(),
         **stats,
     }
     return OpsReview("\n".join(lines), recommendations, severity, metrics)
@@ -485,6 +528,15 @@ def build_ops_review_embed(review: OpsReview) -> dict[str, Any]:
         {"name": "Bypass", "value": "detected" if metrics.get("bypass_detected") else "clear", "inline": True},
         {"name": "Sunrise", "value": _fmt_value(metrics.get("projected_sunrise_soc"), "%"), "inline": True},
         {"name": "Top-ups", "value": f"{metrics.get('topups', 0)} ({metrics.get('topup_minutes', 0)} min)", "inline": True},
+        {
+            "name": "Top-up outcomes",
+            "value": (
+                f"{_fmt_outcome_counts(metrics.get('topup_scorecard', {}).get('classification_counts', {}))}\n"
+                f"Comparable: {metrics.get('topup_scorecard', {}).get('comparable_count', 0)}/"
+                f"{metrics.get('topup_scorecard', {}).get('minimum_comparable_count', 3)}"
+            )[:1024],
+            "inline": False,
+        },
         {"name": "Failures", "value": str(metrics.get("failures", 0)), "inline": True},
         {"name": "Watchdog repairs", "value": str(metrics.get("watchdog_repairs", 0)), "inline": True},
         {"name": "Recommendations", "value": "\n".join(f"- {tip}" for tip in review.recommendations[:4])[:1024], "inline": False},

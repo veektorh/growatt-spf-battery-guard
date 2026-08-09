@@ -41,6 +41,9 @@ The following capabilities are implemented and should be preserved:
   validation, and repository hygiene checks.
 - A backwards-compatible `growatt_power_guard.py` shim, packaged
   `growatt-guard` entry point, split modules, and the `verify_local.sh` gate.
+- A read-only top-up outcome scorecard that pairs starts and closures, compares
+  planned and actual duration/SOC/load/grid evidence, classifies closure causes,
+  and withholds tuning recommendations until three comparable outcomes exist.
 
 ## Priority Queue
 
@@ -51,14 +54,19 @@ Work from the top unless live operational evidence justifies reordering.
 Goal: make every reserve decision and weekly recommendation explainable before
 adding more inverter writes.
 
-- Classify topup closures as target reached, near-target expiry, insufficient
-  Utility/charge, load overrun, or unknown.
-- Compare planned duration and target against observed SOC gain, learned charge
-  rate, load, and actual completion.
-- Separate expected safety holds from inefficient or avoidable grid charging in
-  weekly reporting.
-- Recommend changes to `AUTO_TOPUP_TARGET_SOC`, charge rate, reserve margin, or
-  thresholds only after enough comparable observations.
+The outcome scorecard foundation is implemented in `ops-review`. New top-ups
+record structured plan evidence, while historical rows remain supported with
+explicitly incomplete classifications. Continue dogfooding it against real
+closures and add fixtures for any new trustworthy classification signal.
+
+- Preserve the implemented target-reached, near-target-expiry, insufficient
+  Utility/charge, load-overrun, and unknown closure classifications.
+- Preserve planned-versus-actual duration, SOC gain, load, implied charge rate,
+  and measured grid-import comparisons with metric coverage checks.
+- Keep expected safety holds separate from inefficient charging; do not label
+  charging avoidable without counterfactual evidence.
+- Keep the three-comparable-outcome gate before recommending changes to
+  `AUTO_TOPUP_TARGET_SOC`, charge rate, reserve margin, or thresholds.
 - Make weekly solar and topup comparisons fail closed when their data windows
   are incomplete.
 - Add regression fixtures whenever a production report exposes a new data-shape

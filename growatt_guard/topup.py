@@ -383,7 +383,13 @@ def command_auto_topup_check(config: Config) -> int:
     append_mode_audit(
         config, "auto-topup-check", soc=soc, previous_mode=previous_mode,
         action="auto-topup-started", result=result,
-        note=f"{topup_min}min, {hrs:.1f}h to sunrise",
+        note=(
+            f"{topup_min}min, {hrs:.1f}h to sunrise, "
+            f"planned_min={topup_min}, target_soc={current_soc_target:g}, "
+            f"planned_load_w={load_w:g}, "
+            f"planned_charge_rate_w={config.battery_charge_rate_w:g}, "
+            f"plan_kind={'late-safety' if late_safety_window else 'reserve'}"
+        ),
     )
     target_soc_arg = effective_target_soc if effective_target_soc > config.battery_bms_cutoff_soc else None
     if config.discord_notify_success and not config.dry_run:
@@ -427,8 +433,14 @@ def _topup_completion_note(
     actual_min: float,
     implied_rate_w: float | None,
     ownership: str,
+    planned_min: float | None = None,
+    planned_load_w: float | None = None,
+    planned_charge_rate_w: float | None = None,
+    plan_kind: str = "unknown",
 ) -> str:
     parts = [f"actual_min={actual_min:.0f}", f"ownership={ownership}"]
+    if planned_min is not None:
+        parts.append(f"planned_min={planned_min:g}")
     if start_soc is not None:
         parts.append(f"start_soc={start_soc:g}")
     if end_soc is not None:
@@ -437,6 +449,11 @@ def _topup_completion_note(
         parts.append(f"target_soc={target_soc:g}")
     if implied_rate_w is not None:
         parts.append(f"implied_rate_w={implied_rate_w:.0f}")
+    if planned_load_w is not None:
+        parts.append(f"planned_load_w={planned_load_w:g}")
+    if planned_charge_rate_w is not None:
+        parts.append(f"planned_charge_rate_w={planned_charge_rate_w:g}")
+    parts.append(f"plan_kind={plan_kind}")
     return ", ".join(parts)
 
 
@@ -525,7 +542,17 @@ def _command_topup_complete_check_locked(config: Config) -> int:
         target_soc_raw = hold_state.get("target_soc")
         max_expiry_str = hold_state.get("max_expiry")
         start_soc_raw = hold_state.get("start_soc")
+        planned_min = _optional_float(hold_state.get("minutes"))
+        planned_load_w = _optional_float(hold_state.get("start_load_w"))
         started_at_str = hold_state.get("started_at")
+        reason = str(hold_state.get("reason") or "")
+        plan_kind = (
+            "adopted"
+            if ownership == "adopted"
+            else "late-safety"
+            if reason.startswith("Late safety topup")
+            else "reserve"
+        )
 
         target_soc = _optional_float(target_soc_raw)
         start_soc = _optional_float(start_soc_raw)
@@ -549,6 +576,10 @@ def _command_topup_complete_check_locked(config: Config) -> int:
                     actual_min=actual_min,
                     implied_rate_w=implied_rate_w,
                     ownership=ownership,
+                    planned_min=planned_min,
+                    planned_load_w=planned_load_w,
+                    planned_charge_rate_w=config.battery_charge_rate_w,
+                    plan_kind=plan_kind,
                 ),
             )
             if config.discord_notify_success and not config.dry_run:
@@ -586,6 +617,10 @@ def _command_topup_complete_check_locked(config: Config) -> int:
                         actual_min=actual_min,
                         implied_rate_w=implied_rate_w,
                         ownership=ownership,
+                        planned_min=planned_min,
+                        planned_load_w=planned_load_w,
+                        planned_charge_rate_w=config.battery_charge_rate_w,
+                        plan_kind=plan_kind,
                     ),
                 )
                 command_resume(config)

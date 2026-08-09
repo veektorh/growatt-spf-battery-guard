@@ -86,6 +86,8 @@ class OpsReviewTests(unittest.TestCase):
         self.assertIn("Growatt ops review - last 7 days", review.text)
         self.assertIn("Rows: 1 real rows", review.text)
         self.assertIn("Auto-topups: 0", review.text)
+        self.assertIn("Top-up outcome scorecard:", review.text)
+        self.assertIn("Comparable evidence: 0/3 required", review.text)
         self.assertIn("Scheduled automation: active; active top-up/hold: no", review.text)
         self.assertIn("Dashboard scheduled automation: active; emergency alert clear", review.text)
         self.assertIn("Tonight projection says no top-up is needed", review.text)
@@ -149,6 +151,11 @@ class OpsReviewTests(unittest.TestCase):
         self.assertIn(
             "Topup closures: 1 target reached, 0 expired, 0 legacy, 0 unclosed; avg SOC gain 8%; avg implied charge 2.4 kW",
             review.text,
+        )
+        self.assertIn("Classified outcomes: 1; target reached 1", review.text)
+        self.assertEqual(
+            review.metrics["topup_scorecard"]["classification_counts"],
+            {"target-reached": 1},
         )
         self.assertIn("Last mode change:", review.text)
         self.assertIn("return-sbu switch-to-sbu SOC=48%", review.text)

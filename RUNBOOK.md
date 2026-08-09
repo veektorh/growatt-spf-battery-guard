@@ -62,9 +62,13 @@ audit rows, including lowest SOC, near-cutoff readings, and auto-topup behavior.
 snapshot, sunrise plan, mode audit rows, topup activity, estimated grid charge,
 target-reached, expired, legacy, and unclosed topup closures, failures, current
 automation state, last mode change, stale command locks, and trends versus the
-previous equivalent window. Expired or unclosed top-ups and stale locks produce
-WARN recommendations. Add `--notify` to post the review to Discord; delivery
-failure exits with an error. The weekly Sunday schedule posts this review at 21:20.
+previous equivalent window. Its outcome scorecard compares planned and actual
+duration, SOC, load, charge-rate, and measured grid-import evidence, and requires
+three comparable completed top-ups before tuning advice. Missing metric coverage
+stays visible instead of being estimated. Expired or unclosed top-ups and stale
+locks produce WARN recommendations. Add `--notify` to post the review to Discord;
+delivery failure exits with an error. The weekly Sunday schedule posts this review
+at 21:20.
 
 ## Pause Automation
 
