@@ -91,6 +91,29 @@ class ValidateConfigTests(unittest.TestCase):
 
         self.assertTrue(any("APP_HEALTH_TARGETS" in warning for warning in warnings))
 
+    def test_solar_bridge_requires_weather_and_energy_inputs(self):
+        warnings = validate_config(
+            make_config(
+                morning_solar_bridge_enabled=True,
+                weather_enabled=False,
+                battery_capacity_wh=0,
+                panel_kwp=0,
+            )
+        )
+
+        self.assertTrue(any("WEATHER_ENABLED" in warning for warning in warnings))
+        self.assertTrue(any("BATTERY_CAPACITY_WH" in warning for warning in warnings))
+
+    def test_solar_bridge_rejects_reversed_window(self):
+        warnings = validate_config(
+            make_config(
+                morning_solar_bridge_start_hour=10,
+                morning_solar_bridge_recovery_hour=6,
+            )
+        )
+
+        self.assertTrue(any("must be before" in warning for warning in warnings))
+
 
 class AppHealthTargetConfigTests(unittest.TestCase):
     def test_parses_allowlisted_loopback_targets(self):
@@ -138,6 +161,9 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(config.min_sbu_return_soc, 30)
         self.assertEqual(config.app_health_targets, ())
         self.assertFalse(config.app_health_recovery_enabled)
+        self.assertFalse(config.morning_solar_bridge_enabled)
+        self.assertEqual(config.morning_solar_bridge_start_hour, 6)
+        self.assertEqual(config.morning_solar_bridge_recovery_hour, 10)
 
     def test_load_config_parses_typed_values(self):
         config = self._load_with_env(
@@ -160,6 +186,11 @@ class LoadConfigTests(unittest.TestCase):
                 "APP_HEALTH_TARGETS": "Garage|http://127.0.0.1:5081/health|garage-app-1",
                 "APP_HEALTH_FAILURE_THRESHOLD": "4",
                 "APP_HEALTH_RECOVERY_ENABLED": "true",
+                "MORNING_SOLAR_BRIDGE_ENABLED": "true",
+                "MORNING_SOLAR_BRIDGE_SAFETY_FLOOR_SOC": "36",
+                "MORNING_SOLAR_BRIDGE_START_HOUR": "5",
+                "MORNING_SOLAR_BRIDGE_RECOVERY_HOUR": "11",
+                "MORNING_SOLAR_BRIDGE_LOAD_FACTOR": "1.4",
             }
         )
 
@@ -179,6 +210,11 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(config.app_health_targets[0].name, "Garage")
         self.assertEqual(config.app_health_failure_threshold, 4)
         self.assertTrue(config.app_health_recovery_enabled)
+        self.assertTrue(config.morning_solar_bridge_enabled)
+        self.assertEqual(config.morning_solar_bridge_safety_floor_soc, 36)
+        self.assertEqual(config.morning_solar_bridge_start_hour, 5)
+        self.assertEqual(config.morning_solar_bridge_recovery_hour, 11)
+        self.assertEqual(config.morning_solar_bridge_load_factor, 1.4)
 
     def test_load_config_custom_driver_without_params_falls_back_to_spf5000(self):
         config = self._load_with_env(

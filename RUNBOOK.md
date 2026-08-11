@@ -257,6 +257,14 @@ BATTERY_CHARGE_RATE_W=3000
 # Charge ceiling: hold off SBU repair until SOC reaches this level (0 = disabled)
 BATTERY_CHARGE_TARGET_SOC=0
 
+# Optional morning preservation deferral. Leave disabled until ops-review has
+# at least 3 comparable morning preservation outcomes.
+MORNING_SOLAR_BRIDGE_ENABLED=false
+MORNING_SOLAR_BRIDGE_SAFETY_FLOOR_SOC=35
+MORNING_SOLAR_BRIDGE_START_HOUR=6
+MORNING_SOLAR_BRIDGE_RECOVERY_HOUR=10
+MORNING_SOLAR_BRIDGE_LOAD_FACTOR=1.25
+
 # Auto-topup: charge at night when battery won't last until sunrise (requires weather)
 AUTO_TOPUP_ENABLED=false
 AUTO_TOPUP_MIN_HOURS_TO_SUNRISE=4    # begin floor-only late safety checks within N hours (0 = disabled)

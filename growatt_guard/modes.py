@@ -3,14 +3,21 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import time
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from growatt_guard.audit import (
     append_mode_audit,
     find_overdue_unclosed_topup,
+    read_mode_audit_rows,
+    real_audit_rows,
 )
 from growatt_guard.cli import dispatch_command, parse_command_tokens
 from growatt_guard.config import Config
 from growatt_guard.exceptions import GrowattGuardError
+from growatt_guard.forecast_calibration import (
+    RAINY_FORECAST_DEFAULT_FACTOR,
+    summarize_forecast_calibration,
+)
 from growatt_guard.growatt_api import (
     describe_status_output_source,
     extract_first_metric,
@@ -36,6 +43,13 @@ from growatt_guard.notifications import (
     send_discord_message,
 )
 from growatt_guard.pause import ensure_not_paused
+from growatt_guard.preservation import (
+    SolarBridgeDecision,
+    build_preservation_scorecard,
+    build_solar_bridge_decision,
+    format_bridge_audit_note,
+)
+from growatt_guard.dashboard_metrics import read_dashboard_metrics_history
 from growatt_guard.schedule import (
     find_schedule_job,
     next_scheduled_runs,
@@ -58,10 +72,43 @@ from growatt_guard.state import (
     write_utility_hold_state,
     write_waste_alert_snooze,
 )
-from growatt_guard.weather import apply_load_adjustment, choose_preserve_threshold, hours_until_next_sunrise
+from growatt_guard.weather import (
+    apply_load_adjustment,
+    choose_preserve_threshold,
+    fetch_weather_forecast,
+    hours_until_next_sunrise,
+)
 
 _PRESERVE_HOLD_FALLBACK_MINUTES = 90.0
 _PRESERVE_HOLD_MAX_SCHEDULE_MINUTES = 180.0
+
+
+def _solar_bridge_evidence_allows(config: Config, now: dt.datetime) -> tuple[bool, str]:
+    try:
+        local_now = now.astimezone().replace(tzinfo=None) if now.tzinfo is not None else now
+        rows = real_audit_rows(
+            read_mode_audit_rows(since=local_now - dt.timedelta(days=8))
+        )
+        history = read_dashboard_metrics_history(now=local_now, days=8)
+        scorecard = build_preservation_scorecard(
+            rows,
+            history,
+            battery_capacity_wh=config.battery_capacity_wh,
+            safety_floor_soc=max(
+                config.battery_bms_cutoff_soc,
+                config.emergency_soc,
+                config.morning_solar_bridge_safety_floor_soc,
+            ),
+            start_hour=config.morning_solar_bridge_start_hour,
+            recovery_hour=config.morning_solar_bridge_recovery_hour,
+        )
+    except Exception as exc:  # noqa: BLE001 - missing evidence must retain Utility
+        logging.warning("Morning solar bridge evidence unavailable: %s", exc)
+        return False, "preservation evidence is unavailable"
+    return (
+        scorecard.recommendation_status == "review-solar-bridge",
+        scorecard.recommendation,
+    )
 
 
 def _sbu_return_guard_blocks(
@@ -151,11 +198,25 @@ def _preserve_hold_expiry(now: dt.datetime | None = None) -> dt.datetime:
     return fallback.astimezone(dt.timezone.utc)
 
 
-def _record_preserve_utility_hold(config: Config, soc: float, threshold: float) -> None:
+def _record_preserve_utility_hold(
+    config: Config,
+    soc: float,
+    threshold: float,
+    *,
+    load_w: float | None,
+    bridge_decision: SolarBridgeDecision,
+) -> None:
     if config.dry_run:
         return
     max_expiry = _preserve_hold_expiry()
-    write_utility_hold_state("owned", threshold, max_expiry, start_soc=soc)
+    write_utility_hold_state(
+        "owned",
+        threshold,
+        max_expiry,
+        start_soc=soc,
+        reason=f"Morning preservation; {format_bridge_audit_note(bridge_decision)}",
+        start_load_w=load_w,
+    )
     logging.info(
         "Preserve-battery Utility hold recorded until %s with target SOC %.1f%%.",
         max_expiry.isoformat(),
@@ -309,6 +370,59 @@ def command_preserve_battery(config: Config) -> int:
     logging.info("Preserve-battery threshold: %.1f%% (%s)", threshold, threshold_decision.reason)
 
     if soc < threshold:
+        load_metric = extract_first_metric(
+            status, ("outPutPower", "outPutPower1", "activePower", "outPower")
+        )
+        load_w = parse_number(load_metric[0]) if load_metric else None
+        forecast = None
+        if config.weather_enabled:
+            try:
+                forecast = fetch_weather_forecast(config)
+            except Exception as exc:  # noqa: BLE001 - bridge must fail closed
+                logging.warning("Morning solar bridge forecast unavailable: %s", exc)
+        try:
+            bridge_now = dt.datetime.now(ZoneInfo(config.weather_timezone))
+        except (ValueError, ZoneInfoNotFoundError):
+            logging.warning(
+                "Morning solar bridge timezone %r is invalid; using system time and failing closed.",
+                config.weather_timezone,
+            )
+            bridge_now = dt.datetime.now().astimezone()
+            forecast = None
+        safety_floor = max(
+            config.battery_bms_cutoff_soc,
+            config.emergency_soc,
+            config.morning_solar_bridge_safety_floor_soc,
+        )
+        solar_factor = 1.0
+        if threshold_decision.weather_category == "rainy/cloudy":
+            solar_factor = RAINY_FORECAST_DEFAULT_FACTOR
+            try:
+                calibration = summarize_forecast_calibration(
+                    current_performance_ratio=config.panel_performance_ratio,
+                    sunny_threshold_kwh_m2=config.auto_topup_solar_skip_kwh_m2,
+                )
+                learned_factor = calibration.get("rainy_adjustment_factor")
+                if isinstance(learned_factor, (int, float)):
+                    solar_factor = min(1.0, max(0.0, float(learned_factor)))
+            except Exception as exc:  # noqa: BLE001 - conservative default remains safe
+                logging.warning("Morning solar bridge calibration unavailable: %s", exc)
+        bridge_decision = build_solar_bridge_decision(
+            forecast=forecast,
+            now=bridge_now,
+            soc=soc,
+            target_soc=threshold,
+            safety_floor_soc=safety_floor,
+            start_hour=config.morning_solar_bridge_start_hour,
+            recovery_hour=config.morning_solar_bridge_recovery_hour,
+            load_w=load_w,
+            load_factor=config.morning_solar_bridge_load_factor,
+            battery_capacity_wh=config.battery_capacity_wh,
+            panel_kwp=config.panel_kwp,
+            performance_ratio=config.panel_performance_ratio,
+            solar_factor=solar_factor,
+        )
+        bridge_note = format_bridge_audit_note(bridge_decision)
         current_source = extract_spf_output_source(status)
         if current_source and current_source[0] == "2":
             logging.info("Battery SOC %.1f%% is below %.1f%% but already in Utility; skipping switch.", soc, threshold)
@@ -321,13 +435,41 @@ def command_preserve_battery(config: Config) -> int:
                 previous_mode=previous_mode,
                 action="no-change",
                 result="skipped",
-                note="already in Utility mode",
+                note=f"already in Utility mode; {bridge_note}",
             )
             print(f"SOC {soc:g}% < {threshold:g}%; already in Utility mode, no switch needed.")
             return 0
+        if config.morning_solar_bridge_enabled and bridge_decision.eligible:
+            evidence_allows, evidence_reason = _solar_bridge_evidence_allows(config, bridge_now)
+            if evidence_allows:
+                logging.info("Morning solar bridge deferred Utility: %s", bridge_decision.reason)
+                append_mode_audit(
+                    config,
+                    "preserve-battery",
+                    soc=soc,
+                    threshold=threshold,
+                    weather_category=threshold_decision.weather_category,
+                    previous_mode=previous_mode,
+                    action="solar-bridge-deferred",
+                    result="skipped",
+                    note=f"{bridge_note}; {bridge_decision.reason}",
+                )
+                print(
+                    f"SOC {soc:g}% < {threshold:g}%; Utility deferred by morning solar bridge. "
+                    f"{bridge_decision.reason}."
+                )
+                return 0
+            bridge_note = f"{bridge_note}, evidence=hold"
+            logging.info("Morning solar bridge retained Utility: %s", evidence_reason)
         logging.info("Battery SOC %.1f%% from %s is below %.1f%%; switching to Utility.", soc, path, threshold)
         # Record ownership before the cloud write so an ambiguous response can be reconciled safely.
-        _record_preserve_utility_hold(config, soc, threshold)
+        _record_preserve_utility_hold(
+            config,
+            soc,
+            threshold,
+            load_w=load_w,
+            bridge_decision=bridge_decision,
+        )
         try:
             result, attempts_used = _set_preserve_utility_mode(api, config, device)
         except Exception as exc:  # noqa: BLE001 - audit failed mode decisions before re-raising
@@ -340,7 +482,10 @@ def command_preserve_battery(config: Config) -> int:
                 previous_mode=previous_mode,
                 action="switch-to-utility-failed",
                 result="error",
-                note=f"{str(exc)}; attempts={max(1, int(getattr(config, 'preserve_utility_max_attempts', 2)))}",
+                note=(
+                    f"{str(exc)}; attempts={max(1, int(getattr(config, 'preserve_utility_max_attempts', 2)))}; "
+                    f"{bridge_note}"
+                ),
             )
             raise
         retry_note = f"; attempts={attempts_used}" if attempts_used > 1 else ""
@@ -353,7 +498,7 @@ def command_preserve_battery(config: Config) -> int:
             previous_mode=previous_mode,
             action="switch-to-utility",
             result=result,
-            note=f"SOC from {path}{retry_note}",
+            note=f"SOC from {path}{retry_note}; {bridge_note}",
         )
         if config.discord_notify_success and not config.dry_run:
             send_discord_embed(config, embed_mode_switch_utility(
@@ -366,6 +511,17 @@ def command_preserve_battery(config: Config) -> int:
             if confirmed is False:
                 logging.warning("preserve-battery: Utility switch not confirmed by re-read.")
                 clear_utility_hold_state()
+                append_mode_audit(
+                    config,
+                    "preserve-battery",
+                    soc=soc,
+                    threshold=threshold,
+                    weather_category=threshold_decision.weather_category,
+                    previous_mode=previous_mode,
+                    action="switch-to-utility-unconfirmed",
+                    result="error",
+                    note=bridge_note,
+                )
                 if config.discord_notify_failure:
                     send_discord_embed(config, embed_mode_not_confirmed("preserve-battery", "Utility first"))
 

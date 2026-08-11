@@ -153,6 +153,40 @@ Test the current dynamic threshold:
 python growatt_power_guard.py weather-threshold
 ```
 
+### Morning Solar Bridge
+
+`ops-review` evaluates morning preservation holds against the observed PV,
+load, SOC, and grid-import timeline through the configured recovery hour. It
+reports whether the no-Utility counterfactual would likely have recovered the
+preserve target, crossed the safety floor, or lacks complete evidence. At least
+three complete post-change shadow decisions where the bridge forecast was
+eligible are required before it recommends reviewing a bridge trial. Older
+holds remain visible but cannot validate a forecast that was not recorded.
+
+The active bridge is opt-in and disabled by default:
+
+```text
+MORNING_SOLAR_BRIDGE_ENABLED=false
+MORNING_SOLAR_BRIDGE_SAFETY_FLOOR_SOC=35
+MORNING_SOLAR_BRIDGE_START_HOUR=6
+MORNING_SOLAR_BRIDGE_RECOVERY_HOUR=10
+MORNING_SOLAR_BRIDGE_LOAD_FACTOR=1.25
+```
+
+When enabled, `preserve-battery` defers Utility only inside the configured
+start/recovery window and if the complete hourly
+irradiance forecast projects recovery to the weather-adjusted preserve target
+without crossing the effective safety floor. Current load is held flat and
+uplifted by `MORNING_SOLAR_BRIDGE_LOAD_FACTOR`. Missing forecast intervals,
+capacity, array size, load, or any unsafe projection retain the existing
+Utility behavior. Rainy/cloudy irradiance is discounted by the existing learned
+forecast-calibration factor (or its conservative default). Configure
+`BATTERY_CAPACITY_WH`, `PANEL_KWP`, and weather
+inputs first, and keep the bridge disabled until the preservation scorecard has
+enough comparable evidence. Runtime enforces the same gate: setting the flag
+early cannot defer Utility until at least three complete outcomes produce the
+`review-solar-bridge` recommendation.
+
 ## Battery Capacity & Runtime
 
 Set your battery specs so the automation can estimate runtime, time topups accurately, and send low-runtime alerts:
@@ -644,7 +678,7 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py ops-review --days 7 --notify
 ```
 
-`ops-review` summarizes the latest dashboard snapshot, sunrise plan, mode audit rows, topup activity, estimated grid charge, target-reached, expired, legacy, and unclosed topup closures, failures, automation state, last mode change, and recommended follow-up. Its outcome scorecard compares planned and actual duration, SOC gain, load, charge rate, and measured grid import; classifications fail closed when evidence is incomplete, and tuning advice requires three comparable outcomes. It is read-only unless `--notify` is used, which posts the same review to Discord and exits with an error if delivery fails.
+`ops-review` summarizes the latest dashboard snapshot, sunrise plan, mode audit rows, topup activity, estimated grid charge, target-reached, expired, legacy, and unclosed topup closures, failures, automation state, last mode change, and recommended follow-up. Its top-up outcome scorecard compares planned and actual duration, SOC gain, load, charge rate, and measured grid import. A separate morning-preservation scorecard models the observed no-Utility SOC path through the configured recovery hour and reports measured Utility import. Both classifications fail closed when evidence is incomplete and require three comparable outcomes before recommending a change. The command is read-only unless `--notify` is used, which posts the same review to Discord and exits with an error if delivery fails.
 
 Run the emergency battery alert check manually:
 
