@@ -44,6 +44,10 @@ The following capabilities are implemented and should be preserved:
 - A read-only top-up outcome scorecard that pairs starts and closures, compares
   planned and actual duration/SOC/load/grid evidence, classifies closure causes,
   and withholds tuning recommendations until three comparable outcomes exist.
+- A separate morning-preservation scorecard that models the observed no-Utility
+  SOC path, fails closed on incomplete metric windows, and gates the opt-in
+  hourly-irradiance solar bridge behind three comparable post-change shadow
+  outcomes.
 
 ## Priority Queue
 
@@ -65,6 +69,8 @@ closures and add fixtures for any new trustworthy classification signal.
   and measured grid-import comparisons with metric coverage checks.
 - Keep expected safety holds separate from inefficient charging; do not label
   charging avoidable without counterfactual evidence.
+- Preserve the morning counterfactual floor/recovery evidence and keep the
+  solar bridge disabled unless complete repeated outcomes justify a trial.
 - Keep the three-comparable-outcome gate before recommending changes to
   `AUTO_TOPUP_TARGET_SOC`, charge rate, reserve margin, or thresholds.
 - Make weekly solar and topup comparisons fail closed when their data windows

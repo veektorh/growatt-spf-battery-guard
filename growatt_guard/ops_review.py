@@ -20,6 +20,10 @@ from growatt_guard.dashboard import DASHBOARD_JSON_FILE
 from growatt_guard.dashboard_metrics import read_dashboard_metrics_history
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.notifications import send_discord_embed
+from growatt_guard.preservation import (
+    PreservationScorecard,
+    build_preservation_scorecard,
+)
 from growatt_guard.state import (
     read_battery_alert_state,
     read_bypass_alert_state,
@@ -265,6 +269,7 @@ def _recommendations(
     dashboard_age_min: float | None,
     config: Config,
     scorecard: TopupScorecard,
+    preservation_scorecard: PreservationScorecard,
 ) -> tuple[list[str], str]:
     tips: list[str] = []
     severity = "ok"
@@ -305,6 +310,7 @@ def _recommendations(
     tips.append(scorecard.recommendation)
     if scorecard.recommendation_status in {"review-load", "review-charge"}:
         severity = "warn" if severity == "ok" else severity
+    tips.append(preservation_scorecard.recommendation)
 
     if stats["failures"] > 0:
         tips.append(f"{stats['failures']} automation failure(s) recorded in the review window; inspect logs before tuning.")
@@ -384,10 +390,23 @@ def build_ops_review(
     planner = planner_wrapper.get("outlook") if isinstance(planner_wrapper.get("outlook"), dict) else {}
     automation = dashboard.get("automation") if isinstance(dashboard.get("automation"), dict) else {}
     state = _state_summary(now=now)
+    metric_history = read_dashboard_metrics_history(now=now, days=days)
     scorecard = build_topup_scorecard(
         audit_rows,
-        read_dashboard_metrics_history(now=now, days=days),
+        metric_history,
         configured_charge_rate_w=config.battery_charge_rate_w,
+    )
+    preservation_scorecard = build_preservation_scorecard(
+        audit_rows,
+        metric_history,
+        battery_capacity_wh=config.battery_capacity_wh,
+        safety_floor_soc=max(
+            config.battery_bms_cutoff_soc,
+            config.emergency_soc,
+            config.morning_solar_bridge_safety_floor_soc,
+        ),
+        start_hour=config.morning_solar_bridge_start_hour,
+        recovery_hour=config.morning_solar_bridge_recovery_hour,
     )
 
     recommendations, severity = _recommendations(
@@ -399,6 +418,7 @@ def build_ops_review(
         dashboard_age_min=dashboard_age_min,
         config=config,
         scorecard=scorecard,
+        preservation_scorecard=preservation_scorecard,
     )
 
     lines = [
@@ -454,6 +474,21 @@ def build_ops_review(
             f"{scorecard.minimum_comparable_count} required; "
             f"{scorecard.recommendation}"
         ),
+        "",
+        "Morning preservation outcome scorecard:",
+        (
+            f"  Classified outcomes: {len(preservation_scorecard.outcomes)}; "
+            f"{_fmt_outcome_counts(preservation_scorecard.classification_counts)}"
+        ),
+        (
+            f"  Measured Utility import: "
+            f"{_fmt_kwh(preservation_scorecard.measured_grid_import_kwh)}"
+        ),
+        (
+            f"  Comparable evidence: {preservation_scorecard.comparable_count}/"
+            f"{preservation_scorecard.minimum_comparable_count} required; "
+            f"{preservation_scorecard.recommendation}"
+        ),
         f"  Failures: {stats['failures']}",
         f"  SOC range: lowest {_fmt_value(stats['lowest_soc'], '%')}; avg preserve {_fmt_value(stats['avg_preserve_soc'], '%')}; avg topup start {_fmt_value(stats['avg_topup_soc'], '%')}",
         "",
@@ -505,6 +540,7 @@ def build_ops_review(
         "command_lock_present": bool(state["command_lock"]),
         "command_lock_stale": state["command_lock_stale"],
         "topup_scorecard": scorecard.to_dict(),
+        "preservation_scorecard": preservation_scorecard.to_dict(),
         **stats,
     }
     return OpsReview("\n".join(lines), recommendations, severity, metrics)
@@ -534,6 +570,15 @@ def build_ops_review_embed(review: OpsReview) -> dict[str, Any]:
                 f"{_fmt_outcome_counts(metrics.get('topup_scorecard', {}).get('classification_counts', {}))}\n"
                 f"Comparable: {metrics.get('topup_scorecard', {}).get('comparable_count', 0)}/"
                 f"{metrics.get('topup_scorecard', {}).get('minimum_comparable_count', 3)}"
+            )[:1024],
+            "inline": False,
+        },
+        {
+            "name": "Morning preservation",
+            "value": (
+                f"{_fmt_outcome_counts(metrics.get('preservation_scorecard', {}).get('classification_counts', {}))}\n"
+                f"Comparable: {metrics.get('preservation_scorecard', {}).get('comparable_count', 0)}/"
+                f"{metrics.get('preservation_scorecard', {}).get('minimum_comparable_count', 3)}"
             )[:1024],
             "inline": False,
         },

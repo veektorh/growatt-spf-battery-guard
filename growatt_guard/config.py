@@ -79,6 +79,11 @@ class Config:
     battery_charge_target_soc: float = 0.0
     preserve_utility_max_attempts: int = 2
     preserve_utility_retry_delay_seconds: float = 30.0
+    morning_solar_bridge_enabled: bool = False
+    morning_solar_bridge_safety_floor_soc: float = 35.0
+    morning_solar_bridge_start_hour: int = 6
+    morning_solar_bridge_recovery_hour: int = 10
+    morning_solar_bridge_load_factor: float = 1.25
     auto_topup_enabled: bool = False
     auto_topup_min_hours_to_sunrise: float = 4.0
     auto_topup_min_minutes: float = 0.0
@@ -179,6 +184,23 @@ def validate_config(config: Config) -> list[str]:
         warnings.append(
             "LOAD_AWARE_THRESHOLD=true has no effect without WEATHER_ENABLED=true"
         )
+    if config.morning_solar_bridge_enabled:
+        if not config.weather_enabled:
+            warnings.append("MORNING_SOLAR_BRIDGE_ENABLED requires WEATHER_ENABLED=true")
+        if config.battery_capacity_wh <= 0 or config.panel_kwp <= 0:
+            warnings.append(
+                "MORNING_SOLAR_BRIDGE_ENABLED requires BATTERY_CAPACITY_WH and PANEL_KWP"
+            )
+    if not 0 <= config.morning_solar_bridge_safety_floor_soc <= 100:
+        warnings.append("MORNING_SOLAR_BRIDGE_SAFETY_FLOOR_SOC must be between 0 and 100")
+    if not 0 <= config.morning_solar_bridge_start_hour <= 22:
+        warnings.append("MORNING_SOLAR_BRIDGE_START_HOUR must be between 0 and 22")
+    if not 1 <= config.morning_solar_bridge_recovery_hour <= 23:
+        warnings.append("MORNING_SOLAR_BRIDGE_RECOVERY_HOUR must be between 1 and 23")
+    if config.morning_solar_bridge_start_hour >= config.morning_solar_bridge_recovery_hour:
+        warnings.append("MORNING_SOLAR_BRIDGE_START_HOUR must be before MORNING_SOLAR_BRIDGE_RECOVERY_HOUR")
+    if config.morning_solar_bridge_load_factor < 1:
+        warnings.append("MORNING_SOLAR_BRIDGE_LOAD_FACTOR must be at least 1")
     if config.battery_capacity_wh > 0 and config.battery_charge_rate_w <= 0:
         warnings.append(
             "BATTERY_CAPACITY_WH is set but BATTERY_CHARGE_RATE_W=0; "
@@ -272,6 +294,21 @@ def load_config() -> Config:
         battery_charge_target_soc=float(env("BATTERY_CHARGE_TARGET_SOC", "0")),
         preserve_utility_max_attempts=int(env("PRESERVE_UTILITY_MAX_ATTEMPTS", "2")),
         preserve_utility_retry_delay_seconds=float(env("PRESERVE_UTILITY_RETRY_DELAY_SECONDS", "30")),
+        morning_solar_bridge_enabled=str_to_bool(
+            env("MORNING_SOLAR_BRIDGE_ENABLED"), default=False
+        ),
+        morning_solar_bridge_safety_floor_soc=float(
+            env("MORNING_SOLAR_BRIDGE_SAFETY_FLOOR_SOC", "35")
+        ),
+        morning_solar_bridge_start_hour=int(
+            env("MORNING_SOLAR_BRIDGE_START_HOUR", "6")
+        ),
+        morning_solar_bridge_recovery_hour=int(
+            env("MORNING_SOLAR_BRIDGE_RECOVERY_HOUR", "10")
+        ),
+        morning_solar_bridge_load_factor=float(
+            env("MORNING_SOLAR_BRIDGE_LOAD_FACTOR", "1.25")
+        ),
         auto_topup_enabled=str_to_bool(env("AUTO_TOPUP_ENABLED"), default=False),
         auto_topup_min_hours_to_sunrise=float(env("AUTO_TOPUP_MIN_HOURS_TO_SUNRISE", "4")),
         auto_topup_min_minutes=float(env("AUTO_TOPUP_MIN_MINUTES", "0")),
