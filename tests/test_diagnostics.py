@@ -184,7 +184,8 @@ class DiagnosticsTests(unittest.TestCase):
             return_value=[DiagnosticItem("Schedule", "OK", "15 jobs")],
         ), patch("growatt_guard.diagnostics.read_mode_audit_rows", return_value=[]):
             (Path(tmpdir) / "growatt_power_guard.log").write_text(
-                "2026-06-26 ERROR DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/example\n",
+                "2026-06-26 ERROR DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/example\n"
+                "2026-06-26 ERROR GROWATT_API_TOKEN=private-token\n",
                 encoding="utf-8",
             )
             bundle = build_diagnostic_bundle(config)
@@ -192,6 +193,8 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertIn("Growatt diagnostic bundle", bundle)
         self.assertIn("DISCORD_WEBHOOK_CONFIGURED=True", bundle)
         self.assertNotIn("discord.com/api/webhooks/example", bundle)
+        self.assertNotIn("private-token", bundle)
+        self.assertIn("GROWATT_API_TOKEN=[redacted]", bundle)
         self.assertIn("This bundle is local/read-only", bundle)
 
     def test_diagnostic_bundle_payload_can_include_cloud_summary(self):

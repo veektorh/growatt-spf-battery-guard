@@ -33,7 +33,7 @@ python growatt_power_guard.py public-hygiene
 Search for real Growatt values before publishing:
 
 ```bash
-grep -R "GROWATT_USERNAME=\|GROWATT_PASSWORD=\|GROWATT_PLANT_ID=\|GROWATT_DEVICE_SN=" .
+grep -R "GROWATT_USERNAME=\|GROWATT_PASSWORD=\|GROWATT_PLANT_ID=\|GROWATT_DEVICE_SN=\|GROWATT_API_TOKEN=" .
 ```
 
 If weather support is enabled locally, also avoid committing exact coordinates:
@@ -61,6 +61,7 @@ GROWATT_USERNAME=your_shinephone_username
 GROWATT_PASSWORD=your_shinephone_password
 GROWATT_PLANT_ID=your_plant_id
 GROWATT_DEVICE_SN=your_device_sn
+GROWATT_API_TOKEN=
 ```
 
 ## Safe Public Files

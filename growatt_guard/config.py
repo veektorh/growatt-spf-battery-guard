@@ -67,6 +67,7 @@ class Config:
     pvoutput_enabled: bool = False
     pvoutput_api_key: str = ""
     pvoutput_system_id: str = ""
+    growatt_api_token: str = ""
     discord_bot_token: str = ""
     discord_control_channel_id: str = ""
     discord_control_allowed_user_ids: tuple[str, ...] = ()
@@ -282,6 +283,7 @@ def load_config() -> Config:
         pvoutput_enabled=str_to_bool(env("PVOUTPUT_ENABLED"), default=False),
         pvoutput_api_key=env("PVOUTPUT_API_KEY"),
         pvoutput_system_id=env("PVOUTPUT_SYSTEM_ID"),
+        growatt_api_token=env("GROWATT_API_TOKEN"),
         discord_bot_token=env("DISCORD_BOT_TOKEN"),
         discord_control_channel_id=env("DISCORD_CONTROL_CHANNEL_ID"),
         discord_control_allowed_user_ids=csv_env("DISCORD_CONTROL_ALLOWED_USER_IDS"),

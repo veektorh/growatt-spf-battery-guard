@@ -422,6 +422,21 @@ DASHBOARD_STALE_MINUTES=30
 
 If a separate 10-minute `pvoutput-upload` cron job exists, remove it after installing the dashboard service. `observability-refresh` replaces that duplicate poller.
 
+For a one-time historical generation import, first export the ShineServer
+Energy view as CSV or configure an official `GROWATT_API_TOKEN`. Always run the
+preview before applying:
+
+```bash
+.deploy/current/growatt-guard pvoutput-backfill --input /path/to/growatt-history.csv
+.deploy/current/growatt-guard pvoutput-backfill --input /path/to/growatt-history.csv --apply
+```
+
+The preview report is written to `reports/pvoutput-backfill-preview.json` by
+default. Check its `missing_days` and `conflicts` before the second command.
+`--apply` is blocked while `DRY_RUN=true`; conflicts remain untouched unless
+`--overwrite-conflicts` is also explicit. The command uploads completed daily
+generation only and does not change inverter mode.
+
 ## Local Application Health Watchdog
 
 Configure `APP_HEALTH_TARGETS` with loopback `/health` endpoints and their

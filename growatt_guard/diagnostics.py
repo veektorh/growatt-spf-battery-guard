@@ -70,6 +70,7 @@ REDACTION_PATTERNS = (
     (re.compile(r"https://discord\.com/api/webhooks/\S+"), "https://discord.com/api/webhooks/[redacted]"),
     (re.compile(r"(GROWATT_USERNAME=)\S+"), r"\1[redacted]"),
     (re.compile(r"(GROWATT_PASSWORD=)\S+"), r"\1[redacted]"),
+    (re.compile(r"(GROWATT_API_TOKEN=)\S+"), r"\1[redacted]"),
     (re.compile(r"(DISCORD_WEBHOOK_URL=)\S+"), r"\1[redacted]"),
     (re.compile(r"(DISCORD_BOT_TOKEN=)\S+"), r"\1[redacted]"),
 )

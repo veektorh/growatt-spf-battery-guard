@@ -37,6 +37,7 @@ def make_config(**overrides):
         "pvoutput_enabled": False,
         "pvoutput_api_key": "",
         "pvoutput_system_id": "",
+        "growatt_api_token": "",
         "discord_bot_token": "",
         "discord_control_channel_id": "",
         "discord_control_allowed_user_ids": (),
