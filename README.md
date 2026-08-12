@@ -911,6 +911,49 @@ cd ~/automation
 
 If the dashboard service is installed, do not run a separate `pvoutput-upload` cron job. The service runs `observability-refresh`, which reads Growatt once and uses that same status for both `dashboard.html` and PVOutput.
 
+### Backfill historical generation
+
+`pvoutput-backfill` imports completed daily generation only; it never sends an
+inverter command. It is preview-only unless `--apply` is present, skips dates
+already present in PVOutput, and reports differing dates as conflicts instead
+of overwriting them.
+
+The Growatt legacy API does not return authoritative daily history for every
+storage/SPF plant. Use either an official Growatt OpenAPI token or export the
+Energy view from ShineServer and save it as CSV. CSV input needs a date column
+and a generated-energy column such as `PV Generation (kWh)`; explicit `(Wh)`
+headers are also supported.
+
+Preview a ShineServer export and review the generated JSON report:
+
+```bash
+.deploy/current/growatt-guard pvoutput-backfill \
+  --input /path/to/growatt-history.csv
+```
+
+Alternatively, set `GROWATT_API_TOKEN` and the existing `GROWATT_PLANT_ID`, then
+provide the first date to read from the official API:
+
+```bash
+.deploy/current/growatt-guard pvoutput-backfill --from 2026-01-01
+```
+
+After reviewing the missing dates, totals, and conflicts, set `DRY_RUN=false`
+and apply only the missing dates:
+
+```bash
+.deploy/current/growatt-guard pvoutput-backfill \
+  --input /path/to/growatt-history.csv \
+  --apply
+```
+
+PVOutput donation accounts can accept up to 100 daily outputs in one batch.
+If batching is unavailable, the command falls back to individual uploads and
+stops cleanly at any provider rate limit; rerunning is resumable because dates
+successfully added are discovered and skipped. Use `--overwrite-conflicts`
+only after independently verifying the Growatt value for every reported
+conflict.
+
 ## Expose Dashboard On A Domain
 
 Recommended public URL: a subdomain such as `dashboard.example.com` rather than a root domain, so it does not collide with any main website.

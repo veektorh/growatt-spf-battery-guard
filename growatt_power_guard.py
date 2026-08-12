@@ -145,6 +145,17 @@ from growatt_guard.pvoutput import (
     upload_pvoutput_status,
     write_pvoutput_state,
 )
+from growatt_guard.pvoutput_backfill import (
+    PVOUTPUT_ADDOUTPUT_URL,
+    BackfillPlan,
+    BackfillRecord,
+    build_backfill_plan,
+    command_pvoutput_backfill,
+    fetch_existing_pvoutput_outputs,
+    fetch_growatt_daily_generation,
+    parse_growatt_energy_history,
+    read_growatt_csv,
+)
 from growatt_guard.ops_review import (
     OpsReview,
     build_ops_review,

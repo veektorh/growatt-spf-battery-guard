@@ -48,6 +48,7 @@ This project automates battery-preservation mode switching for a Growatt SPF inv
 - `growatt_guard/dashboard_service.py`: refresh orchestration, stale alerts, and static serving.
 - `growatt_guard/assets/`: packaged dashboard CSS and JavaScript sources.
 - `growatt_guard/pvoutput.py`: PVOutput field extraction, upload, retry without extended fields, and upload state.
+- `growatt_guard/pvoutput_backfill.py`: preview-first Growatt daily-history import, PVOutput reconciliation, and guarded historical upload.
 - `growatt_guard/discord_control.py`: optional private Discord control bot; keep commands allowlisted and route writes through existing CLI commands. `/growatt_dashboard` renders a live embed from `status` subprocess output without posting raw text to the channel.
 - `growatt_guard/audit.py`: mode decision CSV audit trail, daily summary, weekly summary, and log counters.
 - `growatt_guard/notifications.py`: Discord embed delivery and Growatt cloud failure streak tracking. All notifications use `send_discord_embed`; `send_discord_message` is for plain-text test messages only.
@@ -83,7 +84,7 @@ git diff --check
 Before pushing public docs or examples, also search for secrets or personal values:
 
 ```bash
-rg -n "GROWATT_USERNAME|GROWATT_PASSWORD|GROWATT_PLANT_ID|GROWATT_DEVICE_SN|discord.com/api/webhooks|WEATHER_LAT|WEATHER_LON" .
+rg -n "GROWATT_USERNAME|GROWATT_PASSWORD|GROWATT_PLANT_ID|GROWATT_DEVICE_SN|GROWATT_API_TOKEN|discord.com/api/webhooks|WEATHER_LAT|WEATHER_LON" .
 ```
 
 Expected matches should be placeholders in `.env.example`, README/RUNBOOK examples, or public release checklist text. Do not commit real values.

@@ -21,6 +21,7 @@ from growatt_guard.discord_control import command_serve_discord_bot
 from growatt_guard.notifications import notify_failure
 from growatt_guard.paths import DATA_HOME
 from growatt_guard.pvoutput import command_pvoutput_upload
+from growatt_guard.pvoutput_backfill import command_pvoutput_backfill
 from growatt_guard.schedule import command_validate_schedule
 from growatt_guard.schedule_overrides import command_outage_profile, command_schedule_override
 from growatt_guard.schedule_views import command_schedule_calendar
@@ -250,6 +251,42 @@ def build_parser() -> argparse.ArgumentParser:
         "pvoutput-upload",
         help="Upload the current Growatt status to PVOutput.org (requires PVOUTPUT_ENABLED=true).",
     )
+    backfill_parser = subparsers.add_parser(
+        "pvoutput-backfill",
+        help="Preview or apply a missing-only PVOutput backfill from Growatt daily history.",
+    )
+    backfill_parser.add_argument(
+        "--input",
+        default="",
+        help="Growatt CSV export with date and generated-energy columns; bypasses the OpenAPI token requirement.",
+    )
+    backfill_parser.add_argument(
+        "--from",
+        dest="from_date",
+        default="",
+        help="First Growatt date (YYYY-MM-DD); inferred from --input, otherwise required.",
+    )
+    backfill_parser.add_argument(
+        "--through",
+        dest="through_date",
+        default="",
+        help="Last Growatt date (YYYY-MM-DD); defaults to yesterday so today remains live-only.",
+    )
+    backfill_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Upload planned records. Without this flag the command only writes a preview report.",
+    )
+    backfill_parser.add_argument(
+        "--overwrite-conflicts",
+        action="store_true",
+        help="With --apply, replace PVOutput dates whose generation differs from Growatt.",
+    )
+    backfill_parser.add_argument(
+        "--output",
+        default="",
+        help="Preview JSON path (default: data/reports/pvoutput-backfill-preview.json).",
+    )
 
     charge_rate_parser = subparsers.add_parser(
         "estimate-charge-rate",
@@ -408,6 +445,16 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return command_outage_profile(config, args)
         if command == "pvoutput-upload":
             return command_pvoutput_upload(config)
+        if command == "pvoutput-backfill":
+            return command_pvoutput_backfill(
+                config,
+                args.from_date,
+                args.through_date,
+                args.apply,
+                args.overwrite_conflicts,
+                args.output,
+                args.input,
+            )
         if command == "estimate-charge-rate":
             return app.command_estimate_charge_rate(config, args.wait_seconds)
         if command == "auto-topup-check":
