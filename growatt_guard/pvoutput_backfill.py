@@ -324,7 +324,7 @@ def _upload_records(config: Any, records: tuple[BackfillRecord, ...]) -> int:
             uploaded += len(batch)
             continue
 
-        batch_unavailable = len(batch) > 1 and response.status_code in {400, 403} and any(
+        batch_unavailable = len(batch) > 1 and response.status_code in {400, 401, 403} and any(
             marker in response.text.lower() for marker in ("batch", "donat", "multiple")
         )
         if batch_unavailable:
