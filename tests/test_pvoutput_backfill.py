@@ -207,6 +207,29 @@ class BackfillCommandTests(unittest.TestCase):
         post.assert_called_once()
         self.assertEqual(post.call_args.kwargs["data"], {"data": "20260314,1000;20260315,2000"})
 
+    def test_apply_falls_back_to_single_outputs_for_donation_mode_401(self):
+        config = make_config(pvoutput_enabled=True, pvoutput_api_key="K", pvoutput_system_id="1", dry_run=False)
+        batch_rejected = MagicMock(
+            status_code=401,
+            text="Forbidden 403: Donation mode",
+            headers={"X-Rate-Limit-Remaining": "59"},
+        )
+        added = MagicMock(status_code=200, text="OK", headers={})
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = self._csv(tmpdir)
+            report = str(Path(tmpdir) / "report.json")
+            with patch("growatt_guard.pvoutput_backfill.fetch_existing_pvoutput_outputs", return_value={}), patch(
+                "growatt_guard.pvoutput_backfill.requests.post",
+                side_effect=[batch_rejected, added, added],
+            ) as post:
+                command_pvoutput_backfill(config, "", "2026-03-15", False, False, report, str(source))
+                result = command_pvoutput_backfill(config, "", "2026-03-15", True, False, report, str(source))
+
+        self.assertEqual(result, 0)
+        self.assertEqual(post.call_count, 3)
+        self.assertEqual(post.call_args_list[1].kwargs["data"], {"d": "20260314", "g": "1000"})
+        self.assertEqual(post.call_args_list[2].kwargs["data"], {"d": "20260315", "g": "2000"})
+
 
 if __name__ == "__main__":
     unittest.main()
