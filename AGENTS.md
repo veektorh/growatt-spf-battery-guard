@@ -42,6 +42,7 @@ This project automates battery-preservation mode switching for a Growatt SPF inv
 - `growatt_guard/app_health.py`: local application health streaks, Discord alerts, and bounded Docker recovery.
 - `growatt_guard/dashboard.py`: dashboard HTML renderer and compatibility exports.
 - `growatt_guard/dashboard_metrics.py`: normalized typed metrics and local metric history.
+- `growatt_guard/daily_generation.py`: append-only finalized daily solar totals from verified history and late-day observability.
 - `growatt_guard/dashboard_insights.py` / `dashboard_planning.py`: dashboard risk, reconciliation, recommendations, and energy planning.
 - `growatt_guard/dashboard_viewmodel.py`: the canonical JSON/view-model assembly boundary.
 - `growatt_guard/dashboard_render_components.py`: reusable HTML presentation components.

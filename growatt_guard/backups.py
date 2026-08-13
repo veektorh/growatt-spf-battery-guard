@@ -11,6 +11,7 @@ from typing import Any
 
 import growatt_guard.audit as audit_module
 import growatt_guard.dashboard_metrics as metrics_module
+import growatt_guard.daily_generation as daily_generation_module
 import growatt_guard.schedule_overrides as overrides_module
 import growatt_guard.state as state_module
 from growatt_guard.exceptions import GrowattGuardError
@@ -80,6 +81,10 @@ def build_backup_payload(*, include_active_hold: bool = False) -> dict[str, Any]
     if metrics_module.DASHBOARD_METRICS_FILE.exists():
         sections["dashboard_metrics"] = _read_jsonl(
             metrics_module.DASHBOARD_METRICS_FILE, "dashboard metrics"
+        )
+    if daily_generation_module.DAILY_GENERATION_FILE.exists():
+        sections["daily_generation"] = _read_jsonl(
+            daily_generation_module.DAILY_GENERATION_FILE, "daily generation"
         )
     forecasts = state_module.read_forecast_calibration_history()
     if forecasts:
@@ -155,13 +160,13 @@ def _validate_restore_sections(sections: Any) -> dict[str, Any]:
     if not isinstance(sections, dict):
         raise GrowattGuardError("Backup sections must be an object.")
     allowed = {
-        "schedule_overrides", "mode_audit", "dashboard_metrics",
+        "schedule_overrides", "mode_audit", "dashboard_metrics", "daily_generation",
         "forecast_calibration", "utility_hold",
     }
     unknown = sorted(set(sections) - allowed)
     if unknown:
         raise GrowattGuardError(f"Backup contains unsupported section(s): {', '.join(unknown)}")
-    for name in ("mode_audit", "dashboard_metrics", "forecast_calibration"):
+    for name in ("mode_audit", "dashboard_metrics", "daily_generation", "forecast_calibration"):
         value = sections.get(name)
         if value is not None and (not isinstance(value, list) or not all(isinstance(row, dict) for row in value)):
             raise GrowattGuardError(f"Backup {name} must be a list of objects.")
@@ -200,6 +205,18 @@ def command_restore_state(config: Any, input_path: str, allow_active_hold: bool 
     metrics = sections.get("dashboard_metrics")
     if metrics is not None and not all(row.get("timestamp") for row in metrics):
         raise GrowattGuardError("Every dashboard metric row must include timestamp.")
+    daily_generation = sections.get("daily_generation")
+    if daily_generation is not None:
+        dates: set[str] = set()
+        for row in daily_generation:
+            try:
+                day = dt.date.fromisoformat(str(row["date"])).isoformat()
+                generated_wh = int(row["generated_wh"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise GrowattGuardError("Every daily generation row needs a valid date and generated_wh.") from exc
+            if generated_wh < 0 or day in dates:
+                raise GrowattGuardError("Daily generation rows must have unique dates and non-negative generated_wh.")
+            dates.add(day)
 
     hold = sections.get("utility_hold")
     normalized_hold = None
@@ -225,6 +242,12 @@ def command_restore_state(config: Any, input_path: str, allow_active_hold: bool 
     if metrics is not None:
         content = "".join(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n" for row in metrics)
         _atomic_write_text(metrics_module.DASHBOARD_METRICS_FILE, content)
+    if daily_generation is not None:
+        content = "".join(
+            json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
+            for row in sorted(daily_generation, key=lambda item: str(item["date"]))
+        )
+        _atomic_write_text(daily_generation_module.DAILY_GENERATION_FILE, content)
     forecasts = sections.get("forecast_calibration")
     if forecasts is not None:
         state_module.write_forecast_calibration_history(forecasts)

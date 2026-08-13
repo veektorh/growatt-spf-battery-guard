@@ -28,7 +28,10 @@ from growatt_guard.notifications import (
     embed_summary,
     embed_watchdog_failed,
     embed_watchdog_repaired,
+    record_pvoutput_failure,
+    record_pvoutput_success,
 )
+from growatt_guard.state import read_pvoutput_failure_state
 
 _COLOR_OK = 0x57F287
 _COLOR_WARN = 0xFEE75C
@@ -128,6 +131,29 @@ class NotificationsTests(unittest.TestCase):
             notify_failure(config, "observability-refresh", cooldown_msg)
             notify_failure(config, "observability-refresh", cooldown_msg)
             self.assertEqual(send_mock.call_count, 1)
+
+    def test_pvoutput_incident_alerts_once_then_recovers_once(self):
+        config = make_config(
+            discord_webhook_url="https://discord.com/api/webhooks/example",
+            discord_notify_failure=True,
+        )
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.state.PVOUTPUT_FAILURE_FILE", Path(tmpdir) / "pvoutput_failures.json"
+        ), patch("growatt_guard.notifications.send_discord_embed", return_value=True) as send_mock:
+            record_pvoutput_failure(config, "rate limited")
+            record_pvoutput_failure(config, "rate limited again")
+            state = read_pvoutput_failure_state()
+            self.assertEqual(send_mock.call_count, 1)
+            self.assertEqual(state["count"], 2)
+
+            record_pvoutput_success(config)
+            record_pvoutput_success(config)
+            cleared = read_pvoutput_failure_state()
+
+        self.assertIsNone(cleared)
+        self.assertEqual(send_mock.call_count, 2)
+        self.assertIn("recovered", send_mock.call_args.args[1]["title"].lower())
 
 
 class EmbedBuilderTests(unittest.TestCase):

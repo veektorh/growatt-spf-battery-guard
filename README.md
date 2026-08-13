@@ -949,10 +949,14 @@ and apply only the missing dates:
 
 PVOutput donation accounts can accept up to 100 daily outputs in one batch.
 If batching is unavailable, the command falls back to individual uploads and
-stops cleanly at any provider rate limit; rerunning is resumable because dates
-successfully added are discovered and skipped. Use `--overwrite-conflicts`
-only after independently verifying the Growatt value for every reported
-conflict.
+keeps eight hourly requests in reserve for the live observability service.
+Rerunning is resumable because dates successfully added are discovered and
+skipped. A successful apply also seeds `history/daily_generation.jsonl`, the
+durable local daily-generation ledger; this applies even when PVOutput was
+already complete and no upload was needed. After that one-time seed, completed
+days are added automatically from a late-evening observability sample. Existing
+daily rows are never silently replaced. Use `--overwrite-conflicts` only after
+independently verifying the Growatt value for every reported conflict.
 
 ## Expose Dashboard On A Domain
 

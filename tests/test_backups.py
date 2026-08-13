@@ -26,6 +26,7 @@ class BackupTests(unittest.TestCase):
         stack.enter_context(patch("growatt_guard.audit.LOG_DIR", root / "logs"))
         stack.enter_context(patch("growatt_guard.audit.MODE_AUDIT_FILE", root / "logs" / "mode_decisions.csv"))
         stack.enter_context(patch("growatt_guard.dashboard_metrics.DASHBOARD_METRICS_FILE", root / "logs" / "dashboard_metrics.jsonl"))
+        stack.enter_context(patch("growatt_guard.daily_generation.DAILY_GENERATION_FILE", root / "history" / "daily_generation.jsonl"))
         stack.enter_context(patch("growatt_guard.state.FORECAST_CALIBRATION_FILE", root / "state" / "forecast_calibration.json"))
         stack.enter_context(patch("growatt_guard.state.UTILITY_HOLD_FILE", root / "state" / "utility_hold.json"))
         stack.enter_context(patch("growatt_guard.state.TOPUP_STATE_FILE", root / "state" / "topup_active.json"))
@@ -39,6 +40,11 @@ class BackupTests(unittest.TestCase):
             (root / "logs" / "dashboard_metrics.jsonl").write_text(
                 '{"timestamp":"2026-07-12T12:00:00+01:00","pv_today_kwh":4.2}\n', encoding="utf-8"
             )
+            (root / "history").mkdir()
+            (root / "history" / "daily_generation.jsonl").write_text(
+                '{"date":"2026-07-11","generated_wh":18400,"source":"growatt-history"}\n',
+                encoding="utf-8",
+            )
             write_json_state(
                 root / "state" / "utility_hold.json",
                 {
@@ -51,6 +57,7 @@ class BackupTests(unittest.TestCase):
 
         self.assertIn("schedule_overrides", payload["sections"])
         self.assertIn("dashboard_metrics", payload["sections"])
+        self.assertIn("daily_generation", payload["sections"])
         self.assertNotIn("utility_hold", payload["sections"])
         self.assertNotIn("session", json.dumps(payload).lower())
 
@@ -140,6 +147,24 @@ class BackupTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(restored["ownership"], "owned")
         self.assertEqual(restored["target_soc"], 50)
+
+    def test_restore_validates_and_writes_daily_generation(self):
+        payload = {
+            "schema_version": 1,
+            "sections": {
+                "daily_generation": [
+                    {"date": "2026-07-11", "generated_wh": 18400, "source": "growatt-history"}
+                ]
+            },
+        }
+        with TemporaryDirectory() as tmpdir, self._paths(Path(tmpdir)), redirect_stdout(StringIO()):
+            backup = Path(tmpdir) / "history.backup.json"
+            backup.write_text(json.dumps(payload), encoding="utf-8")
+            result = command_restore_state(make_config(), str(backup))
+            restored = (Path(tmpdir) / "history" / "daily_generation.jsonl").read_text(encoding="utf-8")
+
+        self.assertEqual(result, 0)
+        self.assertEqual(json.loads(restored)["generated_wh"], 18400)
 
 
 if __name__ == "__main__":

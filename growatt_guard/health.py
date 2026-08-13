@@ -12,7 +12,7 @@ from growatt_guard.config import Config
 from growatt_guard.dashboard import DASHBOARD_FILE, dashboard_freshness
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import extract_soc, extract_spf_output_source, load_context
-from growatt_guard.notifications import read_growatt_cloud_failure_state, send_discord_embed, send_discord_message
+from growatt_guard.notifications import send_discord_embed, send_discord_message
 from growatt_guard.operational_status import build_forecast_calibration_status, build_sbu_guard_status
 from growatt_guard.pvoutput import read_pvoutput_state
 from growatt_guard.schedule import (
@@ -26,7 +26,9 @@ from growatt_guard.state import (
     command_lock_is_stale,
     pause_message,
     read_command_lock_state,
+    read_growatt_cloud_failure_state,
     read_pause_state,
+    read_pvoutput_failure_state,
     topup_is_active,
 )
 from growatt_guard.weather import choose_preserve_threshold
@@ -351,6 +353,16 @@ def command_health_check(config: Config, notify: bool = False) -> int:
     )
 
     if getattr(config, "pvoutput_enabled", False):
+        failure_state = read_pvoutput_failure_state()
+        if failure_state:
+            checks.append(
+                HealthCheckItem(
+                    "PVOutput incident",
+                    "WARN",
+                    f"{int(failure_state.get('count', 0))} consecutive upload failure(s); "
+                    f"latest: {str(failure_state.get('last_message', 'unknown'))[:160]}",
+                )
+            )
         pvo_state = read_pvoutput_state()
         if pvo_state is None:
             checks.append(HealthCheckItem("PVOutput", "WARN", "enabled but no successful uploads recorded yet."))

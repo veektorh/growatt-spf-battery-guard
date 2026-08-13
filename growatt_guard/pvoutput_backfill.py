@@ -13,12 +13,14 @@ from typing import Any
 import requests
 
 from growatt_guard.exceptions import GrowattGuardError
+from growatt_guard.daily_generation import merge_daily_generation
 from growatt_guard.paths import DATA_HOME
 from growatt_guard.pvoutput import PVOUTPUT_GETOUTPUT_URL
 
 
 PVOUTPUT_ADDOUTPUT_URL = "https://pvoutput.org/service/r2/addoutput.jsp"
 PVOUTPUT_BACKFILL_REPORT_DIR = DATA_HOME / "reports"
+PVOUTPUT_OBSERVABILITY_RESERVE = 8
 _DATE_HEADERS = {"date", "day", "record date", "output date", "time"}
 _GENERATION_HEADERS = {
     "generated",
@@ -333,6 +335,17 @@ def _upload_records(config: Any, records: tuple[BackfillRecord, ...]) -> int:
                 if response.status_code != 200:
                     break
                 uploaded += 1
+                remaining_text = response.headers.get("X-Rate-Limit-Remaining", "")
+                try:
+                    remaining = int(remaining_text)
+                except (TypeError, ValueError):
+                    remaining = None
+                if uploaded < len(records) and remaining is not None and remaining <= PVOUTPUT_OBSERVABILITY_RESERVE:
+                    reset = response.headers.get("X-Rate-Limit-Reset", "unknown")
+                    raise _error(
+                        f"PVOutput backfill paused after {uploaded} uploads with {remaining} requests remaining "
+                        f"(reserved for observability; reset={reset}). Re-run preview and apply after reset."
+                    )
             else:
                 continue
 
@@ -435,9 +448,15 @@ def command_pvoutput_backfill(
     if config.dry_run:
         raise _error("--apply is blocked while DRY_RUN=true. Set DRY_RUN=false only after reviewing the preview.")
     if not records:
+        added, _ = merge_daily_generation(growatt, source="growatt-history", strict=True)
+        if added:
+            print(f"Daily generation ledger: imported {added} completed days.")
         print("PVOutput is already complete for the requested range; nothing uploaded.")
         return 0
 
     uploaded = _upload_records(config, records)
+    added, _ = merge_daily_generation(growatt, source="growatt-history", strict=True)
     print(f"PVOutput backfill complete: uploaded {uploaded} daily outputs.")
+    if added:
+        print(f"Daily generation ledger: imported {added} completed days.")
     return 0
