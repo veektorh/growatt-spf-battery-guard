@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 import datetime as dt
 import json
+import logging
 import tempfile
 from pathlib import Path
 from typing import Any, TypedDict
@@ -334,6 +336,12 @@ def append_dashboard_metric_snapshot(
     cutoff = now.replace(tzinfo=None) - dt.timedelta(days=DASHBOARD_METRICS_RETENTION_DAYS)
     rows = [row for row in rows if (ts := _parse_metric_timestamp(row)) is not None and ts >= cutoff]
     _write_dashboard_metrics_history(rows)
+    try:
+        from growatt_guard.daily_generation import finalize_completed_daily_generation
+
+        finalize_completed_daily_generation(rows, now=now)
+    except Exception:  # noqa: BLE001 - retain the bounded metric history for a later retry
+        logging.exception("Could not finalize the durable daily generation ledger")
     return metric
 
 
@@ -431,4 +439,3 @@ def build_dashboard_history_payload(
             "grid_kwh": [_series_value(latest_by_date.get(day.isoformat(), {}), "grid_today_kwh") for day in dates],
         },
     }
-

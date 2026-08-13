@@ -133,6 +133,16 @@ class BackfillPlanningTests(unittest.TestCase):
 
 
 class BackfillCommandTests(unittest.TestCase):
+    def setUp(self):
+        self._ledger_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._ledger_tmp.cleanup)
+        patcher = patch(
+            "growatt_guard.daily_generation.DAILY_GENERATION_FILE",
+            Path(self._ledger_tmp.name) / "daily_generation.jsonl",
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _csv(self, directory: str) -> Path:
         path = Path(directory) / "growatt.csv"
         path.write_text("Date,Generated Energy (kWh)\n2026-03-14,1.0\n2026-03-15,2.0\n", encoding="utf-8")
@@ -229,6 +239,46 @@ class BackfillCommandTests(unittest.TestCase):
         self.assertEqual(post.call_count, 3)
         self.assertEqual(post.call_args_list[1].kwargs["data"], {"d": "20260314", "g": "1000"})
         self.assertEqual(post.call_args_list[2].kwargs["data"], {"d": "20260315", "g": "2000"})
+
+    def test_individual_fallback_preserves_live_upload_quota(self):
+        config = make_config(pvoutput_enabled=True, pvoutput_api_key="K", pvoutput_system_id="1", dry_run=False)
+        batch_rejected = MagicMock(
+            status_code=401,
+            text="Forbidden 403: Donation mode",
+            headers={"X-Rate-Limit-Remaining": "59"},
+        )
+        added = MagicMock(
+            status_code=200,
+            text="OK",
+            headers={"X-Rate-Limit-Remaining": "8", "X-Rate-Limit-Reset": "45"},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = self._csv(tmpdir)
+            report = str(Path(tmpdir) / "report.json")
+            with patch("growatt_guard.pvoutput_backfill.fetch_existing_pvoutput_outputs", return_value={}), patch(
+                "growatt_guard.pvoutput_backfill.requests.post",
+                side_effect=[batch_rejected, added],
+            ) as post:
+                command_pvoutput_backfill(config, "", "2026-03-15", False, False, report, str(source))
+                with self.assertRaisesRegex(GrowattGuardError, "reserved for observability"):
+                    command_pvoutput_backfill(config, "", "2026-03-15", True, False, report, str(source))
+
+        self.assertEqual(post.call_count, 2)
+
+    def test_apply_seeds_daily_ledger_when_pvoutput_is_complete(self):
+        config = make_config(pvoutput_enabled=True, pvoutput_api_key="K", pvoutput_system_id="1", dry_run=False)
+        existing = {dt.date(2026, 3, 14): 1000, dt.date(2026, 3, 15): 2000}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = self._csv(tmpdir)
+            report = str(Path(tmpdir) / "report.json")
+            with patch("growatt_guard.pvoutput_backfill.fetch_existing_pvoutput_outputs", return_value=existing):
+                command_pvoutput_backfill(config, "", "2026-03-15", False, False, report, str(source))
+                result = command_pvoutput_backfill(config, "", "2026-03-15", True, False, report, str(source))
+            ledger = Path(self._ledger_tmp.name) / "daily_generation.jsonl"
+            rows = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
+
+        self.assertEqual(result, 0)
+        self.assertEqual([row["generated_wh"] for row in rows], [1000, 2000])
 
 
 if __name__ == "__main__":

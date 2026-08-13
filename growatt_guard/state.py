@@ -28,6 +28,7 @@ def configure_state_dir(path: str | os.PathLike[str]) -> Path:
     global STATE_DIR
     global PAUSE_FILE, BATTERY_ALERT_FILE, BATTERY_ALERT_MUTED_FILE, BYPASS_ALERT_FILE
     global COMMAND_LOCK_FILE, DASHBOARD_STALE_ALERT_FILE, GROWATT_CLOUD_FAILURE_FILE
+    global PVOUTPUT_FAILURE_FILE
     global APP_HEALTH_MONITOR_FILE
     global LOGIN_COOLDOWN_FILE, SESSION_CACHE_FILE, SESSION_REFRESH_LOCK_FILE
     global TOPUP_STATE_FILE, TOPUP_SKIP_NOTIFICATION_FILE
@@ -43,6 +44,7 @@ def configure_state_dir(path: str | os.PathLike[str]) -> Path:
     DASHBOARD_STALE_ALERT_FILE = STATE_DIR / "dashboard_stale_alert.json"
     APP_HEALTH_MONITOR_FILE = STATE_DIR / "app_health_monitor.json"
     GROWATT_CLOUD_FAILURE_FILE = STATE_DIR / "growatt_cloud_failures.json"
+    PVOUTPUT_FAILURE_FILE = STATE_DIR / "pvoutput_failures.json"
     LOGIN_COOLDOWN_FILE = STATE_DIR / "growatt_login_cooldown.json"
     SESSION_CACHE_FILE = STATE_DIR / "growatt_session.json"
     SESSION_REFRESH_LOCK_FILE = STATE_DIR / "growatt_session_refresh.lock"
@@ -369,6 +371,18 @@ def write_growatt_cloud_failure_state(state: dict[str, Any]) -> None:
 
 def clear_growatt_cloud_failure_state() -> None:
     clear_state_file(GROWATT_CLOUD_FAILURE_FILE)
+
+
+def read_pvoutput_failure_state() -> dict[str, Any] | None:
+    return read_json_state(PVOUTPUT_FAILURE_FILE, "PVOutput failure")
+
+
+def write_pvoutput_failure_state(state: dict[str, Any]) -> None:
+    write_json_state(PVOUTPUT_FAILURE_FILE, state)
+
+
+def clear_pvoutput_failure_state() -> None:
+    clear_state_file(PVOUTPUT_FAILURE_FILE)
 
 
 def read_login_cooldown_state() -> dict[str, Any] | None:

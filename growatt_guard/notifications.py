@@ -7,9 +7,12 @@ import requests
 
 from growatt_guard.state import (
     clear_growatt_cloud_failure_state,
+    clear_pvoutput_failure_state,
     read_growatt_cloud_failure_state,
+    read_pvoutput_failure_state,
     utc_now,
     write_growatt_cloud_failure_state,
+    write_pvoutput_failure_state,
 )
 
 _COLOR_OK = 0x57F287
@@ -211,6 +214,19 @@ def embed_cloud_recovered(count: int) -> dict:
     return _embed("✅ Growatt cloud recovered", _COLOR_OK, [_f("Consecutive failures", str(count))])
 
 
+def embed_pvoutput_failure(count: int, message: str) -> dict:
+    fields = [
+        _f("Failures", str(count)),
+        _f("Latest error", message[:500], inline=False),
+        _f("Dashboard", "Still refreshing; only the PVOutput upload is affected.", inline=False),
+    ]
+    return _embed("⚠️ PVOutput upload delayed", _COLOR_WARN, fields)
+
+
+def embed_pvoutput_recovered(count: int) -> dict:
+    return _embed("✅ PVOutput uploads recovered", _COLOR_OK, [_f("Failed refreshes", str(count))])
+
+
 def embed_automation_failure(command: str, message: str) -> dict:
     fields = [
         _f("Command", command),
@@ -318,6 +334,36 @@ def record_growatt_cloud_success(config: Any) -> None:
     clear_growatt_cloud_failure_state()
     if was_alerted and config.discord_notify_failure:
         send_discord_embed(config, embed_cloud_recovered(count))
+
+
+def record_pvoutput_failure(config: Any, message: str) -> None:
+    state = read_pvoutput_failure_state() or {}
+    count = int(state.get("count", 0)) + 1
+    alerted = bool(state.get("alerted"))
+    state.update(
+        {
+            "count": count,
+            "alerted": alerted,
+            "first_failure_at": state.get("first_failure_at") or utc_now().isoformat(),
+            "last_failure_at": utc_now().isoformat(),
+            "last_message": message,
+        }
+    )
+    if not alerted and config.discord_notify_failure:
+        if send_discord_embed(config, embed_pvoutput_failure(count, message)):
+            state["alerted"] = True
+    write_pvoutput_failure_state(state)
+
+
+def record_pvoutput_success(config: Any) -> None:
+    state = read_pvoutput_failure_state()
+    if not state:
+        return
+    count = int(state.get("count", 0))
+    was_alerted = bool(state.get("alerted"))
+    clear_pvoutput_failure_state()
+    if was_alerted and config.discord_notify_failure:
+        send_discord_embed(config, embed_pvoutput_recovered(count))
 
 
 def notify_failure(config: Any | None, command: str, message: str) -> None:

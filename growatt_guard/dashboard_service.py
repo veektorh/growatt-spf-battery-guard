@@ -31,7 +31,12 @@ from growatt_guard.dashboard_assets import (
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.forecast_calibration import apply_weather_adjustment, update_forecast_calibration
 from growatt_guard.growatt_api import load_context
-from growatt_guard.notifications import notify_failure, send_discord_message
+from growatt_guard.notifications import (
+    notify_failure,
+    record_pvoutput_failure,
+    record_pvoutput_success,
+    send_discord_message,
+)
 from growatt_guard.pvoutput import publish_pvoutput_status_from_status
 from growatt_guard.schedule import validate_schedule, validate_schedule_overrides
 from growatt_guard.state import (
@@ -226,7 +231,9 @@ def command_observability_refresh(config: Any, output: str, interval_minutes: fl
                 logging.error("%s", result["pvoutput_message"])
                 if not loop:
                     raise GrowattGuardError(str(result["pvoutput_message"]))
-                notify_failure(config, "observability-refresh", str(result["pvoutput_message"]))
+                record_pvoutput_failure(config, str(result["pvoutput_message"]))
+            elif config.pvoutput_enabled:
+                record_pvoutput_success(config)
             if not loop:
                 return 0
         time.sleep(interval_minutes * 60)

@@ -19,5 +19,6 @@ tests/__pycache__/
 *.log
 backups/
 reports/
+history/
 *.backup.json
 *.ics

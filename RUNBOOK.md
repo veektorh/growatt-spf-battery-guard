@@ -435,7 +435,11 @@ The preview report is written to `reports/pvoutput-backfill-preview.json` by
 default. Check its `missing_days` and `conflicts` before the second command.
 `--apply` is blocked while `DRY_RUN=true`; conflicts remain untouched unless
 `--overwrite-conflicts` is also explicit. The command uploads completed daily
-generation only and does not change inverter mode.
+generation only and does not change inverter mode. A successful apply also
+seeds the durable `history/daily_generation.jsonl` ledger, even if PVOutput
+already contained every date. This is normally a one-time import: future days
+are finalized automatically from late-evening observability samples. The
+fallback uploader reserves eight hourly API requests for normal live uploads.
 
 ## Local Application Health Watchdog
 

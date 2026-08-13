@@ -1,6 +1,6 @@
 # Growatt Guard Roadmap
 
-Last reviewed: 2026-07-30
+Last reviewed: 2026-08-13
 
 This is the working backlog for Growatt Guard. Priorities favor inverter safety,
 low Growatt API pressure, trustworthy decisions, and clear operations before
@@ -26,13 +26,17 @@ The following capabilities are implemented and should be preserved:
   reconciliation, same-time insights, and schema-versioned JSON output.
 - One observability refresh path that updates the dashboard and PVOutput from a
   shared Growatt read.
-- PVOutput live uploads, extended-field fallback, and complete weekly-history
-  parsing.
+- PVOutput live uploads, extended-field fallback, complete weekly-history
+  parsing, quota-reserved one-time backfill, and coalesced incident/recovery
+  alerts.
+- An append-only daily-generation ledger seeded from verified Growatt history
+  and advanced from completed late-evening observability days.
 - Forecast-versus-actual calibration with evidence thresholds before tuning
   recommendations.
 - Schedule overrides, outage profiles, dry-plan preview, calendar export, and
   schedule lint for duplicate, fast, or tightly spaced jobs.
-- Selective backup/restore with strict validation for active Utility holds.
+- Selective backup/restore with strict validation for active Utility holds and
+  durable daily-generation history.
 - Read-only service status, deployment preflight, ops review, schedule preview,
   and diagnostic bundle commands with JSON output.
 - Atomic packaged production releases with pinned verification, health checks,
