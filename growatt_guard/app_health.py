@@ -48,7 +48,13 @@ def _failure_count(entry: dict[str, Any]) -> int:
 
 def probe_app_health(target: AppHealthTarget, timeout_seconds: float) -> AppHealthResult:
     try:
-        response = requests.get(target.url, timeout=timeout_seconds)
+        headers = {"Host": target.host_header} if target.host_header else None
+        response = requests.get(
+            target.url,
+            headers=headers,
+            timeout=timeout_seconds,
+            allow_redirects=False,
+        )
     except requests.RequestException as exc:
         return AppHealthResult(False, _clean_detail(exc))
     if 200 <= response.status_code < 300:

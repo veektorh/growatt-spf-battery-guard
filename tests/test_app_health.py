@@ -10,7 +10,7 @@ from unittest.mock import patch
 import requests
 
 from helpers import make_config
-from growatt_guard.app_health import command_app_health_monitor
+from growatt_guard.app_health import command_app_health_monitor, probe_app_health
 from growatt_guard.config import AppHealthTarget
 from growatt_guard.state import read_app_health_monitor_state, write_app_health_monitor_state
 
@@ -45,6 +45,27 @@ class AppHealthMonitorTests(unittest.TestCase):
         self.assertEqual(result, 0)
         restart.assert_not_called()
         self.assertEqual(state["apps"]["garage"]["consecutive_failures"], 0)
+
+    def test_probe_uses_optional_host_header_without_changing_loopback_url(self):
+        target = AppHealthTarget(
+            "ChainSum",
+            "http://127.0.0.1:5083/health/ready",
+            "chainsum-app-1",
+            "app.example.invalid",
+        )
+        with patch(
+            "growatt_guard.app_health.requests.get",
+            return_value=Response(),
+        ) as get:
+            result = probe_app_health(target, 5)
+
+        self.assertTrue(result.healthy)
+        get.assert_called_once_with(
+            "http://127.0.0.1:5083/health/ready",
+            headers={"Host": "app.example.invalid"},
+            timeout=5,
+            allow_redirects=False,
+        )
 
     def test_failure_streak_waits_for_threshold(self):
         with TemporaryDirectory() as tmpdir, patch(
