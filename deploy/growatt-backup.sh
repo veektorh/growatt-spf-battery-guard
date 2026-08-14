@@ -43,7 +43,7 @@ readonly encrypted="${backup_dir}/growatt-${timestamp}.backup.json.gpg"
 install -d -m 0700 -o root -g root "${backup_dir}"
 readonly plaintext="$(mktemp "${backup_dir}/.growatt-${timestamp}.XXXXXX.backup.json")"
 readonly restore_target="$(mktemp -d "${backup_dir}/.restore-${timestamp}.XXXXXX")"
-readonly gpg_home="$(mktemp -d)"
+readonly gpg_home="$(mktemp -d "${backup_dir}/.gnupg-${timestamp}.XXXXXX")"
 chmod 0700 "${gpg_home}"
 rm -rf -- "${restore_target}"
 

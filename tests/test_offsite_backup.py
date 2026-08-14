@@ -30,6 +30,10 @@ class OffsiteBackupTests(unittest.TestCase):
         self.assertNotIn('source "${data_root}/.env"', script)
         self.assertNotIn("tar ", script)
         self.assertIn('readonly backup_dir="/opt/growatt-guard/backups"', script)
+        self.assertIn(
+            'mktemp -d "${backup_dir}/.gnupg-${timestamp}.XXXXXX"',
+            script,
+        )
 
     def test_restore_rehearsal_is_offline_and_refuses_live_target(self):
         script = (ROOT / "deploy" / "growatt-restore-backup.sh").read_text(encoding="utf-8")
