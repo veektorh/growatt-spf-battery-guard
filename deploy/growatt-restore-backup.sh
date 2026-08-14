@@ -54,6 +54,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
+rm -f -- "${plaintext}"
 /usr/bin/gpg --batch --quiet --homedir "${gpg_home}" \
   --passphrase-fd 3 --pinentry-mode loopback \
   --decrypt --output "${plaintext}" "${encrypted}" \

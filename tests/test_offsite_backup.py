@@ -46,6 +46,10 @@ class OffsiteBackupTests(unittest.TestCase):
         self.assertIn('if "utility_hold" in sections', script)
         self.assertIn("Refusing a live or system restore target", script)
         self.assertNotIn("--allow-active-hold", script)
+        self.assertIn(
+            'trap cleanup EXIT\n\nrm -f -- "${plaintext}"\n/usr/bin/gpg',
+            script,
+        )
 
     def test_installed_entrypoints_are_executable(self):
         for relative in (
