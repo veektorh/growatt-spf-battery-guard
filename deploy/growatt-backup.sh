@@ -69,7 +69,7 @@ test -s "${plaintext}"
 
 /usr/bin/gpg --batch --yes --homedir "${gpg_home}" \
   --passphrase-file "${passphrase_file}" --pinentry-mode loopback \
-  --symmetric --cipher-algo AES256 --output "${encrypted}" "${plaintext}"
+  --symmetric --cipher-algo AES256 --output "${encrypted}" < "${plaintext}"
 test -s "${encrypted}"
 rm -f -- "${plaintext}"
 rm -f -- "${passphrase_file}"
