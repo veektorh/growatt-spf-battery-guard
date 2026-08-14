@@ -119,7 +119,8 @@ class AppHealthTargetConfigTests(unittest.TestCase):
     def test_parses_allowlisted_loopback_targets(self):
         targets = parse_app_health_targets(
             "Summa|http://127.0.0.1:5080/health|summa-app-1,"
-            "Garage|http://localhost:5081/health|garage-app-1"
+            "Garage|http://localhost:5081/health|garage-app-1,"
+            "ChainSum|http://127.0.0.1:5083/health/ready|chainsum-app-1|app.example.invalid"
         )
 
         self.assertEqual(
@@ -127,8 +128,23 @@ class AppHealthTargetConfigTests(unittest.TestCase):
             (
                 AppHealthTarget("Summa", "http://127.0.0.1:5080/health", "summa-app-1"),
                 AppHealthTarget("Garage", "http://localhost:5081/health", "garage-app-1"),
+                AppHealthTarget(
+                    "ChainSum",
+                    "http://127.0.0.1:5083/health/ready",
+                    "chainsum-app-1",
+                    "app.example.invalid",
+                ),
             ),
         )
+
+    def test_rejects_unsafe_host_header(self):
+        for value in ("bad host", "example.invalid:443", "-example.invalid", "example..invalid"):
+            with self.subTest(value=value), self.assertRaises(Exception) as ctx:
+                parse_app_health_targets(
+                    f"App|http://127.0.0.1:5080/health|app-1|{value}"
+                )
+
+            self.assertIn("Host header", str(ctx.exception))
 
     def test_rejects_non_loopback_target(self):
         with self.assertRaises(Exception) as ctx:

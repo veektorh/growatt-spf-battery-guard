@@ -891,10 +891,12 @@ cd ~/automation
 
 The optional watchdog checks other applications on the same host without
 calling Growatt. Targets must use loopback HTTP endpoints and explicit Docker
-container names:
+container names. An optional fourth field sends a validated DNS Host header for
+applications that enforce their public host name while the request itself
+remains on loopback:
 
 ```text
-APP_HEALTH_TARGETS=Summa|http://127.0.0.1:5080/health|summa-app-1,Garage|http://127.0.0.1:5081/health|garage-app-1,Family OS|http://127.0.0.1:5082/health|family-os-app-1,ChainSum|http://127.0.0.1:5083/health/ready|chainsum-app-1
+APP_HEALTH_TARGETS=Summa|http://127.0.0.1:5080/health|summa-app-1,Garage|http://127.0.0.1:5081/health|garage-app-1,Family OS|http://127.0.0.1:5082/health|family-os-app-1,ChainSum|http://127.0.0.1:5083/health/ready|chainsum-app-1|app.example.invalid
 APP_HEALTH_FAILURE_THRESHOLD=3
 APP_HEALTH_TIMEOUT_SECONDS=5
 APP_HEALTH_RECOVERY_ENABLED=true

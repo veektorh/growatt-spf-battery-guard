@@ -469,8 +469,11 @@ journalctl -u growatt-app-health-monitor.service --since today
 Include ChainSum's readiness endpoint in the allowlisted targets:
 
 ```text
-ChainSum|http://127.0.0.1:5083/health/ready|chainsum-app-1
+ChainSum|http://127.0.0.1:5083/health/ready|chainsum-app-1|app.example.invalid
 ```
+
+Replace the example Host header with ChainSum's configured public host. The
+request itself remains restricted to the loopback URL.
 
 ## Encrypted Growatt Recovery Backups
 

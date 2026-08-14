@@ -26,6 +26,7 @@ class AppHealthTarget:
     name: str
     url: str
     container: str
+    host_header: str = ""
 
 
 @dataclass(frozen=True)
@@ -147,11 +148,13 @@ def parse_app_health_targets(value: str) -> tuple[AppHealthTarget, ...]:
     names: set[str] = set()
     for raw_target in value.split(","):
         parts = tuple(part.strip() for part in raw_target.split("|"))
-        if len(parts) != 3 or not all(parts):
+        if len(parts) not in {3, 4} or not all(parts):
             raise config_error(
-                "APP_HEALTH_TARGETS entries must use name|http://127.0.0.1:port/health|container."
+                "APP_HEALTH_TARGETS entries must use "
+                "name|http://127.0.0.1:port/health|container[|host-header]."
             )
-        name, url, container = parts
+        name, url, container = parts[:3]
+        host_header = parts[3] if len(parts) == 4 else ""
         normalized_name = name.lower()
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}", name):
             raise config_error(f"Invalid app health target name: {name!r}.")
@@ -159,6 +162,13 @@ def parse_app_health_targets(value: str) -> tuple[AppHealthTarget, ...]:
             raise config_error(f"Duplicate app health target name: {name!r}.")
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", container):
             raise config_error(f"Invalid app health container name for {name!r}.")
+        if host_header:
+            labels = host_header.split(".")
+            if len(host_header) > 253 or any(
+                not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label)
+                for label in labels
+            ):
+                raise config_error(f"Invalid app health Host header for {name!r}.")
 
         parsed = urlsplit(url)
         if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
@@ -173,7 +183,14 @@ def parse_app_health_targets(value: str) -> tuple[AppHealthTarget, ...]:
             raise config_error(f"App health target {name!r} requires an explicit port and path.")
 
         names.add(normalized_name)
-        targets.append(AppHealthTarget(name=name, url=url, container=container))
+        targets.append(
+            AppHealthTarget(
+                name=name,
+                url=url,
+                container=container,
+                host_header=host_header,
+            )
+        )
     return tuple(targets)
 
 
