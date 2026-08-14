@@ -34,6 +34,9 @@ class OffsiteBackupTests(unittest.TestCase):
             'mktemp -d "${backup_dir}/.gnupg-${timestamp}.XXXXXX"',
             script,
         )
+        self.assertIn('readonly passphrase_file="${gpg_home}/passphrase"', script)
+        self.assertIn('--passphrase-file "${passphrase_file}"', script)
+        self.assertNotIn("--passphrase-fd", script)
 
     def test_restore_rehearsal_is_offline_and_refuses_live_target(self):
         script = (ROOT / "deploy" / "growatt-restore-backup.sh").read_text(encoding="utf-8")
