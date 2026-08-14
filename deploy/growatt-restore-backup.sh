@@ -80,8 +80,8 @@ env \
   GROWATT_GUARD_HOME="${runtime_root}" \
   GROWATT_GUARD_DATA_DIR="${target}" \
   GROWATT_GUARD_STATE_DIR="${target}/state" \
-  GROWATT_USERNAME=restore-rehearsal.invalid \
-  GROWATT_PASSWORD=restore-rehearsal.invalid \
+  GROWATT_USERNAME=placeholder \
+  GROWATT_PASSWORD=placeholder \
   GROWATT_SERVER_URL=https://restore-rehearsal.invalid/ \
   DRY_RUN=true \
   "${runtime_root}/growatt-guard" restore-state "${plaintext}"
