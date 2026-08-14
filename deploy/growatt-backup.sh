@@ -44,7 +44,10 @@ install -d -m 0700 -o root -g root "${backup_dir}"
 readonly plaintext="$(mktemp "${backup_dir}/.growatt-${timestamp}.XXXXXX.backup.json")"
 readonly restore_target="$(mktemp -d "${backup_dir}/.restore-${timestamp}.XXXXXX")"
 readonly gpg_home="$(mktemp -d "${backup_dir}/.gnupg-${timestamp}.XXXXXX")"
+readonly passphrase_file="${gpg_home}/passphrase"
 chmod 0700 "${gpg_home}"
+printf '%s' "${BACKUP_ENCRYPTION_KEY}" > "${passphrase_file}"
+chmod 0600 "${passphrase_file}"
 rm -rf -- "${restore_target}"
 
 backup_complete=false
@@ -65,11 +68,11 @@ env \
 test -s "${plaintext}"
 
 /usr/bin/gpg --batch --yes --homedir "${gpg_home}" \
-  --passphrase-fd 3 --pinentry-mode loopback \
-  --symmetric --cipher-algo AES256 --output "${encrypted}" "${plaintext}" \
-  3< <(printf '%s' "${BACKUP_ENCRYPTION_KEY}")
+  --passphrase-file "${passphrase_file}" --pinentry-mode loopback \
+  --symmetric --cipher-algo AES256 --output "${encrypted}" "${plaintext}"
 test -s "${encrypted}"
 rm -f -- "${plaintext}"
+rm -f -- "${passphrase_file}"
 
 "${restore_command}" "${encrypted}" "${restore_target}"
 rm -rf -- "${restore_target}"
