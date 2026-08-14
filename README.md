@@ -771,6 +771,39 @@ section requires `--allow-active-hold`, no existing hold/top-up, valid bounded
 future timestamps, and a live read confirming the inverter is currently in
 Utility-first mode. Invalid or expired ownership state is never restored.
 
+### Encrypted Off-Site Backups
+
+Production can wrap the selective recovery payload in AES-256 encryption,
+verify it through an isolated offline restore, and upload only the ciphertext
+to Backblaze B2. Install the root-owned service with:
+
+```bash
+./install_growatt_backup_service.sh
+```
+
+Copy `deploy/backup.env.example` to `/etc/growatt-guard/backup.env`, replace
+every placeholder using credentials kept outside the repository, and set mode
+`0600`. The service fails closed when encryption or B2 configuration is
+missing. It never includes `.env`, Growatt sessions, provider identifiers, or
+active Utility ownership.
+
+Run and verify one backup before enabling the nightly timer:
+
+```bash
+sudo systemctl start growatt-backup.service
+sudo journalctl -u growatt-backup.service -n 50 --no-pager
+sudo systemctl enable --now growatt-backup.timer
+```
+
+For an isolated restore rehearsal, use a new scratch directory outside the
+live application tree:
+
+```bash
+sudo growatt-restore-backup \
+  /opt/growatt-guard/backups/growatt-YYYYMMDDTHHMMSSZ.backup.json.gpg \
+  /tmp/growatt-restore-rehearsal
+```
+
 To use a 30-minute refresh interval instead:
 
 ```bash
@@ -861,7 +894,7 @@ calling Growatt. Targets must use loopback HTTP endpoints and explicit Docker
 container names:
 
 ```text
-APP_HEALTH_TARGETS=Summa|http://127.0.0.1:5080/health|summa-app-1,Garage|http://127.0.0.1:5081/health|garage-app-1,Family OS|http://127.0.0.1:5082/health|family-os-app-1
+APP_HEALTH_TARGETS=Summa|http://127.0.0.1:5080/health|summa-app-1,Garage|http://127.0.0.1:5081/health|garage-app-1,Family OS|http://127.0.0.1:5082/health|family-os-app-1,ChainSum|http://127.0.0.1:5083/health/ready|chainsum-app-1
 APP_HEALTH_FAILURE_THRESHOLD=3
 APP_HEALTH_TIMEOUT_SECONDS=5
 APP_HEALTH_RECOVERY_ENABLED=true
