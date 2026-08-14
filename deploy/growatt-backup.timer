@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly encrypted Growatt operational recovery backup
+
+[Timer]
+OnCalendar=*-*-* 04:05:00 Africa/Lagos
+Persistent=true
+RandomizedDelaySec=5m
+Unit=growatt-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -466,6 +466,46 @@ active:
 journalctl -u growatt-app-health-monitor.service --since today
 ```
 
+Include ChainSum's readiness endpoint in the allowlisted targets:
+
+```text
+ChainSum|http://127.0.0.1:5083/health/ready|chainsum-app-1
+```
+
+## Encrypted Growatt Recovery Backups
+
+The scheduled recovery backup is deliberately selective: durable operational
+history, calibration evidence, the mode audit, and schedule overrides are
+included; credentials, session state, notifications, command locks, and active
+Utility ownership are excluded.
+
+Install the service, create `/etc/growatt-guard/backup.env` from
+`deploy/backup.env.example` with root ownership and mode `0600`, then prove a
+manual run before enabling the timer:
+
+```bash
+cd ~/automation
+./install_growatt_backup_service.sh
+sudo systemctl start growatt-backup.service
+sudo journalctl -u growatt-backup.service -n 50 --no-pager
+sudo systemctl enable --now growatt-backup.timer
+systemctl list-timers growatt-backup.timer --no-pager
+```
+
+A successful job means the JSON recovery set was encrypted, decrypted into a
+temporary location, restored through the application's validation path without
+network access, and accepted by B2. The upload contains ciphertext only. Local
+encrypted artifacts default to 14-day retention.
+
+Periodically rehearse recovery into a brand-new scratch directory and delete
+that plaintext scratch data when review is complete:
+
+```bash
+sudo growatt-restore-backup \
+  /opt/growatt-guard/backups/growatt-YYYYMMDDTHHMMSSZ.backup.json.gpg \
+  /tmp/growatt-restore-rehearsal
+```
+
 ## Discord Control Bot
 
 The control bot is optional and separate from the send-only Discord webhook. It should only be invited to a private control channel and allowlisted to your Discord user ID.
