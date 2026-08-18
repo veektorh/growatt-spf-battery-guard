@@ -468,6 +468,98 @@ class IdempotencyTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertIsNone(state)
 
+    def test_preserve_battery_clears_hold_on_definite_growatt_failure(self):
+        from growatt_guard.exceptions import GrowattGuardError
+        from growatt_guard.modes import command_preserve_battery
+        from growatt_guard.state import read_utility_hold_state
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from tempfile import TemporaryDirectory
+
+        config = make_config(
+            low_battery_soc=50,
+            dry_run=False,
+            discord_notify_success=False,
+            preserve_utility_max_attempts=2,
+            preserve_utility_retry_delay_seconds=0,
+        )
+        status = {
+            "device": {"capacity": "40 %"},
+            "storage_params": {"storageBean": {"outputConfig": "0"}},
+        }
+        lost = GrowattGuardError(
+            "Growatt utility mode command failed: {'msg': 'inv_set_storage_lost', 'success': False}"
+        )
+        with TemporaryDirectory() as tmpdir:
+            hold_file = Path(tmpdir) / "utility_hold.json"
+            with self._audit_patch(tmpdir)[0], self._audit_patch(tmpdir)[1], \
+                 patch("growatt_guard.state.UTILITY_HOLD_FILE", hold_file), \
+                 patch("growatt_guard.modes.load_context", return_value=(object(), DeviceRef("p", "s", "storage", {}), status)), \
+                 patch("growatt_guard.modes.set_mode", side_effect=lost), \
+                 patch("growatt_guard.modes.ensure_not_paused", return_value=False), \
+                 redirect_stdout(StringIO()):
+                with self.assertRaises(GrowattGuardError):
+                    command_preserve_battery(config)
+                state = read_utility_hold_state()
+            audit = (Path(tmpdir) / "mode_decisions.csv").read_text(encoding="utf-8")
+        self.assertIsNone(state)
+        self.assertIn("switch-to-utility-failed", audit)
+
+    def test_preserve_battery_keeps_hold_on_ambiguous_mode_write_failure(self):
+        from growatt_guard.exceptions import GrowattGuardError
+        from growatt_guard.modes import command_preserve_battery
+        from growatt_guard.state import read_utility_hold_state
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from tempfile import TemporaryDirectory
+
+        config = make_config(
+            low_battery_soc=50,
+            dry_run=False,
+            discord_notify_success=False,
+            preserve_utility_max_attempts=1,
+        )
+        status = {
+            "device": {"capacity": "40 %"},
+            "storage_params": {"storageBean": {"outputConfig": "0"}},
+        }
+        timeout = GrowattGuardError("Growatt utility mode request failed: timed out")
+        with TemporaryDirectory() as tmpdir:
+            hold_file = Path(tmpdir) / "utility_hold.json"
+            with self._audit_patch(tmpdir)[0], self._audit_patch(tmpdir)[1], \
+                 patch("growatt_guard.state.UTILITY_HOLD_FILE", hold_file), \
+                 patch("growatt_guard.modes.load_context", return_value=(object(), DeviceRef("p", "s", "storage", {}), status)), \
+                 patch("growatt_guard.modes.set_mode", side_effect=timeout), \
+                 patch("growatt_guard.modes.ensure_not_paused", return_value=False), \
+                 redirect_stdout(StringIO()):
+                with self.assertRaises(GrowattGuardError):
+                    command_preserve_battery(config)
+                state = read_utility_hold_state()
+        self.assertIsNotNone(state)
+        self.assertEqual(state["ownership"], "owned")
+        self.assertEqual(state["target_soc"], 50.0)
+        self.assertEqual(state["start_soc"], 40.0)
+
+    def test_is_definite_growatt_command_failure_markers(self):
+        from growatt_guard.exceptions import GrowattGuardError
+        from growatt_guard.modes import _is_definite_growatt_command_failure
+
+        self.assertTrue(
+            _is_definite_growatt_command_failure(
+                GrowattGuardError("Growatt utility mode command failed: {'msg': 'inv_set_storage_lost', 'success': False}")
+            )
+        )
+        self.assertTrue(
+            _is_definite_growatt_command_failure(
+                GrowattGuardError('Growatt utility mode command failed: {"success": False}')
+            )
+        )
+        self.assertFalse(
+            _is_definite_growatt_command_failure(
+                GrowattGuardError("Growatt utility mode request failed: timed out")
+            )
+        )
+
     def test_force_utility_skips_when_already_utility(self):
         from growatt_guard.modes import command_force_utility
         from contextlib import redirect_stdout

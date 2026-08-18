@@ -224,6 +224,18 @@ def _record_preserve_utility_hold(
     )
 
 
+_DEFINITE_GROWATT_FAILURE_MARKERS = (
+    "'success': False",
+    '"success": False',
+)
+
+
+def _is_definite_growatt_command_failure(exc: BaseException) -> bool:
+    """True when Growatt rejected the write, not when the outcome is ambiguous."""
+    message = str(exc)
+    return any(marker in message for marker in _DEFINITE_GROWATT_FAILURE_MARKERS)
+
+
 def _set_preserve_utility_mode(api, config: Config, device) -> tuple[dict, int]:
     max_attempts = max(1, int(config.preserve_utility_max_attempts))
     retry_delay = max(0.0, float(config.preserve_utility_retry_delay_seconds))
@@ -463,6 +475,8 @@ def command_preserve_battery(config: Config) -> int:
             logging.info("Morning solar bridge retained Utility: %s", evidence_reason)
         logging.info("Battery SOC %.1f%% from %s is below %.1f%%; switching to Utility.", soc, path, threshold)
         # Record ownership before the cloud write so an ambiguous response can be reconciled safely.
+        # Definite Growatt rejections (success: False) clear that hold so the next preserve retry
+        # is not blocked by topup-complete-check holding the mode lock.
         _record_preserve_utility_hold(
             config,
             soc,
@@ -487,6 +501,17 @@ def command_preserve_battery(config: Config) -> int:
                     f"{bridge_note}"
                 ),
             )
+            if _is_definite_growatt_command_failure(exc):
+                logging.warning(
+                    "preserve-battery: clearing Utility hold after definite Growatt rejection: %s",
+                    exc,
+                )
+                clear_utility_hold_state()
+            else:
+                logging.warning(
+                    "preserve-battery: keeping Utility hold after ambiguous mode-write failure: %s",
+                    exc,
+                )
             raise
         retry_note = f"; attempts={attempts_used}" if attempts_used > 1 else ""
         append_mode_audit(
