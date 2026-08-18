@@ -5,6 +5,7 @@ schedule_overrides.json
 dashboard.html
 dashboard.json
 .venv/
+uv.lock
 .deploy/
 dist/
 build/
