@@ -81,6 +81,9 @@ class Config:
     battery_charge_target_soc: float = 0.0
     preserve_utility_max_attempts: int = 2
     preserve_utility_retry_delay_seconds: float = 30.0
+    mode_verify_delay_seconds: float = 5.0
+    mode_verify_attempts: int = 4
+    mode_verify_retry_delay_seconds: float = 10.0
     morning_solar_bridge_enabled: bool = False
     morning_solar_bridge_safety_floor_soc: float = 35.0
     morning_solar_bridge_start_hour: int = 6
@@ -313,6 +316,9 @@ def load_config() -> Config:
         battery_charge_target_soc=float(env("BATTERY_CHARGE_TARGET_SOC", "0")),
         preserve_utility_max_attempts=int(env("PRESERVE_UTILITY_MAX_ATTEMPTS", "2")),
         preserve_utility_retry_delay_seconds=float(env("PRESERVE_UTILITY_RETRY_DELAY_SECONDS", "30")),
+        mode_verify_delay_seconds=float(env("MODE_VERIFY_DELAY_SECONDS", "5")),
+        mode_verify_attempts=int(env("MODE_VERIFY_ATTEMPTS", "4")),
+        mode_verify_retry_delay_seconds=float(env("MODE_VERIFY_RETRY_DELAY_SECONDS", "10")),
         morning_solar_bridge_enabled=str_to_bool(
             env("MORNING_SOLAR_BRIDGE_ENABLED"), default=False
         ),
