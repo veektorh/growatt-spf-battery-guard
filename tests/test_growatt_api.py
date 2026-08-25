@@ -676,32 +676,32 @@ class VerifyModeSwitchTests(unittest.TestCase):
         api = object()
         with patch("growatt_guard.growatt_api.read_device_status", return_value=self._status("2")), \
              patch("growatt_guard.growatt_api.time.sleep"):
-            result = verify_mode_switch(api, self._device(), "utility", delay_seconds=0)
+            result = verify_mode_switch(api, self._device(), "utility", delay_seconds=0, attempts=1)
         self.assertTrue(result)
 
     def test_returns_true_when_config_matches_sbu(self):
         api = object()
         with patch("growatt_guard.growatt_api.read_device_status", return_value=self._status("0")), \
              patch("growatt_guard.growatt_api.time.sleep"):
-            result = verify_mode_switch(api, self._device(), "sbu", delay_seconds=0)
+            result = verify_mode_switch(api, self._device(), "sbu", delay_seconds=0, attempts=1)
         self.assertTrue(result)
 
     def test_returns_false_when_config_does_not_match(self):
         api = object()
         with patch("growatt_guard.growatt_api.read_device_status", return_value=self._status("0")), \
              patch("growatt_guard.growatt_api.time.sleep"):
-            result = verify_mode_switch(api, self._device(), "utility", delay_seconds=0)
+            result = verify_mode_switch(api, self._device(), "utility", delay_seconds=0, attempts=1)
         self.assertFalse(result)
 
     def test_returns_none_when_status_read_fails(self):
         api = object()
         with patch("growatt_guard.growatt_api.read_device_status", side_effect=Exception("network")), \
              patch("growatt_guard.growatt_api.time.sleep"):
-            result = verify_mode_switch(api, self._device(), "utility", delay_seconds=0)
+            result = verify_mode_switch(api, self._device(), "utility", delay_seconds=0, attempts=1)
         self.assertIsNone(result)
 
     def test_returns_none_for_unknown_mode(self):
-        result = verify_mode_switch(None, self._device(), "unknown_mode", delay_seconds=0)
+        result = verify_mode_switch(None, self._device(), "unknown_mode", delay_seconds=0, attempts=1)
         self.assertIsNone(result)
 
     def test_expected_configs(self):
@@ -712,8 +712,60 @@ class VerifyModeSwitchTests(unittest.TestCase):
         api = object()
         with patch("growatt_guard.growatt_api.read_device_status", return_value=self._status("2")), \
              patch("growatt_guard.growatt_api.time.sleep") as mock_sleep:
-            verify_mode_switch(api, self._device(), "utility", delay_seconds=3)
+            verify_mode_switch(api, self._device(), "utility", delay_seconds=3, attempts=1)
         mock_sleep.assert_called_once_with(3)
+
+    def test_retries_until_status_catches_up(self):
+        api = object()
+        with patch(
+            "growatt_guard.growatt_api.read_device_status",
+            side_effect=[self._status("0"), self._status("0"), self._status("2")],
+        ) as mock_read, patch("growatt_guard.growatt_api.time.sleep") as mock_sleep:
+            result = verify_mode_switch(
+                api,
+                self._device(),
+                "utility",
+                delay_seconds=5,
+                attempts=4,
+                retry_delay_seconds=10,
+            )
+        self.assertTrue(result)
+        self.assertEqual(mock_read.call_count, 3)
+        self.assertEqual(mock_sleep.call_args_list, [((5,),), ((10,),), ((10,),)])
+
+    def test_returns_false_after_exhausted_mismatch_retries(self):
+        api = object()
+        with patch(
+            "growatt_guard.growatt_api.read_device_status",
+            return_value=self._status("0"),
+        ) as mock_read, patch("growatt_guard.growatt_api.time.sleep"):
+            result = verify_mode_switch(
+                api,
+                self._device(),
+                "utility",
+                delay_seconds=0,
+                attempts=3,
+                retry_delay_seconds=0,
+            )
+        self.assertFalse(result)
+        self.assertEqual(mock_read.call_count, 3)
+
+    def test_retries_through_transient_read_failures(self):
+        api = object()
+        with patch(
+            "growatt_guard.growatt_api.read_device_status",
+            side_effect=[Exception("network"), self._status("2")],
+        ) as mock_read, patch("growatt_guard.growatt_api.time.sleep"):
+            result = verify_mode_switch(
+                api,
+                self._device(),
+                "utility",
+                delay_seconds=0,
+                attempts=3,
+                retry_delay_seconds=0,
+            )
+        self.assertTrue(result)
+        self.assertEqual(mock_read.call_count, 2)
 
 
 class RuntimeEstimationTests(unittest.TestCase):

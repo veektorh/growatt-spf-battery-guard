@@ -88,6 +88,8 @@ GROWATT_MODE_DRIVER=spf5000
 
 `preserve-battery` retries transient Utility-switch failures twice by default (`PRESERVE_UTILITY_MAX_ATTEMPTS=2`, `PRESERVE_UTILITY_RETRY_DELAY_SECONDS=30`).
 
+After a mode write, the guard re-reads `outputConfig` with a short delay and a few retries (`MODE_VERIFY_DELAY_SECONDS=5`, `MODE_VERIFY_ATTEMPTS=4`, `MODE_VERIFY_RETRY_DELAY_SECONDS=10`) so stale Growatt cloud status does not raise a false "Switch not confirmed" alert.
+
 The script sends `storage_spf5000_ac_output_source` through Growatt's `storageSPF5000Set` action on `tcpSet.do`:
 
 ```text

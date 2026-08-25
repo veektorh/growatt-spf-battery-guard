@@ -259,6 +259,18 @@ def _set_preserve_utility_mode(api, config: Config, device) -> tuple[dict, int]:
     raise GrowattGuardError("Preserve-battery Utility switch retry loop exited unexpectedly.")
 
 
+def _confirm_mode_switch(api, config: Config, device, mode: str) -> bool | None:
+    """Re-read outputConfig with configured delay/retry to absorb Growatt status lag."""
+    return verify_mode_switch(
+        api,
+        device,
+        mode,
+        delay_seconds=config.mode_verify_delay_seconds,
+        attempts=config.mode_verify_attempts,
+        retry_delay_seconds=config.mode_verify_retry_delay_seconds,
+    )
+
+
 _MODE_CHANGING_COMMANDS = {
     "preserve-battery",
     "utility-check",
@@ -532,7 +544,7 @@ def command_preserve_battery(config: Config) -> int:
         print(f"SOC {soc:g}% < {threshold:g}%; Utility command result: {result}")
         print(f"Threshold reason: {threshold_decision.reason}")
         if not config.dry_run:
-            confirmed = verify_mode_switch(api, device, "utility")
+            confirmed = _confirm_mode_switch(api, config, device, "utility")
             if confirmed is False:
                 logging.warning("preserve-battery: Utility switch not confirmed by re-read.")
                 clear_utility_hold_state()
@@ -626,7 +638,7 @@ def command_force_utility(config: Config, reason: str = "") -> int:
         send_discord_embed(config, embed_mode_switch_utility(soc, previous_mode, reason=reason))
     print(f"Utility command result: {result}")
     if not config.dry_run:
-        confirmed = verify_mode_switch(api, device, "utility")
+        confirmed = _confirm_mode_switch(api, config, device, "utility")
         if confirmed is False:
             logging.warning("force-utility: Utility switch not confirmed by re-read.")
             if config.discord_notify_failure:
@@ -698,7 +710,7 @@ def command_return_sbu(
         send_discord_embed(config, embed_mode_switch_sbu(soc, previous_mode))
     print(f"SBU command result: {result}")
     if not config.dry_run:
-        confirmed = verify_mode_switch(api, device, "sbu")
+        confirmed = _confirm_mode_switch(api, config, device, "sbu")
         if confirmed is False:
             logging.warning("return-sbu: SBU switch not confirmed by re-read.")
             if config.discord_notify_failure:

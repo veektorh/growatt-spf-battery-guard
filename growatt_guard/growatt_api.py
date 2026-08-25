@@ -714,36 +714,88 @@ def verify_mode_switch(
     api: Any,
     device: DeviceRef,
     mode: str,
-    delay_seconds: float = 3.0,
+    delay_seconds: float = 5.0,
+    attempts: int = 4,
+    retry_delay_seconds: float | None = None,
 ) -> bool | None:
     """Re-read outputConfig after a mode switch to confirm the inverter responded.
 
-    Waits delay_seconds, then reads device status and checks outputConfig.
-    Returns True if confirmed, False if the wrong value is found, None if
-    the status cannot be read or the mode is not recognised.
+    Waits delay_seconds before the first status read, then retries up to
+    ``attempts`` times when Growatt still returns the previous outputConfig
+    (cloud status often lags the accepted write). Subsequent waits use
+    ``retry_delay_seconds`` (defaults to ``delay_seconds``).
+
+    Returns True if confirmed, False if a readable status still shows the wrong
+    value after all attempts, None if the status cannot be read or the mode is
+    not recognised.
     """
     expected = SPF_EXPECTED_OUTPUT_CONFIG.get(mode)
     if expected is None:
         return None
-    time.sleep(delay_seconds)
-    try:
-        fresh_status = read_device_status(api, device)
-    except Exception:  # noqa: BLE001
-        logging.warning("verify_mode_switch: could not re-read device status after %s switch.", mode)
-        return None
-    result = extract_spf_output_source(fresh_status)
-    if result is None:
-        logging.warning("verify_mode_switch: outputConfig not found after %s switch.", mode)
-        return None
-    raw, label, path = result
-    if raw == expected:
-        logging.info("Mode switch verified: outputConfig=%s (%s) from %s.", raw, label, path)
-        return True
-    logging.warning(
-        "Mode switch NOT confirmed: expected outputConfig=%s, got %s (%s) from %s.",
-        expected,
-        raw,
-        label,
-        path,
-    )
-    return False
+    total_attempts = max(1, int(attempts))
+    first_delay = max(0.0, float(delay_seconds))
+    between_delay = first_delay if retry_delay_seconds is None else max(0.0, float(retry_delay_seconds))
+    saw_mismatch = False
+    for attempt in range(1, total_attempts + 1):
+        wait = first_delay if attempt == 1 else between_delay
+        if wait:
+            time.sleep(wait)
+        try:
+            fresh_status = read_device_status(api, device)
+        except Exception:  # noqa: BLE001
+            logging.warning(
+                "verify_mode_switch: could not re-read device status after %s switch "
+                "(attempt %s/%s).",
+                mode,
+                attempt,
+                total_attempts,
+            )
+            continue
+        result = extract_spf_output_source(fresh_status)
+        if result is None:
+            logging.warning(
+                "verify_mode_switch: outputConfig not found after %s switch (attempt %s/%s).",
+                mode,
+                attempt,
+                total_attempts,
+            )
+            continue
+        raw, label, path = result
+        if raw == expected:
+            if attempt > 1:
+                logging.info(
+                    "Mode switch verified on attempt %s/%s: outputConfig=%s (%s) from %s.",
+                    attempt,
+                    total_attempts,
+                    raw,
+                    label,
+                    path,
+                )
+            else:
+                logging.info(
+                    "Mode switch verified: outputConfig=%s (%s) from %s.",
+                    raw,
+                    label,
+                    path,
+                )
+            return True
+        saw_mismatch = True
+        logging.warning(
+            "Mode switch NOT confirmed yet: expected outputConfig=%s, got %s (%s) from %s "
+            "(attempt %s/%s).",
+            expected,
+            raw,
+            label,
+            path,
+            attempt,
+            total_attempts,
+        )
+    if saw_mismatch:
+        logging.warning(
+            "Mode switch NOT confirmed after %s attempt(s): expected outputConfig=%s for %s.",
+            total_attempts,
+            expected,
+            mode,
+        )
+        return False
+    return None
