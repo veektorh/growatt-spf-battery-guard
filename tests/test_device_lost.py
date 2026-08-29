@@ -115,7 +115,7 @@ class BatteryAlertStaleTests(unittest.TestCase):
 
 
 class HealthCheckStaleTests(unittest.TestCase):
-    def test_health_check_fails_when_inverter_is_not_reporting(self):
+    def test_health_check_warns_when_inverter_is_not_reporting(self):
         config = make_config(dry_run=False, discord_webhook_url="")
         status = load_fixture("spf_lost_device.json")
         schedule = {
@@ -154,8 +154,9 @@ class HealthCheckStaleTests(unittest.TestCase):
             command_health_check(config)
 
         output = stdout.getvalue()
-        self.assertIn("Result: FAIL", output)
-        self.assertIn("[FAIL] Inverter reporting:", output)
+        # WARN rather than FAIL so a real outage cannot block deployments.
+        self.assertIn("Result: WARN", output)
+        self.assertIn("[WARN] Inverter reporting:", output)
         self.assertIn("2026-08-28 13:55:51", output)
         # The frozen numbers must not be presented as healthy readings.
         self.assertIn("[WARN] Battery SOC:", output)

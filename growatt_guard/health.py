@@ -338,7 +338,11 @@ def command_health_check(config: Config, notify: bool = False) -> int:
             checks.append(
                 HealthCheckItem(
                     "Inverter reporting",
-                    "FAIL",
+                    # WARN, not FAIL: the deploy script aborts on a FAIL health result,
+                    # and an inverter that is off the network would otherwise block every
+                    # deploy until it came back. The write guard does not depend on this
+                    # severity, and a dedicated Discord alert already fires.
+                    "WARN",
                     "inverter is not reporting to Growatt"
                     + (f"; last seen {last_seen}" if last_seen else "")
                     + ". Readings below are the last snapshot, not live, and mode changes are blocked.",
