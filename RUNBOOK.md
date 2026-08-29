@@ -92,7 +92,8 @@ the plant's timezone with the server's and must not be compared to each other.
 
 While `lost` is set, `preserve-battery`, `return-sbu`, `watchdog-sbu` and
 `auto-topup-check` refuse to run, `battery-alert` stops reasoning about the frozen SOC,
-and `health-check` reports `[FAIL] Inverter reporting`. One Discord alert is sent when
+and `health-check` reports `[WARN] Inverter reporting`. It is a warning rather than a
+failure so that an outage cannot block deployments. One Discord alert is sent when
 the inverter goes quiet and one when it comes back, tracked in `state/device_lost.json`.
 
 Nothing needs clearing by hand — the state file is removed on the first reading that
