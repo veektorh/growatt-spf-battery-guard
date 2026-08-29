@@ -84,7 +84,9 @@ from growatt_guard.growatt_telemetry import (
     estimate_topup_for_sunrise,
     extract_battery_status,
     extract_channel_metric_sum,
+    extract_device_lost,
     extract_first_metric,
+    extract_last_seen_text,
     extract_max_metric,
     extract_soc,
     extract_spf_output_source,
@@ -442,6 +444,9 @@ def summarize_status(
         f"device={status.get('device_sn')}",
         f"type={status.get('device_type') or 'unknown'}",
     ]
+    if extract_device_lost(status):
+        last_seen = extract_last_seen_text(status)
+        parts.append("lost=true" + (f" (last seen {last_seen})" if last_seen else ""))
     if soc_result:
         soc, path = soc_result
         parts.append(f"soc={soc:g}% ({path})")

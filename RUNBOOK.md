@@ -83,6 +83,21 @@ cd ~/automation
 
 Mode-changing commands use a local `state/mode_command.lock` file to avoid overlapping Growatt writes.
 
+## Inverter Not Reporting
+
+When the inverter loses its connection to Growatt, the cloud keeps serving the last
+snapshot rather than reporting an outage, so SOC and output mode stay plausible while
+being hours old. The payload's `lost` flag is the signal; the timestamps beside it mix
+the plant's timezone with the server's and must not be compared to each other.
+
+While `lost` is set, `preserve-battery`, `return-sbu`, `watchdog-sbu` and
+`auto-topup-check` refuse to run, `battery-alert` stops reasoning about the frozen SOC,
+and `health-check` reports `[FAIL] Inverter reporting`. One Discord alert is sent when
+the inverter goes quiet and one when it comes back, tracked in `state/device_lost.json`.
+
+Nothing needs clearing by hand — the state file is removed on the first reading that
+shows the inverter reporting again.
+
 ## Growatt Account Lockout (507)
 
 Growatt locks an account for ~24h after too many logins in a short window. The

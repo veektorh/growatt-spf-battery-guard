@@ -6,11 +6,14 @@ from typing import Any
 import requests
 
 from growatt_guard.state import (
+    clear_device_lost_state,
     clear_growatt_cloud_failure_state,
     clear_pvoutput_failure_state,
+    read_device_lost_state,
     read_growatt_cloud_failure_state,
     read_pvoutput_failure_state,
     utc_now,
+    write_device_lost_state,
     write_growatt_cloud_failure_state,
     write_pvoutput_failure_state,
 )
@@ -210,6 +213,28 @@ def embed_cloud_failure(command: str, count: int, threshold: int, message: str) 
     return _embed("⚠️ Growatt cloud failures", _COLOR_FAIL, fields)
 
 
+def embed_device_lost(command: str, last_seen: str | None) -> dict:
+    fields = [
+        _f("Blocked command", command),
+        _f("Last seen", last_seen or "unknown"),
+        _f(
+            "Effect",
+            "Growatt is still serving the last snapshot, so SOC and mode readings are "
+            "frozen. Mode changes are blocked until the inverter reports again.",
+            inline=False,
+        ),
+    ]
+    return _embed("\u26a0\ufe0f Inverter not reporting", _COLOR_FAIL, fields)
+
+
+def embed_device_reporting(last_seen: str | None) -> dict:
+    return _embed(
+        "\u2705 Inverter reporting again",
+        _COLOR_OK,
+        [_f("Last seen while lost", last_seen or "unknown")],
+    )
+
+
 def embed_cloud_recovered(count: int) -> dict:
     return _embed("✅ Growatt cloud recovered", _COLOR_OK, [_f("Consecutive failures", str(count))])
 
@@ -323,6 +348,39 @@ def record_growatt_cloud_failure(config: Any, command: str, message: str) -> Non
             state["alerted"] = True
 
     write_growatt_cloud_failure_state(state)
+
+
+def record_device_lost(config: Any, command: str, last_seen: str | None) -> None:
+    # Kept separate from the cloud-failure streak: the cloud is answering fine, it is
+    # the inverter that stopped reporting, and the two need different fixes.
+    state = read_device_lost_state() or {}
+    alerted = bool(state.get("alerted"))
+    state.update(
+        {
+            "alerted": alerted,
+            "first_seen_lost_at": state.get("first_seen_lost_at") or utc_now().isoformat(),
+            "last_checked_at": utc_now().isoformat(),
+            "last_command": command,
+            "last_seen": last_seen,
+        }
+    )
+
+    if not alerted and config.discord_notify_failure:
+        if send_discord_embed(config, embed_device_lost(command, last_seen)):
+            state["alerted"] = True
+
+    write_device_lost_state(state)
+
+
+def record_device_reporting(config: Any) -> None:
+    state = read_device_lost_state()
+    if not state:
+        return
+    was_alerted = bool(state.get("alerted"))
+    last_seen = state.get("last_seen")
+    clear_device_lost_state()
+    if was_alerted and config.discord_notify_failure:
+        send_discord_embed(config, embed_device_reporting(last_seen))
 
 
 def record_growatt_cloud_success(config: Any) -> None:
