@@ -1,0 +1,33 @@
+{
+  "device": {
+    "capacity": "87 %",
+    "deviceType": "storage",
+    "deviceStatus": "-1",
+    "lost": true
+  },
+  "storage_energy_overview": {
+    "eChargeToday": "0",
+    "eToUserToday": "0",
+    "epvTotal": "4153.8",
+    "useEnergyToday": "0"
+  },
+  "storage_params": {
+    "storageBean": {
+      "lost": true,
+      "lastUpdateTimeText": "2026-08-28 13:55:51",
+      "loadPercent": 21.9,
+      "outPutPower": 1204,
+      "outputConfig": 0,
+      "sysTime": "2026-08-28 04:10"
+    },
+    "storageDetailBean": {
+      "lost": true,
+      "time": "2026-08-28 13:55:45",
+      "bmsSoc": 87,
+      "pCharge": 1937,
+      "pDischarge": 0,
+      "statusText": "PV charge and Discharge",
+      "vBat": 54.12
+    }
+  }
+}

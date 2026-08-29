@@ -16,7 +16,7 @@ from growatt_guard.growatt_api import (
     parse_number,
     set_mode,
 )
-from growatt_guard.modes import command_return_sbu
+from growatt_guard.modes import command_return_sbu, ensure_device_reporting
 from growatt_guard.load_learning import select_overnight_load
 from growatt_guard.notifications import (
     embed_auto_topup_started,
@@ -177,6 +177,8 @@ def command_auto_topup_check(config: Config) -> int:
         return 0
 
     api, device, status = load_context(config)
+    if ensure_device_reporting(config, "auto-topup-check", status):
+        return 0
     soc_result = extract_soc(status)
     if not soc_result:
         raise GrowattGuardError("Could not read SOC for auto-topup check.")

@@ -20,7 +20,9 @@ from growatt_guard.forecast_calibration import (
 )
 from growatt_guard.growatt_api import (
     describe_status_output_source,
+    extract_device_lost,
     extract_first_metric,
+    extract_last_seen_text,
     extract_soc,
     extract_spf_output_source,
     extract_status_soc,
@@ -39,6 +41,8 @@ from growatt_guard.notifications import (
     embed_sbu_return_blocked,
     embed_watchdog_failed,
     embed_watchdog_repaired,
+    record_device_lost,
+    record_device_reporting,
     send_discord_embed,
     send_discord_message,
 )
@@ -109,6 +113,35 @@ def _solar_bridge_evidence_allows(config: Config, now: dt.datetime) -> tuple[boo
         scorecard.recommendation_status == "review-solar-bridge",
         scorecard.recommendation,
     )
+
+
+def ensure_device_reporting(config: Config, command: str, status: dict) -> bool:
+    # Growatt keeps returning the last snapshot after an inverter drops off the
+    # network, so every reading stays plausible while being hours old. Acting on it
+    # is worse than doing nothing: the mode write goes nowhere and the audit trail
+    # records a switch that never happened.
+    if not extract_device_lost(status):
+        record_device_reporting(config)
+        return False
+
+    last_seen = extract_last_seen_text(status)
+    message = (
+        f"Skipped `{command}` because the inverter is not reporting to Growatt"
+        + (f" (last seen {last_seen})." if last_seen else ".")
+    )
+    logging.warning(message)
+    append_mode_audit(
+        config,
+        command,
+        soc=extract_status_soc(status),
+        previous_mode=describe_status_output_source(status),
+        action="device-lost",
+        result="skipped",
+        note=message,
+    )
+    record_device_lost(config, command, last_seen)
+    print(message)
+    return True
 
 
 def _sbu_return_guard_blocks(
@@ -379,6 +412,8 @@ def command_preserve_battery(config: Config) -> int:
         return 0
 
     api, device, status = load_context(config)
+    if ensure_device_reporting(config, "preserve-battery", status):
+        return 0
     soc_result = extract_soc(status)
     if not soc_result:
         raise GrowattGuardError("Could not find battery SOC in Growatt response. Run the probe command.")
@@ -655,6 +690,8 @@ def command_return_sbu(
         return 0
 
     api, device, status = load_context(config)
+    if ensure_device_reporting(config, "return-sbu", status):
+        return 0
     soc = extract_status_soc(status)
     previous_mode = describe_status_output_source(status)
 
@@ -725,6 +762,8 @@ def command_watchdog_sbu(config: Config) -> int:
         return 0
 
     api, device, status = load_context(config)
+    if ensure_device_reporting(config, "watchdog-sbu", status):
+        return 0
     output_source = extract_spf_output_source(status)
     soc = extract_status_soc(status)
     previous_mode = describe_status_output_source(status)

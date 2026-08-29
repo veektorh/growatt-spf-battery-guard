@@ -11,7 +11,13 @@ import growatt_guard.state as state_module
 from growatt_guard.config import Config
 from growatt_guard.dashboard import DASHBOARD_FILE, dashboard_freshness
 from growatt_guard.exceptions import GrowattGuardError
-from growatt_guard.growatt_api import extract_soc, extract_spf_output_source, load_context
+from growatt_guard.growatt_api import (
+    extract_device_lost,
+    extract_last_seen_text,
+    extract_soc,
+    extract_spf_output_source,
+    load_context,
+)
 from growatt_guard.notifications import send_discord_embed, send_discord_message
 from growatt_guard.operational_status import build_forecast_calibration_status, build_sbu_guard_status
 from growatt_guard.pvoutput import read_pvoutput_state
@@ -326,17 +332,36 @@ def command_health_check(config: Config, notify: bool = False) -> int:
             )
         )
 
+        device_lost = extract_device_lost(status)
+        last_seen = extract_last_seen_text(status)
+        if device_lost:
+            checks.append(
+                HealthCheckItem(
+                    "Inverter reporting",
+                    "FAIL",
+                    "inverter is not reporting to Growatt"
+                    + (f"; last seen {last_seen}" if last_seen else "")
+                    + ". Readings below are the last snapshot, not live, and mode changes are blocked.",
+                )
+            )
+        else:
+            checks.append(HealthCheckItem("Inverter reporting", "OK", "inverter is reporting to Growatt."))
+
+        # A frozen reading is still a real number, so it must not be reported as OK.
+        reading_status = "WARN" if device_lost else "OK"
         soc_result = extract_soc(status)
         if soc_result:
             soc, path = soc_result
-            checks.append(HealthCheckItem("Battery SOC", "OK", f"{soc:g}% from {path}."))
+            suffix = " (stale)" if device_lost else ""
+            checks.append(HealthCheckItem("Battery SOC", reading_status, f"{soc:g}% from {path}{suffix}."))
         else:
             checks.append(HealthCheckItem("Battery SOC", "FAIL", "SOC was not found in the Growatt status response."))
 
         output_source = extract_spf_output_source(status)
         if output_source:
             raw, label, path = output_source
-            checks.append(HealthCheckItem("Output source", "OK", f"{label} [{raw}] from {path}."))
+            suffix = " (stale)" if device_lost else ""
+            checks.append(HealthCheckItem("Output source", reading_status, f"{label} [{raw}] from {path}{suffix}."))
         else:
             checks.append(
                 HealthCheckItem("Output source", "FAIL", "SPF output source was not found in the Growatt status response.")

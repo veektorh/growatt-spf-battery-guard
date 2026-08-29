@@ -348,3 +348,35 @@ def detect_unexpected_grid_bypass(
     return result
 
 
+
+
+def extract_device_lost(data: dict[str, Any]) -> bool:
+    # Growatt keeps serving the last snapshot when an inverter stops reporting, so
+    # freshness cannot be inferred from the values themselves. `lost` is the only
+    # unambiguous signal: the timestamp fields in the same payload mix the plant's
+    # timezone with the server's, and reading them as one would make stale data
+    # look fresh.
+    for path, value in deep_values(data):
+        if path.split(".")[-1] != "lost":
+            continue
+        if isinstance(value, bool):
+            if value:
+                return True
+        elif str(value).strip().lower() == "true":
+            return True
+    return False
+
+
+def extract_last_seen_text(data: dict[str, Any]) -> str | None:
+    # Display only. Reported in the plant's local timezone, unlike the sibling
+    # `time` fields on the fallback beans, so never do arithmetic across them.
+    for wanted_key in ("lastUpdateTimeText", "time"):
+        for path, value in deep_values(data):
+            if path.split(".")[-1] != wanted_key:
+                continue
+            if wanted_key == "time" and "Detail" not in path:
+                continue
+            s = str(value).strip()
+            if s and s[:2] == "20":
+                return s
+    return None

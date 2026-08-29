@@ -11,7 +11,9 @@ from growatt_guard.growatt_api import (
     detect_unexpected_grid_bypass,
     estimate_runtime,
     extract_channel_metric_sum,
+    extract_device_lost,
     extract_first_metric,
+    extract_last_seen_text,
     extract_soc,
     extract_spf_output_source,
     load_context,
@@ -26,6 +28,8 @@ from growatt_guard.notifications import (
     embed_runtime_alert_cleared,
     embed_utility_unavailable_alert,
     embed_waste_alert,
+    record_device_lost,
+    record_device_reporting,
     send_discord_embed,
 )
 from growatt_guard.state import (
@@ -82,6 +86,19 @@ def command_battery_alert(config: Config) -> int:
         print("Battery alert is muted.")
         return 0
     _, _, status = load_context(config)
+    if extract_device_lost(status):
+        # Alerting on a frozen SOC is worse than silence: it either cries wolf or
+        # promises a healthy battery that may since have drained.
+        last_seen = extract_last_seen_text(status)
+        record_device_lost(config, "battery-alert", last_seen)
+        message = "Inverter is not reporting to Growatt" + (
+            f" (last seen {last_seen}); " if last_seen else "; "
+        ) + "skipping battery alert on stale SOC."
+        logging.warning(message)
+        print(message)
+        return 0
+    record_device_reporting(config)
+
     soc_result = extract_soc(status)
     if not soc_result:
         raise GrowattGuardError("Could not find battery SOC in Growatt response. Run the probe command.")
