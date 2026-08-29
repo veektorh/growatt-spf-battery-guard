@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from helpers import make_config
+from growatt_guard.discord_control import MAX_PAUSE_HOURS
 from growatt_power_guard import (
     GrowattGuardError,
     LOCKED_COMMANDS,
@@ -22,6 +23,20 @@ from growatt_power_guard import (
 class PauseTests(unittest.TestCase):
     def test_topup_completion_owns_its_conditional_lock(self):
         self.assertNotIn("topup-complete-check", LOCKED_COMMANDS)
+
+    def test_discord_max_pause_is_accepted_by_pause_state(self):
+        # The Discord layer caps duration on its own; the cap is only meaningful
+        # if the underlying pause state actually accepts it.
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.state.STATE_DIR", Path(tmpdir)), patch(
+            "growatt_guard.state.PAUSE_FILE", Path(tmpdir) / "automation_pause.json"
+        ):
+            state = write_pause_state(MAX_PAUSE_HOURS, "away")
+            read_back = read_pause_state()
+
+        self.assertEqual(MAX_PAUSE_HOURS, 168.0)
+        self.assertIsNotNone(read_back)
+        self.assertEqual(read_back["reason"], "away")
+        self.assertEqual(state["reason"], "away")
 
     def test_write_and_read_pause_state(self):
         with TemporaryDirectory() as tmpdir, patch("growatt_guard.state.STATE_DIR", Path(tmpdir)), patch(
