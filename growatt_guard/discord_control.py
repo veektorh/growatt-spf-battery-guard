@@ -43,6 +43,7 @@ _STATUS_ICON = {"OK": "✅", "WARN": "⚠️", "FAIL": "❌"}
 _CHECK_RE = re.compile(r"^\[(OK|WARN|FAIL)\]\s+([^:]+):\s+(.+)$")
 _HEALTH_EMBED_MAX_PROBLEM_FIELDS = 6
 _HEALTH_EMBED_FIELD_LIMIT = 360
+MAX_PAUSE_HOURS = 168.0
 
 
 def finalize_topup_state_after_sbu(resume_rc: int, sbu_rc: int) -> bool:
@@ -492,8 +493,10 @@ def command_serve_discord_bot(config: Config) -> int:
     @app_commands.describe(hours="Pause duration in hours", reason="Optional reason")
     async def growatt_pause(interaction: discord.Interaction, hours: float, reason: str = "Discord control") -> None:
         async def action() -> None:
-            if hours <= 0 or hours > 24:
-                await interaction.response.send_message("Hours must be greater than 0 and no more than 24.", ephemeral=True)
+            if hours <= 0 or hours > MAX_PAUSE_HOURS:
+                await interaction.response.send_message(
+                    f"Hours must be greater than 0 and no more than {MAX_PAUSE_HOURS:g}.", ephemeral=True
+                )
                 return
             await run_and_send(interaction, "pause", ["pause", "--hours", str(hours), "--reason", reason])
 
