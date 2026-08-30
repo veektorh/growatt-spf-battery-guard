@@ -11,6 +11,7 @@ from growatt_guard.growatt_api import (
     PV_POWER_CHANNELS, PV_TODAY_CHANNELS, deep_values,
     detect_unexpected_grid_bypass, extract_battery_status,
     extract_channel_metric_sum, extract_first_metric, extract_soc,
+    resolve_soc,
     extract_spf_output_source, parse_number,
 )
 from growatt_guard.paths import DATA_HOME
@@ -54,6 +55,9 @@ class DashboardMetrics(TypedDict, total=False):
 
     timestamp: str
     soc: float | None
+    bms_soc: float | None
+    soc_diverged: bool
+    soc_delta: float | None
     mode_raw: str
     mode: str
     battery_status: str
@@ -168,7 +172,8 @@ def _metric_lifetime_text(status: dict[str, Any]) -> str:
 
 
 def extract_dashboard_metric_sources(status: dict[str, Any]) -> dict[str, str]:
-    soc_result = extract_soc(status)
+    resolved = resolve_soc(status)
+    soc_result = resolved.as_tuple()
     output_source = extract_spf_output_source(status)
 
     def first_path(keys: tuple[str, ...]) -> str:
@@ -233,7 +238,8 @@ def _metric_date(row: dict[str, Any]) -> dt.date | None:
 
 def extract_dashboard_metrics(status: dict[str, Any], now: dt.datetime | None = None) -> DashboardMetrics:
     now = now or dt.datetime.now().astimezone()
-    soc_result = extract_soc(status)
+    resolved = resolve_soc(status)
+    soc_result = resolved.as_tuple()
     output_source = extract_spf_output_source(status)
     bypass = detect_unexpected_grid_bypass(status)
     pv_w = _metric_number_or_channel_sum(status, PV_POWER_KEYS, PV_POWER_CHANNELS)
@@ -254,6 +260,10 @@ def extract_dashboard_metrics(status: dict[str, Any], now: dt.datetime | None = 
         "timestamp": now.isoformat(timespec="seconds"),
         "soc": _rounded(soc_result[0] if soc_result else None),
         "soc_source": soc_result[1] if soc_result else "",
+        "bms_soc": _rounded(resolved.bms),
+        "bms_soc_source": resolved.bms_path,
+        "soc_diverged": bool(resolved.diverged),
+        "soc_delta": _rounded(resolved.delta),
         "mode_raw": output_source[0] if output_source else "",
         "mode": output_source[1] if output_source else "",
         "mode_source": output_source[2] if output_source else "",

@@ -30,6 +30,7 @@ from growatt_guard.growatt_api import (
     extract_channel_metric_sum,
     extract_first_metric,
     extract_soc,
+    resolve_soc,
     extract_spf_output_source,
     format_duration_minutes,
     load_context,
@@ -212,8 +213,14 @@ def build_dashboard_html(
         metric_history = []
         history_payload = dashboard_data["history"]
         metric_history_json = json.dumps(history_payload)
-    soc_result = extract_soc(status)
-    soc = f"{soc_result[0]:g}%" if soc_result else "Not found"
+    resolved = resolve_soc(status)
+    soc_result = resolved.as_tuple()
+    if soc_result:
+        soc = f"{soc_result[0]:g}%"
+        if resolved.diverged and resolved.bms is not None:
+            soc = f"{soc_result[0]:g}% (BMS {resolved.bms:g}% · sources disagree)"
+    else:
+        soc = "Not found"
     output_source = extract_spf_output_source(status)
     mode = f"{output_source[1]} [{output_source[0]}]" if output_source else "Not found"
     bypass = detect_unexpected_grid_bypass(status)

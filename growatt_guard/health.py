@@ -14,9 +14,9 @@ from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import (
     extract_device_lost,
     extract_last_seen_text,
-    extract_soc,
     extract_spf_output_source,
     load_context,
+    resolve_soc,
 )
 from growatt_guard.notifications import send_discord_embed, send_discord_message
 from growatt_guard.operational_status import build_forecast_calibration_status, build_sbu_guard_status
@@ -340,24 +340,35 @@ def command_health_check(config: Config, notify: bool = False) -> int:
                     "Inverter reporting",
                     # WARN, not FAIL: the deploy script aborts on a FAIL health result,
                     # and an inverter that is off the network would otherwise block every
-                    # deploy until it came back. The write guard does not depend on this
-                    # severity, and a dedicated Discord alert already fires.
+                    # release. Surface the problem loudly, but keep deploys unblocked.
                     "WARN",
-                    "inverter is not reporting to Growatt"
-                    + (f"; last seen {last_seen}" if last_seen else "")
-                    + ". Readings below are the last snapshot, not live, and mode changes are blocked.",
+                    "Inverter is not reporting to Growatt"
+                    + (f" (last seen {last_seen})." if last_seen else "."),
                 )
             )
         else:
-            checks.append(HealthCheckItem("Inverter reporting", "OK", "inverter is reporting to Growatt."))
+            checks.append(HealthCheckItem("Inverter reporting", "OK", "Inverter is reporting to Growatt."))
 
         # A frozen reading is still a real number, so it must not be reported as OK.
         reading_status = "WARN" if device_lost else "OK"
-        soc_result = extract_soc(status)
-        if soc_result:
-            soc, path = soc_result
-            suffix = " (stale)" if device_lost else ""
-            checks.append(HealthCheckItem("Battery SOC", reading_status, f"{soc:g}% from {path}{suffix}."))
+        resolved = resolve_soc(status)
+        if resolved.display is not None:
+            detail = f"{resolved.display:g}% from {resolved.display_path}"
+            if resolved.bms is not None and resolved.bms_path and resolved.bms_path != resolved.display_path:
+                detail += f"; BMS {resolved.bms:g}% from {resolved.bms_path}"
+            if device_lost:
+                detail += " (stale)"
+            if resolved.diverged and not device_lost:
+                detail += (
+                    f" — sources disagree by {resolved.delta:g}% "
+                    "(display uses Growatt app/device SOC; preserve/emergency use the lower reading)."
+                )
+                checks.append(HealthCheckItem("Battery SOC", "WARN", detail + "."))
+                _maybe_notify_soc_divergence(config, resolved)
+            else:
+                checks.append(HealthCheckItem("Battery SOC", reading_status, detail + "."))
+                if not resolved.diverged:
+                    _clear_soc_divergence_alert_if_needed()
         else:
             checks.append(HealthCheckItem("Battery SOC", "FAIL", "SOC was not found in the Growatt status response."))
 
@@ -461,3 +472,46 @@ def command_health_check(config: Config, notify: bool = False) -> int:
             pass
 
     return 1 if health_result(checks) == "FAIL" else 0
+
+
+def _maybe_notify_soc_divergence(config, resolved) -> None:
+    """Discord once when SOC sources newly diverge; stay quiet while still diverged."""
+    from growatt_guard.notifications import embed_soc_divergence, send_discord_embed
+    from growatt_guard.state import (
+        read_soc_divergence_alert_state,
+        write_soc_divergence_alert_state,
+    )
+
+    state = read_soc_divergence_alert_state()
+    if state and state.get("active"):
+        return
+    payload = {
+        "active": True,
+        "display_soc": resolved.display,
+        "bms_soc": resolved.bms,
+        "delta": resolved.delta,
+    }
+    if not getattr(config, "discord_webhook_url", None):
+        payload["notified"] = False
+        write_soc_divergence_alert_state(payload)
+        return
+    sent = send_discord_embed(
+        config,
+        embed_soc_divergence(
+            display_soc=float(resolved.display),
+            display_path=resolved.display_path,
+            bms_soc=resolved.bms,
+            bms_path=resolved.bms_path,
+            delta=float(resolved.delta or 0.0),
+        ),
+    )
+    payload["notified"] = bool(sent)
+    write_soc_divergence_alert_state(payload)
+
+
+def _clear_soc_divergence_alert_if_needed() -> None:
+    from growatt_guard.state import clear_soc_divergence_alert_state, read_soc_divergence_alert_state
+
+    state = read_soc_divergence_alert_state()
+    if state and state.get("active"):
+        clear_soc_divergence_alert_state()

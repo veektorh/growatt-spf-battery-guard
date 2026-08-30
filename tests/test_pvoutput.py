@@ -57,6 +57,13 @@ class ExtractPvoutputFieldsTests(unittest.TestCase):
         self.assertEqual(fields["v8"], 400)   # pCharge (W)
         self.assertEqual(fields["v9"], 0)     # pDischarge (W)
 
+    def test_v7_prefers_device_capacity_when_bms_diverges(self):
+        status = _make_status()
+        status["device"] = {"capacity": "99 %"}
+        status["storage_params"]["storageDetailBean"] = {"bmsSoc": 79, "capacity": 79}
+        fields = extract_pvoutput_fields(status, now=FIXED_NOW)
+        self.assertEqual(fields["v7"], 99.0)
+
     def test_prefers_epv_today_over_epv_today_total(self):
         status = _make_status(bean={"ppv": 500.0, "epvToday": 2.1, "epvTodayTotal": 5.0})
         fields = extract_pvoutput_fields(status, now=FIXED_NOW)

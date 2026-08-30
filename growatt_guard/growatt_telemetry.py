@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -123,20 +124,175 @@ def extract_channel_metric_sum(
     return None
 
 
-def extract_soc(data: dict[str, Any]) -> tuple[float, str] | None:
+# Prefer ShinePhone/device SOC for display; keep BMS as a cross-check.
+# After connectivity gaps these can diverge (seen: device.capacity=99 vs bmsSoc=79).
+SOC_DIVERGENCE_THRESHOLD_PCT = 5.0
+
+# Paths Growatt's app surfaces as the plant/device SOC percentage.
+_APP_SOC_PATH_SUFFIXES = (
+    "device.capacity",
+    "device.soc",
+    "device.batterySoc",
+)
+_BMS_SOC_KEYS = frozenset({"bmsSoc", "bms_soc", "moduleSoc"})
+_DETAIL_CAPACITY_KEYS = frozenset({"capacity", "capacityText", "batteryCapacity", "batterySoc", "batCapacity"})
+
+
+@dataclass(frozen=True)
+class SocResolution:
+    """Resolved SOC readings for display, protection, and completion decisions."""
+
+    display: float | None
+    display_path: str
+    protective: float | None
+    protective_path: str
+    completion: float | None
+    completion_path: str
+    app: float | None
+    app_path: str
+    bms: float | None
+    bms_path: str
+    diverged: bool
+    delta: float | None
+
+    def as_tuple(self) -> tuple[float, str] | None:
+        if self.display is None:
+            return None
+        return self.display, self.display_path
+
+
+def _soc_path_key(path: str) -> str:
+    return path.split(".")[-1]
+
+
+def _is_app_soc_path(path: str) -> bool:
+    lowered = path.lower()
+    if lowered in {suffix.lower() for suffix in _APP_SOC_PATH_SUFFIXES}:
+        return True
+    # Plant/device list SOC (ShinePhone), not storageDetailBean.capacity.
+    parts = path.split(".")
+    if len(parts) >= 2 and parts[0] == "device" and parts[-1] in {"capacity", "soc", "batterySoc", "batteryPercent"}:
+        return True
+    return False
+
+
+def _is_bms_soc_path(path: str) -> bool:
+    key = _soc_path_key(path)
+    if key in _BMS_SOC_KEYS:
+        return True
+    if key in _DETAIL_CAPACITY_KEYS and "DetailBean" in path:
+        return True
+    if key in _DETAIL_CAPACITY_KEYS and "storage_params" in path and "device." not in path:
+        # Detail/params capacity tracks BMS on SPF payloads.
+        return "Bean" in path or "storageDetail" in path or "storage_detail" in path
+    return False
+
+
+def _iter_soc_candidates(data: dict[str, Any]) -> list[tuple[float, str]]:
     flat = deep_values(data)
+    found: list[tuple[float, str]] = []
+    seen_paths: set[str] = set()
     for wanted_key in SOC_KEYS:
         for path, value in flat:
-            if path.split(".")[-1] == wanted_key:
-                parsed = parse_number(value)
-                if parsed is not None and 0 <= parsed <= 100:
-                    return parsed, path
-    for path, value in flat:
-        if "soc" in path.lower() or "capacity" in path.lower():
+            if path in seen_paths:
+                continue
+            if _soc_path_key(path) != wanted_key:
+                continue
             parsed = parse_number(value)
-            if parsed is not None and 0 < parsed <= 100:
-                return parsed, path
-    return None
+            if parsed is None or not (0 <= parsed <= 100):
+                continue
+            found.append((parsed, path))
+            seen_paths.add(path)
+    for path, value in flat:
+        if path in seen_paths:
+            continue
+        if "soc" not in path.lower() and "capacity" not in path.lower():
+            continue
+        parsed = parse_number(value)
+        if parsed is None or not (0 < parsed <= 100):
+            continue
+        found.append((parsed, path))
+        seen_paths.add(path)
+    return found
+
+
+def resolve_soc(
+    data: dict[str, Any],
+    *,
+    divergence_threshold_pct: float = SOC_DIVERGENCE_THRESHOLD_PCT,
+) -> SocResolution:
+    """Resolve app-aligned and BMS SOC with protective/completion policies."""
+    candidates = _iter_soc_candidates(data)
+    app: tuple[float, str] | None = None
+    bms: tuple[float, str] | None = None
+    other: tuple[float, str] | None = None
+    for value, path in candidates:
+        if _is_app_soc_path(path):
+            if app is None:
+                app = (value, path)
+            continue
+        if _is_bms_soc_path(path):
+            if bms is None:
+                bms = (value, path)
+            continue
+        if other is None:
+            other = (value, path)
+
+    # Fall back: first capacity-like candidate if classified sources missing.
+    if app is None and bms is None and other is None and candidates:
+        other = candidates[0]
+
+    display = app or bms or other
+    protective_candidates = [item for item in (app, bms) if item is not None]
+    if not protective_candidates and other is not None:
+        protective_candidates = [other]
+    protective = min(protective_candidates, key=lambda item: item[0]) if protective_candidates else None
+
+    # Completion/full-enough: prefer ShinePhone/app SOC so a stuck-low BMS cannot
+    # block top-up completion or SBU return after telemetry desync.
+    completion = app or bms or other
+
+    diverged = False
+    delta: float | None = None
+    if app is not None and bms is not None:
+        delta = abs(app[0] - bms[0])
+        diverged = delta >= float(divergence_threshold_pct)
+
+    return SocResolution(
+        display=display[0] if display else None,
+        display_path=display[1] if display else "",
+        protective=protective[0] if protective else None,
+        protective_path=protective[1] if protective else "",
+        completion=completion[0] if completion else None,
+        completion_path=completion[1] if completion else "",
+        app=app[0] if app else None,
+        app_path=app[1] if app else "",
+        bms=bms[0] if bms else None,
+        bms_path=bms[1] if bms else "",
+        diverged=diverged,
+        delta=delta,
+    )
+
+
+def extract_soc(data: dict[str, Any]) -> tuple[float, str] | None:
+    """Return ShinePhone-aligned SOC for display/status (device.capacity when present)."""
+    return resolve_soc(data).as_tuple()
+
+
+def extract_protective_soc(data: dict[str, Any]) -> tuple[float, str] | None:
+    """Return the lower of app/BMS SOC for preserve-battery and emergency alerts."""
+    resolved = resolve_soc(data)
+    if resolved.protective is None:
+        return None
+    return resolved.protective, resolved.protective_path
+
+
+def extract_completion_soc(data: dict[str, Any]) -> tuple[float, str] | None:
+    """Return app-aligned SOC for top-up completion and SBU-return gates."""
+    resolved = resolve_soc(data)
+    if resolved.completion is None:
+        return None
+    return resolved.completion, resolved.completion_path
 
 
 def extract_spf_output_source(data: dict[str, Any]) -> tuple[str, str, str] | None:
@@ -334,7 +490,7 @@ def detect_unexpected_grid_bypass(
     output_label = str(result.get("output_label") or "").lower()
     output_raw = str(result.get("output_raw") or "")
     sbu_configured = "sbu" in output_label or output_raw == "0"
-    soc_result = extract_soc(data)
+    soc_result = extract_protective_soc(data)
     soc = soc_result[0] if soc_result else None
     low_soc_recovery = isinstance(soc, (int, float)) and recovery_soc > 0 and soc <= recovery_soc
     raw_detected = bool(result.get("detected"))

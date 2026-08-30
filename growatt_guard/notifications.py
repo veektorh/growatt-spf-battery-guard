@@ -297,6 +297,31 @@ def embed_summary(title: str, text: str) -> dict:
     return _embed(title, _COLOR_OK, [], description=text[:4096])
 
 
+def embed_soc_divergence(
+    *,
+    display_soc: float,
+    display_path: str,
+    bms_soc: float | None,
+    bms_path: str,
+    delta: float,
+) -> dict:
+    bms_text = "unavailable" if bms_soc is None else f"{bms_soc:g}% ({bms_path})"
+    return _embed(
+        "Battery SOC sources disagree",
+        _COLOR_WARN,
+        [
+            {"name": "Growatt app / device SOC", "value": f"{display_soc:g}% ({display_path})", "inline": False},
+            {"name": "BMS SOC", "value": bms_text, "inline": False},
+            {"name": "Delta", "value": f"{delta:g}%", "inline": True},
+        ],
+        description=(
+            "Growatt published two SOC values that differ by more than "
+            f"{delta:g}%. The dashboard follows Growatt app/device SOC; "
+            "preserve-battery and emergency alerts use the lower reading."
+        ),
+    )
+
+
 GROWATT_CLOUD_FAILURE_PATTERNS = (
     "growatt login failed",
     "growatt login skipped",
