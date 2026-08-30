@@ -14,6 +14,7 @@ from growatt_guard.growatt_api import (
     extract_device_lost,
     extract_first_metric,
     extract_last_seen_text,
+    extract_protective_soc,
     extract_soc,
     extract_spf_output_source,
     load_context,
@@ -99,7 +100,7 @@ def command_battery_alert(config: Config) -> int:
         return 0
     record_device_reporting(config)
 
-    soc_result = extract_soc(status)
+    soc_result = extract_protective_soc(status)
     if not soc_result:
         raise GrowattGuardError("Could not find battery SOC in Growatt response. Run the probe command.")
 
@@ -312,7 +313,7 @@ def command_runtime_alert(config: Config) -> int:
         raise GrowattGuardError("BATTERY_CAPACITY_WH must be set for runtime alerts.")
 
     _, _, status = load_context(config)
-    soc_result = extract_soc(status)
+    soc_result = extract_protective_soc(status)
     if not soc_result:
         raise GrowattGuardError("Could not read SOC.")
     soc, _ = soc_result

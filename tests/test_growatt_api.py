@@ -44,6 +44,38 @@ class GrowattApiTests(unittest.TestCase):
 
         self.assertEqual(extract_soc(status), (44.0, "storage_params.storageDetailBean.capacity"))
 
+
+    def test_resolve_soc_prefers_device_capacity_over_bms(self):
+        status = {
+            "device": {"capacity": "99 %"},
+            "storage_params": {"storageDetailBean": {"bmsSoc": 79, "capacity": 79}},
+        }
+        from growatt_guard.growatt_telemetry import (
+            extract_completion_soc,
+            extract_protective_soc,
+            extract_soc,
+            resolve_soc,
+        )
+
+        resolved = resolve_soc(status)
+        self.assertEqual(extract_soc(status), (99.0, "device.capacity"))
+        self.assertEqual(extract_protective_soc(status), (79.0, "storage_params.storageDetailBean.bmsSoc"))
+        self.assertEqual(extract_completion_soc(status), (99.0, "device.capacity"))
+        self.assertTrue(resolved.diverged)
+        self.assertEqual(resolved.delta, 20.0)
+
+    def test_resolve_soc_agrees_when_sources_match(self):
+        status = {
+            "device": {"capacity": "87 %"},
+            "storage_params": {"storageDetailBean": {"bmsSoc": 87, "capacity": 87}},
+        }
+        from growatt_guard.growatt_telemetry import resolve_soc
+
+        resolved = resolve_soc(status)
+        self.assertFalse(resolved.diverged)
+        self.assertEqual(resolved.display, 87.0)
+        self.assertEqual(resolved.protective, 87.0)
+
     def test_extract_spf_output_source(self):
         status = {"storage_params": {"storageDetailBean": {"outputConfig": 2}}}
 

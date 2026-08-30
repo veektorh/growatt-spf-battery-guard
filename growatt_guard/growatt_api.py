@@ -76,6 +76,8 @@ DETAIL_PREFERRED_METRIC_KEYS = {
 
 
 from growatt_guard.growatt_telemetry import (
+    SOC_DIVERGENCE_THRESHOLD_PCT,
+    SocResolution,
     deep_values,
     detect_grid_bypass,
     detect_unexpected_grid_bypass,
@@ -84,16 +86,19 @@ from growatt_guard.growatt_telemetry import (
     estimate_topup_for_sunrise,
     extract_battery_status,
     extract_channel_metric_sum,
+    extract_completion_soc,
     extract_device_lost,
     extract_first_metric,
     extract_last_seen_text,
     extract_max_metric,
+    extract_protective_soc,
     extract_soc,
     extract_spf_output_source,
     format_duration_minutes,
     format_metric,
     output_source_label,
     parse_number,
+    resolve_soc,
 )
 @dataclass(frozen=True)
 class DeviceRef:
@@ -438,7 +443,6 @@ def summarize_status(
     charge_rate_w: float = 0.0,
     hours_to_sunrise: float | None = None,
 ) -> str:
-    soc_result = extract_soc(status)
     parts = [
         f"plant={status.get('plant_id')}",
         f"device={status.get('device_sn')}",
@@ -447,9 +451,15 @@ def summarize_status(
     if extract_device_lost(status):
         last_seen = extract_last_seen_text(status)
         parts.append("lost=true" + (f" (last seen {last_seen})" if last_seen else ""))
+    resolved = resolve_soc(status)
+    soc_result = resolved.as_tuple()
     if soc_result:
         soc, path = soc_result
         parts.append(f"soc={soc:g}% ({path})")
+        if resolved.diverged and resolved.bms is not None:
+            parts.append(
+                f"bms_soc={resolved.bms:g}% ({resolved.bms_path}; delta={resolved.delta:g}%)"
+            )
     else:
         parts.append("soc=not found")
     output_source = extract_spf_output_source(status)
@@ -512,6 +522,20 @@ def extract_status_soc(status: dict[str, Any]) -> float | None:
         return None
     soc, _ = soc_result
     return soc
+
+
+def extract_status_protective_soc(status: dict[str, Any]) -> float | None:
+    soc_result = extract_protective_soc(status)
+    if not soc_result:
+        return None
+    return soc_result[0]
+
+
+def extract_status_completion_soc(status: dict[str, Any]) -> float | None:
+    soc_result = extract_completion_soc(status)
+    if not soc_result:
+        return None
+    return soc_result[0]
 
 
 def describe_status_output_source(status: dict[str, Any]) -> str:

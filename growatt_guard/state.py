@@ -34,7 +34,7 @@ def configure_state_dir(path: str | os.PathLike[str]) -> Path:
     global LOGIN_COOLDOWN_FILE, SESSION_CACHE_FILE, SESSION_REFRESH_LOCK_FILE
     global TOPUP_STATE_FILE, TOPUP_SKIP_NOTIFICATION_FILE
     global CHARGE_RATE_HISTORY_FILE, DISCHARGE_RATE_HISTORY_FILE, FORECAST_CALIBRATION_FILE, RUNTIME_ALERT_FILE
-    global UTILITY_HOLD_FILE, WASTE_ALERT_FILE
+    global UTILITY_HOLD_FILE, WASTE_ALERT_FILE, SOC_DIVERGENCE_ALERT_FILE
 
     STATE_DIR = Path(path)
     PAUSE_FILE = STATE_DIR / "automation_pause.json"
@@ -58,6 +58,7 @@ def configure_state_dir(path: str | os.PathLike[str]) -> Path:
     RUNTIME_ALERT_FILE = STATE_DIR / "runtime_alert.json"
     UTILITY_HOLD_FILE = STATE_DIR / "utility_hold.json"
     WASTE_ALERT_FILE = STATE_DIR / "waste_alert.json"
+    SOC_DIVERGENCE_ALERT_FILE = STATE_DIR / "soc_divergence_alert.json"
     return STATE_DIR
 
 
@@ -353,6 +354,18 @@ def write_dashboard_stale_alert_state(state: dict[str, Any]) -> None:
 
 def clear_dashboard_stale_alert_state() -> None:
     clear_state_file(DASHBOARD_STALE_ALERT_FILE)
+
+
+def read_soc_divergence_alert_state() -> dict[str, Any] | None:
+    return read_json_state(SOC_DIVERGENCE_ALERT_FILE, "SOC divergence alert")
+
+
+def write_soc_divergence_alert_state(state: dict[str, Any]) -> None:
+    write_json_state(SOC_DIVERGENCE_ALERT_FILE, state)
+
+
+def clear_soc_divergence_alert_state() -> None:
+    clear_state_file(SOC_DIVERGENCE_ALERT_FILE)
 
 
 def read_app_health_monitor_state() -> dict[str, Any] | None:

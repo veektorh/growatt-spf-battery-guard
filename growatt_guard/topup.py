@@ -10,6 +10,8 @@ from growatt_guard.growatt_api import (
     describe_status_output_source,
     estimate_topup_for_sunrise,
     extract_first_metric,
+    extract_completion_soc,
+    extract_protective_soc,
     extract_soc,
     extract_spf_output_source,
     load_context,
@@ -179,7 +181,7 @@ def command_auto_topup_check(config: Config) -> int:
     api, device, status = load_context(config)
     if ensure_device_reporting(config, "auto-topup-check", status):
         return 0
-    soc_result = extract_soc(status)
+    soc_result = extract_protective_soc(status)
     if not soc_result:
         raise GrowattGuardError("Could not read SOC for auto-topup check.")
     soc, _ = soc_result
@@ -469,7 +471,7 @@ def _optional_float(value: object) -> float | None:
 def _read_topup_end_soc(config: Config) -> float | None:
     try:
         _, _, status = load_context(config)
-        result = extract_soc(status)
+        result = extract_completion_soc(status)
         return result[0] if result else None
     except Exception as exc:  # noqa: BLE001 - completion must still restore SBU without telemetry
         logging.warning("topup-complete-check: could not read final SOC: %s", exc)
@@ -724,7 +726,7 @@ def command_adopt_utility(config: Config, target_soc: float) -> int:
         )
 
     api, device, status = load_context(config)
-    soc_result = extract_soc(status)
+    soc_result = extract_completion_soc(status)
     if not soc_result:
         raise GrowattGuardError("Could not read SOC from Growatt.")
     soc, _ = soc_result

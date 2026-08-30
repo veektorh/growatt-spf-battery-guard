@@ -22,7 +22,9 @@ from growatt_guard.growatt_api import (
     describe_status_output_source,
     extract_device_lost,
     extract_first_metric,
+    extract_completion_soc,
     extract_last_seen_text,
+    extract_protective_soc,
     extract_soc,
     extract_spf_output_source,
     extract_status_soc,
@@ -414,7 +416,7 @@ def command_preserve_battery(config: Config) -> int:
     api, device, status = load_context(config)
     if ensure_device_reporting(config, "preserve-battery", status):
         return 0
-    soc_result = extract_soc(status)
+    soc_result = extract_protective_soc(status)
     if not soc_result:
         raise GrowattGuardError("Could not find battery SOC in Growatt response. Run the probe command.")
 
@@ -692,7 +694,8 @@ def command_return_sbu(
     api, device, status = load_context(config)
     if ensure_device_reporting(config, "return-sbu", status):
         return 0
-    soc = extract_status_soc(status)
+    completion = extract_completion_soc(status)
+    soc = completion[0] if completion else None
     previous_mode = describe_status_output_source(status)
 
     current_source = extract_spf_output_source(status)
