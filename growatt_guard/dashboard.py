@@ -215,10 +215,13 @@ def build_dashboard_html(
         metric_history_json = json.dumps(history_payload)
     resolved = resolve_soc(status)
     soc_result = resolved.as_tuple()
+    # Keep the primary SOC label short so glance/ring cards stay compact.
+    # Surface BMS disagreement in muted context, not the hero value.
+    soc_note = ""
     if soc_result:
         soc = f"{soc_result[0]:g}%"
         if resolved.diverged and resolved.bms is not None:
-            soc = f"{soc_result[0]:g}% (BMS {resolved.bms:g}% · sources disagree)"
+            soc_note = f"BMS {resolved.bms:g}%"
     else:
         soc = "Not found"
     output_source = extract_spf_output_source(status)
@@ -488,6 +491,8 @@ def build_dashboard_html(
         battery_context = f"Discharging · {soc_health}"
     else:
         battery_context = f"Idle · {soc_health}"
+    if soc_note:
+        battery_context = f"{battery_context} · {soc_note}"
     if dashboard_data is None:
         metric_sources = extract_dashboard_metric_sources(status)
         data_quality = build_dashboard_data_quality(live_metrics, metric_sources)
@@ -1018,7 +1023,8 @@ def build_dashboard_html(
       </div>
       <div class="top-actions">
         <span class="pill">Mode: {esc(mode)}</span>
-        <span class="pill">SOC: {esc(soc)}</span>
+        <span class="pill"{f' title="App SOC matches Growatt; {soc_note} differs"' if soc_note else ""}>SOC: {esc(soc)}</span>
+        {f'<span class="pill">{esc(soc_note)}</span>' if soc_note else ""}
         <span class="pill">Refresh: 5min</span>
         <button class="theme-toggle" id="layout-toggle-btn" onclick="toggleDashLayout()">New design</button>
         <button class="theme-toggle" id="theme-toggle-btn" onclick="toggleDashTheme()">Light</button>
