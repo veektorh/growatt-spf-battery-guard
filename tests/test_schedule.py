@@ -48,9 +48,9 @@ class ScheduleTests(unittest.TestCase):
         schedule = validate_schedule()
         jobs = {item["id"]: item for item in schedule["jobs"]}
 
-        self.assertEqual(jobs["afternoon-preserve-early"]["cron"], "30 13 * * 1-5")
-        self.assertEqual(jobs["afternoon-preserve-retry"]["cron"], "0 14 * * 1-5")
-        self.assertEqual(jobs["afternoon-preserve"]["cron"], "30 14 * * 1-5")
+        self.assertEqual(jobs["afternoon-preserve-early"]["cron"], "30 13 * * *")
+        self.assertEqual(jobs["afternoon-preserve-retry"]["cron"], "0 14 * * *")
+        self.assertEqual(jobs["afternoon-preserve"]["cron"], "30 14 * * *")
         self.assertEqual(jobs["auto-topup-check"]["cron"], "*/20 18-23,0-5 * * *")
 
     def test_validate_schedule_rejects_unknown_command(self):
