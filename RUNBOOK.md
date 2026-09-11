@@ -110,7 +110,7 @@ cd ~/automation
 ```
 
 The mode also appears in `service-status`, `health-check`, the dashboard, and
-`ops-review`. Discord: `/growatt_outage_days` with an all-days / weekdays-only choice.
+`ops-review`. Discord: `/growatt_outage_days` with no mode shows the current mode; pick all-days / weekdays-only to change it.
 
 Mode-changing commands use a local `state/mode_command.lock` file to avoid overlapping Growatt writes.
 

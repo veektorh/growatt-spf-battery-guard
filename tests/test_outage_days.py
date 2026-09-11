@@ -4,6 +4,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from helpers import make_config
@@ -130,6 +131,47 @@ class OutageDaysCommandTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["outage-status"])
         self.assertEqual(args.command, "outage-status")
+
+
+class OutageDaysDiscordEmbedTests(unittest.TestCase):
+    def _stub_discord(self):
+        class Field:
+            def __init__(self):
+                self.name = None
+                self.value = None
+
+        class Embed:
+            def __init__(self, **kwargs):
+                self.title = kwargs.get("title")
+                self.color = kwargs.get("color")
+                self.fields = []
+                self.timestamp = None
+
+            def add_field(self, **kwargs):
+                field = Field()
+                field.name = kwargs["name"]
+                field.value = kwargs["value"]
+                self.fields.append(field)
+
+        return SimpleNamespace(Embed=Embed)
+
+    def _embed(self, output: str):
+        from growatt_guard.discord_control import build_status_embed
+
+        return build_status_embed(self._stub_discord(), output, 0)
+
+    def test_status_embed_shows_outage_days_when_present(self):
+        output = (
+            "INFO Current status: plant=plant123, device=SN123, soc=86%, output=SBU priority [0]\n"
+            "Outage days mode: weekdays"
+        )
+        fields = {field.name: field.value for field in self._embed(output).fields}
+        self.assertEqual(fields.get("Outage Days"), "weekdays")
+
+    def test_status_embed_omits_outage_field_when_missing(self):
+        output = "INFO Current status: plant=plant123, device=SN123, soc=86%, output=SBU priority [0]"
+        fields = {field.name: field.value for field in self._embed(output).fields}
+        self.assertNotIn("Outage Days", fields)
 
 
 if __name__ == "__main__":

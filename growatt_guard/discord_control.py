@@ -176,6 +176,7 @@ def build_status_embed(discord_module: Any, output: str, return_code: int) -> An
     output_raw = _extract(r"output=([^,]+)")
     plant = _extract(r"plant=([^,]+)")
     device = _extract(r"device=([^,]+)")
+    outage_raw = _extract(r"Outage days mode: (\S+)")
 
     soc_clean = re.sub(r"\s*\([^)]+\)", "", soc_raw).strip()
     output_clean = re.sub(r"\s*\([^)]+\)", "", output_raw).strip()
@@ -194,6 +195,8 @@ def build_status_embed(discord_module: Any, output: str, return_code: int) -> An
     embed.add_field(name="​", value="​", inline=True)
     embed.add_field(name="Plant", value=plant, inline=True)
     embed.add_field(name="Device", value=device, inline=True)
+    if outage_raw != "unknown":
+        embed.add_field(name="Outage Days", value=outage_raw, inline=True)
     embed.timestamp = dt.datetime.now(dt.timezone.utc)
     return embed
 
@@ -507,16 +510,18 @@ def command_serve_discord_bot(config: Config) -> int:
         await _guarded(config, interaction, lambda: run_and_send(interaction, "resume", ["resume"]))
 
     @tree.command(name="growatt_outage_days", description="Set which days the estate has power cuts.", **command_scope)
-    @app_commands.describe(mode="Outage days: every day, or weekdays only", reason="Optional reason")
+    @app_commands.describe(mode="Omit to view the current mode", reason="Optional reason")
     @app_commands.choices(
         mode=[app_commands.Choice(name="all days", value="all"), app_commands.Choice(name="weekdays only", value="weekdays")]
     )
-    async def growatt_outage_days(interaction: discord.Interaction, mode: str, reason: str = "Discord control") -> None:
-        await _guarded(
-            config,
-            interaction,
-            lambda: run_and_send(interaction, "set-outage-days", ["set-outage-days", mode, "--reason", reason]),
-        )
+    async def growatt_outage_days(interaction: discord.Interaction, mode: str = None, reason: str = "Discord control") -> None:
+        async def action() -> None:
+            if mode is None:
+                await run_and_send(interaction, "outage-status", ["outage-status"])
+                return
+            await run_and_send(interaction, "set-outage-days", ["set-outage-days", mode, "--reason", reason])
+
+        await _guarded(config, interaction, action)
 
     @tree.command(name="growatt_sbu", description="Switch back to SBU priority.", **command_scope)
     async def growatt_sbu(interaction: discord.Interaction) -> None:
