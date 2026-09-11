@@ -186,6 +186,13 @@ def build_parser() -> argparse.ArgumentParser:
     pause_parser.add_argument("--reason", default="", help="Optional reason stored in pause state and Discord alert.")
     subparsers.add_parser("resume", help="Resume scheduled mode-changing automation.")
     subparsers.add_parser("pause-status", help="Show whether automation is currently paused.")
+    outage_parser = subparsers.add_parser(
+        "set-outage-days",
+        help="Set which days the estate has power cuts: all, or weekdays only.",
+    )
+    outage_parser.add_argument("mode", choices=("all", "weekdays"), help="Outage day mode for mode-changing jobs.")
+    outage_parser.add_argument("--reason", default="", help="Optional reason stored in outage state and Discord alert.")
+    subparsers.add_parser("outage-status", help="Show the current outage days mode.")
     subparsers.add_parser("clear-stale-lock", help="Remove a stale mode-command lock file if one exists.")
     subparsers.add_parser("clear-login-cooldown", help="Clear the Growatt login cooldown set after an account lock (507).")
     preview_parser = subparsers.add_parser(
@@ -431,6 +438,10 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_resume(config)
         if command == "pause-status":
             return app.command_pause_status(config)
+        if command == "set-outage-days":
+            return app.command_set_outage_days(config, args.mode, args.reason)
+        if command == "outage-status":
+            return app.command_outage_status(config)
         if command == "clear-stale-lock":
             return app.command_clear_stale_lock(config)
         if command == "clear-login-cooldown":

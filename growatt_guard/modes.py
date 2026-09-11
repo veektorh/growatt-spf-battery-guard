@@ -48,6 +48,7 @@ from growatt_guard.notifications import (
     send_discord_embed,
     send_discord_message,
 )
+from growatt_guard.outage_days import ensure_outage_day
 from growatt_guard.pause import ensure_not_paused
 from growatt_guard.preservation import (
     SolarBridgeDecision,
@@ -412,6 +413,8 @@ def command_probe(config: Config) -> int:
 def command_preserve_battery(config: Config) -> int:
     if ensure_not_paused(config, "preserve-battery"):
         return 0
+    if ensure_outage_day(config, "preserve-battery"):
+        return 0
 
     api, device, status = load_context(config)
     if ensure_device_reporting(config, "preserve-battery", status):
@@ -690,6 +693,8 @@ def command_return_sbu(
 ) -> int:
     if ensure_not_paused(config, "return-sbu"):
         return 0
+    if ensure_outage_day(config, "return-sbu"):
+        return 0
 
     api, device, status = load_context(config)
     if ensure_device_reporting(config, "return-sbu", status):
@@ -762,6 +767,8 @@ def command_return_sbu(
 
 def command_watchdog_sbu(config: Config) -> int:
     if ensure_not_paused(config, "watchdog-sbu"):
+        return 0
+    if ensure_outage_day(config, "watchdog-sbu"):
         return 0
 
     api, device, status = load_context(config)

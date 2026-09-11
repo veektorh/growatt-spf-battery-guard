@@ -182,6 +182,13 @@ from growatt_guard.reports import (
     command_weather_threshold,
     command_weekly_summary,
 )
+from growatt_guard.outage_days import (
+    OUTAGE_MODES,
+    command_outage_status,
+    command_set_outage_days,
+    ensure_outage_day,
+    today_is_outage_day,
+)
 from growatt_guard.pause import (
     command_clear_login_cooldown,
     command_clear_stale_lock,
@@ -237,9 +244,13 @@ from growatt_guard.state import (
     command_lock_is_stale,
     configure_state_dir,
     format_local_time,
+    OUTAGE_DAYS_FILE,
+    outage_days_message,
+    outage_mode,
     pause_message,
     read_battery_alert_state,
     read_command_lock_state,
+    read_outage_days_state,
     read_pause_state,
     read_topup_state,
     release_command_lock,
@@ -248,6 +259,7 @@ from growatt_guard.state import (
     waste_alert_is_muted,
     write_battery_alert_mute,
     write_battery_alert_state,
+    write_outage_days_state,
     write_pause_state,
     write_topup_state,
     write_waste_alert_mute,

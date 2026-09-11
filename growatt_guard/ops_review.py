@@ -30,6 +30,7 @@ from growatt_guard.state import (
     read_command_lock_state,
     command_lock_is_stale,
     read_growatt_cloud_failure_state,
+    outage_mode,
     read_pause_state,
     read_topup_state,
     topup_is_active,
@@ -249,6 +250,7 @@ def _state_summary(now: dt.datetime | None = None) -> dict[str, Any]:
     lock = read_command_lock_state()
     return {
         "pause": "paused" if pause else "active",
+        "outage_days": outage_mode(),
         "topup_active": topup_is_active(now=now_utc),
         "command_lock_stale": bool(lock and command_lock_is_stale()),
         "topup": topup,

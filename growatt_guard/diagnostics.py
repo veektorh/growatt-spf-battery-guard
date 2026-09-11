@@ -29,8 +29,10 @@ from growatt_guard.schedule import (
     validate_schedule,
 )
 from growatt_guard.state import (
+    outage_days_message,
     pause_message,
     read_command_lock_state,
+    read_outage_days_state,
     read_pause_state,
     read_topup_state,
     read_utility_hold_state,
@@ -249,6 +251,8 @@ def _state_items() -> list[DiagnosticItem]:
         items.append(DiagnosticItem("Pause state", "WARN", pause_message(pause_state)))
     else:
         items.append(DiagnosticItem("Pause state", "OK", "automation is active."))
+
+    items.append(DiagnosticItem("Outage days", "OK", outage_days_message(read_outage_days_state()) + "."))
 
     lock_state = read_command_lock_state()
     if lock_state:
