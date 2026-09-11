@@ -13,55 +13,55 @@
     {
       "id": "morning-preserve",
       "name": "Preserve battery before morning outage",
-      "cron": "30 6 * * 1-5",
+      "cron": "30 6 * * *",
       "command": "preserve-battery"
     },
     {
       "id": "morning-preserve-retry",
       "name": "Retry morning preserve if the first Utility switch failed",
-      "cron": "40 6 * * 1-5",
+      "cron": "40 6 * * *",
       "command": "preserve-battery"
     },
     {
       "id": "morning-return-sbu",
       "name": "Return to SBU before morning outage",
-      "cron": "55 7 * * 1-5",
+      "cron": "55 7 * * *",
       "command": "return-sbu"
     },
     {
       "id": "morning-watchdog",
       "name": "Verify SBU after morning outage starts",
-      "cron": "1 8 * * 1-5",
+      "cron": "1 8 * * *",
       "command": "watchdog-sbu"
     },
     {
       "id": "afternoon-preserve-early",
       "name": "Begin preserving battery well before the afternoon outage",
-      "cron": "30 13 * * 1-5",
+      "cron": "30 13 * * *",
       "command": "preserve-battery"
     },
     {
       "id": "afternoon-preserve-retry",
       "name": "Retry afternoon preserve if battery became low",
-      "cron": "0 14 * * 1-5",
+      "cron": "0 14 * * *",
       "command": "preserve-battery"
     },
     {
       "id": "afternoon-preserve",
       "name": "Final preserve check before afternoon outage",
-      "cron": "30 14 * * 1-5",
+      "cron": "30 14 * * *",
       "command": "preserve-battery"
     },
     {
       "id": "afternoon-return-sbu",
       "name": "Return to SBU before afternoon outage",
-      "cron": "25 15 * * 1-5",
+      "cron": "25 15 * * *",
       "command": "return-sbu"
     },
     {
       "id": "afternoon-watchdog",
       "name": "Verify SBU after afternoon outage starts",
-      "cron": "31 15 * * 1-5",
+      "cron": "31 15 * * *",
       "command": "watchdog-sbu"
     },
     {
