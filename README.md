@@ -404,7 +404,7 @@ Available slash commands:
 /growatt_refresh     — force an immediate dashboard refresh
 /growatt_pause       — pause scheduled mode-changing automation
 /growatt_resume      — resume automation after a pause
-/growatt_outage_days — set which days the estate has power cuts (all or weekdays only)
+/growatt_outage_days — view or set which days the estate has power cuts (all or weekdays only)
 /growatt_sbu         — manually switch to SBU priority
 /growatt_utility     — manually switch to Utility first
 /growatt_preserve    — run preserve-battery immediately

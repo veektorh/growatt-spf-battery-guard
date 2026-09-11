@@ -69,6 +69,7 @@ from growatt_guard.schedule import (
 )
 from growatt_guard.state import (
     clear_utility_hold_state,
+    outage_mode,
     parse_utc_datetime,
     pause_message,
     read_pause_state,
@@ -393,6 +394,7 @@ def command_status(config: Config) -> int:
         config.battery_charge_rate_w,
         _sunrise_hours(config),
     ))
+    print(f"Outage days mode: {outage_mode()}")
     return 0
 
 
