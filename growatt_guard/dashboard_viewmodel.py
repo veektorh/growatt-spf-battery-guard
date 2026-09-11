@@ -21,7 +21,7 @@ from growatt_guard.dashboard_planning import (
     build_dashboard_next_action, build_dashboard_recommendations,
 )
 from growatt_guard.state import (
-    pause_message, read_battery_alert_state, read_growatt_cloud_failure_state,
+    outage_mode, pause_message, read_battery_alert_state, read_growatt_cloud_failure_state,
     read_pause_state, utc_now,
 )
 from growatt_guard.schedule import (
@@ -170,6 +170,7 @@ def build_dashboard_data_payload(
             # Strip the internal paused_until_dt datetime helper; paused_until
             # (ISO string) is already present and JSON-serializable.
             "pause_state": {k: v for k, v in pause_state.items() if k != "paused_until_dt"} if pause_state else None,
+            "outage_days": outage_mode(),
             "emergency_alert": "active" if alert_state and alert_state.get("active") else "clear",
             "cloud_failure_streak": int(cloud_state.get("count", 0)) if cloud_state else 0,
             "sbu_return_guard": sbu_guard,

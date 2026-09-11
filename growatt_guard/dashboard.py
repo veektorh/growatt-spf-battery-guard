@@ -72,6 +72,7 @@ from growatt_guard.dashboard_planning import (
 )
 from growatt_guard.state import (
     clear_dashboard_stale_alert_state,
+    outage_mode,
     pause_message,
     read_battery_alert_state,
     read_dashboard_stale_alert_state,
@@ -302,6 +303,7 @@ def build_dashboard_html(
                         topup_sunrise_display = format_duration_minutes(topup_min)
     pause_state = read_pause_state()
     pause = pause_message(pause_state) if pause_state else "active"
+    outage = outage_mode()
     alert_state = read_battery_alert_state()
     alert = "active" if alert_state and alert_state.get("active") else "clear"
     cloud_state = read_growatt_cloud_failure_state()
@@ -1251,7 +1253,7 @@ def build_dashboard_html(
       </div>
       <div class="card"><div class="label">Battery Voltage</div><div class="value">{esc(vbat)}</div></div>
       <div class="card"><div class="label">Current Load Runtime</div><div class="value">{esc(est_runtime)}</div><div class="muted small">{esc(runtime_note)}</div></div>
-      <div class="card"><div class="label">Pause State</div><div class="value">{esc(pause)}</div></div>
+      <div class="card"><div class="label">Pause State</div><div class="value">{esc(pause)}</div><div class="muted small">Outage days: {esc(outage)}</div></div>
       <div class="card"><div class="label">Emergency Alert</div><div class="value">{esc(alert)}</div></div>
       <div class="card"><div class="label">Cloud Streak</div><div class="value">{esc(cloud_streak)}</div></div>
       <div class="card"><div class="label">Today Override</div><div class="value">{esc(override_note)}</div></div>

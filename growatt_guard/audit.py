@@ -15,7 +15,7 @@ from growatt_guard.growatt_api import (
     extract_spf_output_source,
     format_metric,
 )
-from growatt_guard.state import pause_message, read_pause_state
+from growatt_guard.state import pause_message, read_outage_days_state, read_pause_state
 from growatt_guard.paths import DATA_HOME
 
 
@@ -641,6 +641,10 @@ def build_daily_summary(status: dict[str, Any], tomorrow_kwh_m2: float | None = 
     state = read_pause_state()
     if state:
         lines.append(f"Automation pause: {pause_message(state)}")
+
+    outage = read_outage_days_state()
+    if outage and outage.get("mode") == "weekdays":
+        lines.append("Outage days: weekdays only (Mon-Fri)")
 
     soc_result = extract_soc(status)
     if soc_result:

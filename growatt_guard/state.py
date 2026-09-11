@@ -34,10 +34,11 @@ def configure_state_dir(path: str | os.PathLike[str]) -> Path:
     global LOGIN_COOLDOWN_FILE, SESSION_CACHE_FILE, SESSION_REFRESH_LOCK_FILE
     global TOPUP_STATE_FILE, TOPUP_SKIP_NOTIFICATION_FILE
     global CHARGE_RATE_HISTORY_FILE, DISCHARGE_RATE_HISTORY_FILE, FORECAST_CALIBRATION_FILE, RUNTIME_ALERT_FILE
-    global UTILITY_HOLD_FILE, WASTE_ALERT_FILE, SOC_DIVERGENCE_ALERT_FILE
+    global UTILITY_HOLD_FILE, WASTE_ALERT_FILE, SOC_DIVERGENCE_ALERT_FILE, OUTAGE_DAYS_FILE
 
     STATE_DIR = Path(path)
     PAUSE_FILE = STATE_DIR / "automation_pause.json"
+    OUTAGE_DAYS_FILE = STATE_DIR / "outage_days.json"
     BATTERY_ALERT_FILE = STATE_DIR / "battery_alert.json"
     BATTERY_ALERT_MUTED_FILE = STATE_DIR / "battery_alert_muted.json"
     BYPASS_ALERT_FILE = STATE_DIR / "bypass_alert.json"
@@ -64,6 +65,7 @@ def configure_state_dir(path: str | os.PathLike[str]) -> Path:
 
 STATE_DIR = configure_state_dir(_default_state_dir())
 COMMAND_LOCK_STALE_SECONDS = 45 * 60
+OUTAGE_MODES = ("all", "weekdays")
 SESSION_REFRESH_LOCK_STALE_SECONDS = 2 * 60
 STATE_SCHEMA_VERSION = 1
 _STATE_METADATA_KEYS = ("_schema_version", "_updated_at")
@@ -241,6 +243,44 @@ def write_pause_state(hours: float, reason: str) -> dict[str, Any]:
 
 def clear_pause_state() -> None:
     clear_state_file(PAUSE_FILE)
+
+
+def read_outage_days_state() -> dict[str, Any] | None:
+    if not OUTAGE_DAYS_FILE.exists():
+        return None
+    state = read_json_state(OUTAGE_DAYS_FILE, "outage days")
+    if state is None:
+        return None
+    if str(state.get("mode", "")) not in OUTAGE_MODES:
+        logging.warning("Ignoring invalid outage days state: unknown mode")
+        return None
+    return state
+
+
+def outage_mode() -> str:
+    state = read_outage_days_state()
+    if state:
+        return str(state["mode"])
+    return "all"
+
+
+def outage_days_message(state: dict[str, Any] | None) -> str:
+    mode = str(state.get("mode", "all")) if state else "all"
+    if mode == "weekdays":
+        return "mode-changing jobs run weekdays only (Mon-Fri)"
+    return "mode-changing jobs run every day"
+
+
+def write_outage_days_state(mode: str, reason: str = "") -> dict[str, Any]:
+    if mode not in OUTAGE_MODES:
+        raise ValueError(f"Outage days mode must be one of: {', '.join(OUTAGE_MODES)}.")
+    state = {
+        "mode": mode,
+        "reason": reason,
+        "updated_at": utc_now().isoformat(),
+    }
+    write_json_state(OUTAGE_DAYS_FILE, state)
+    return state
 
 
 def read_command_lock_state() -> dict[str, Any] | None:

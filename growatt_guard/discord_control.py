@@ -506,6 +506,18 @@ def command_serve_discord_bot(config: Config) -> int:
     async def growatt_resume(interaction: discord.Interaction) -> None:
         await _guarded(config, interaction, lambda: run_and_send(interaction, "resume", ["resume"]))
 
+    @tree.command(name="growatt_outage_days", description="Set which days the estate has power cuts.", **command_scope)
+    @app_commands.describe(mode="Outage days: every day, or weekdays only", reason="Optional reason")
+    @app_commands.choices(
+        mode=[app_commands.Choice(name="all days", value="all"), app_commands.Choice(name="weekdays only", value="weekdays")]
+    )
+    async def growatt_outage_days(interaction: discord.Interaction, mode: str, reason: str = "Discord control") -> None:
+        await _guarded(
+            config,
+            interaction,
+            lambda: run_and_send(interaction, "set-outage-days", ["set-outage-days", mode, "--reason", reason]),
+        )
+
     @tree.command(name="growatt_sbu", description="Switch back to SBU priority.", **command_scope)
     async def growatt_sbu(interaction: discord.Interaction) -> None:
         await _guarded(config, interaction, lambda: run_and_send(interaction, "return-sbu", ["return-sbu"]))

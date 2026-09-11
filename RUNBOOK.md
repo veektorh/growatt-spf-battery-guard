@@ -4,14 +4,26 @@
 
 ```text
 06:10 daily       post Discord health report
-06:30 weekdays    preserve-battery if SOC is below 50%
-07:55 weekdays    return to SBU before the 08:00 outage
-08:01 weekdays    verify SBU and retry once if needed
-13:30 weekdays    begin conditional afternoon battery preservation
-14:00 weekdays    retry if SOC became low after the first check
-14:30 weekdays    final preserve check before the afternoon outage
-15:25 weekdays    return to SBU before the 15:30 outage
-15:31 weekdays    verify SBU and retry once if needed
+06:30 daily       preserve-battery if SOC is below 50%
+07:55 daily       return to SBU before the 08:00 outage
+08:01 daily       verify SBU and retry once if needed
+13:30 daily       begin conditional afternoon battery preservation
+14:00 daily       retry if SOC became low after the first check
+14:30 daily       final preserve check before the afternoon outage
+15:25 daily       return to SBU before the 15:30 outage
+15:31 daily       verify SBU and retry once if needed
+```
+
+Mode-changing jobs run daily in cron but skip themselves on non-outage days when
+`set-outage-days weekdays` is active. When the estate changes weekend cuts, flip
+the mode instead of editing `schedule.json`:
+
+```bash
+.venv/bin/python growatt_power_guard.py set-outage-days weekdays  # or all
+.venv/bin/python growatt_power_guard.py outage-status
+```
+
+```text
 21:00 daily       post Discord daily summary
 */30 always       alert once if battery SOC drops below 30%
 */20 18-23,0-5   start evening/night auto-topup only if needed
@@ -50,6 +62,8 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py pause --hours 6 --reason "maintenance"
 .venv/bin/python growatt_power_guard.py pause-status
 .venv/bin/python growatt_power_guard.py resume
+.venv/bin/python growatt_power_guard.py set-outage-days weekdays
+.venv/bin/python growatt_power_guard.py outage-status
 .venv/bin/python growatt_power_guard.py clear-login-cooldown
 .venv/bin/python growatt_power_guard.py schedule-preview
 .venv/bin/python growatt_power_guard.py schedule-preview --days 14
@@ -80,6 +94,23 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py pause-status
 .venv/bin/python growatt_power_guard.py resume
 ```
+
+## Outage Days
+
+The estate occasionally cancels or reinstates weekend power cuts. Mode-changing
+jobs (`preserve-battery`, `return-sbu`, `watchdog-sbu`) run daily in cron but skip
+weekends while outage days mode is `weekdays`. Flip it with one command (no
+`schedule.json` edit or cron reinstall needed):
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py set-outage-days weekdays   # Mon-Fri only
+.venv/bin/python growatt_power_guard.py set-outage-days all        # cuts every day
+.venv/bin/python growatt_power_guard.py outage-status
+```
+
+The mode also appears in `service-status`, `health-check`, the dashboard, and
+`ops-review`. Discord: `/growatt_outage_days` with an all-days / weekdays-only choice.
 
 Mode-changing commands use a local `state/mode_command.lock` file to avoid overlapping Growatt writes.
 
@@ -529,7 +560,7 @@ sudo growatt-restore-backup \
 
 The control bot is optional and separate from the send-only Discord webhook. It should only be invited to a private control channel and allowlisted to your Discord user ID.
 
-Available slash commands: `/growatt_status`, `/growatt_health`, `/growatt_dashboard`, `/growatt_refresh`, `/growatt_pause`, `/growatt_resume`, `/growatt_sbu`, `/growatt_utility`, `/growatt_preserve`, `/growatt_topup`, `/growatt_topup_cancel`.
+Available slash commands: `/growatt_status`, `/growatt_health`, `/growatt_dashboard`, `/growatt_refresh`, `/growatt_pause`, `/growatt_resume`, `/growatt_outage_days`, `/growatt_sbu`, `/growatt_utility`, `/growatt_preserve`, `/growatt_topup`, `/growatt_topup_cancel`.
 
 `/growatt_dashboard` shows live SOC, output mode, battery power, load, and PVOutput at a glance without running a full status command in the channel.
 

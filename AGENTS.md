@@ -38,6 +38,7 @@ This project automates battery-preservation mode switching for a Growatt SPF inv
 - `growatt_guard/alerts.py`: battery, bypass, runtime, and avoidable-Utility-waste alert commands.
 - `growatt_guard/reports.py`: daily/weekly/monthly summaries, log rotation, audit pruning, and weather-threshold reporting.
 - `growatt_guard/pause.py`: pause/resume state checks and the mode-command lock (`ensure_not_paused`, `run_with_command_lock`).
+- `growatt_guard/outage_days.py`: outage-day mode (`all`/`weekdays`) state, gate (`ensure_outage_day`), and `set-outage-days` commands that skip mode-changing jobs on non-outage days.
 - `growatt_guard/health.py`: `health-check` command and health report formatting.
 - `growatt_guard/app_health.py`: local application health streaks, Discord alerts, and bounded Docker recovery.
 - `growatt_guard/dashboard.py`: dashboard HTML renderer and compatibility exports.
