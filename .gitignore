@@ -1,6 +1,6 @@
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 schedule_overrides.json
 dashboard.html
 dashboard.json
