@@ -36,6 +36,20 @@ ROTATE_LOG_GENERATED_PATTERNS = (
     ".dash_tmp_*.json",
     ".dash_tmp_*.html",
 )
+ENV_BACKUP_PATTERNS = (".env.pre-*", ".env.before-*", ".env.bak-*")
+
+
+def prune_env_backups(cutoff: dt.datetime) -> int:
+    """Delete stale .env backup snapshots from the data home. Returns the count removed."""
+    removed = 0
+    for pattern in ENV_BACKUP_PATTERNS:
+        for path in BASE_DIR.glob(pattern):
+            if not path.is_file():
+                continue
+            if path.stat().st_mtime < cutoff.timestamp():
+                path.unlink()
+                removed += 1
+    return removed
 
 
 def command_daily_summary(config: Config) -> int:
@@ -252,7 +266,13 @@ def command_rotate_logs(config: Config) -> int:
         if path.stat().st_mtime < cutoff.timestamp():
             path.unlink()
             removed += 1
+    env_removed = prune_env_backups(cutoff)
     print(f"Removed {removed} old log/probe files older than {config.log_retention_days} days.")
+    if env_removed:
+        print(
+            f"Removed {env_removed} old .env backup file(s) older than "
+            f"{config.log_retention_days} days."
+        )
     return 0
 
 

@@ -141,6 +141,31 @@ class GrowattPowerGuardTests(unittest.TestCase):
             self.assertTrue(unrelated_old_file.exists())
             self.assertIn("Removed 1 old log/probe files", output.getvalue())
 
+    def test_rotate_logs_prunes_old_env_backups_but_keeps_live_env_and_example(self):
+        config = make_config(log_retention_days=30)
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.reports.LOG_DIR", Path(tmpdir) / "logs"
+        ), patch("growatt_guard.reports.BASE_DIR", Path(tmpdir)):
+            (Path(tmpdir) / "logs").mkdir()
+            live_env = Path(tmpdir) / ".env"
+            example_env = Path(tmpdir) / ".env.example"
+            fresh_backup = Path(tmpdir) / ".env.pre-newer"
+            old_backup = Path(tmpdir) / ".env.before-older"
+            for file_path in (live_env, example_env, fresh_backup, old_backup):
+                file_path.write_text("x", encoding="utf-8")
+
+            old_timestamp = (dt.datetime.now() - dt.timedelta(days=45)).timestamp()
+            os.utime(old_backup, (old_timestamp, old_timestamp))
+
+            with redirect_stdout(StringIO()):
+                command_rotate_logs(config)
+
+            self.assertTrue(live_env.exists())
+            self.assertTrue(example_env.exists())
+            self.assertTrue(fresh_backup.exists())
+            self.assertFalse(old_backup.exists())
+
     def test_setup_logging_uses_rotating_file_handler(self):
         with TemporaryDirectory() as tmpdir, patch("growatt_guard.cli.LOG_DIR", Path(tmpdir)), patch(
             "growatt_guard.cli.LOG_FILE", Path(tmpdir) / "growatt_power_guard.log"
