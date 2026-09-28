@@ -37,7 +37,9 @@ from growatt_guard.dashboard import (
     _today_job_rows,
     _upcoming_override_rows,
 )
+from growatt_guard.dashboard_metrics import summarize_bypass_episodes
 from growatt_guard.dashboard_service import dashboard_asset_for_path
+from growatt_guard.reports import _bypass_episodes_section
 
 
 
@@ -535,5 +537,74 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("Today&#8217;s Schedule", html)
         self.assertIn("morning-preserve", html)
+
+    @staticmethod
+    def _bypass_row(ts, *, bypass=False, soc=None, grid_w=None, charge_w=None):
+        return {
+            "timestamp": ts,
+            "bypass_detected": bypass,
+            "soc": soc,
+            "grid_w": grid_w,
+            "charge_w": charge_w,
+        }
+
+    def test_bypass_episode_summary_counts_at_full_tail(self):
+        rows = [
+            self._bypass_row("2026-09-27T16:00:00"),
+            self._bypass_row("2026-09-27T16:15:00", bypass=True, soc=76, grid_w=3600, charge_w=3000),
+            self._bypass_row("2026-09-27T16:30:00", bypass=True, soc=90, grid_w=3600, charge_w=3000),
+            self._bypass_row("2026-09-27T16:45:00", bypass=True, soc=99, grid_w=4400, charge_w=2000),
+            self._bypass_row("2026-09-27T17:00:00", bypass=True, soc=99, grid_w=1800, charge_w=0),
+            self._bypass_row("2026-09-27T17:15:00", bypass=True, soc=99, grid_w=1800, charge_w=0),
+            self._bypass_row("2026-09-27T17:30:00", soc=99),
+        ]
+        report = summarize_bypass_episodes(rows, now=dt.datetime(2026, 9, 27, 18, 0), days=1)
+        self.assertEqual(report["count"], 1)
+        episode = report["episodes"][0]
+        self.assertEqual(episode["samples"], 5)
+        self.assertEqual(episode["duration_minutes"], 60.0)
+        self.assertEqual(episode["soc_min"], 76.0)
+        self.assertEqual(episode["soc_max"], 99.0)
+        self.assertEqual(episode["full_minutes"], 45.0)
+        self.assertEqual(episode["full_idle_minutes"], 30.0)
+        self.assertEqual(episode["full_grid_kwh"], 2.0)
+        self.assertEqual(report["total_full_grid_kwh"], 2.0)
+
+    def test_bypass_episode_summary_splits_on_gap(self):
+        rows = [
+            self._bypass_row("2026-09-27T08:00:00", bypass=True, soc=50),
+            self._bypass_row("2026-09-27T08:15:00", bypass=True, soc=50),
+            self._bypass_row("2026-09-27T10:15:00", bypass=True, soc=50),
+            self._bypass_row("2026-09-27T10:30:00", soc=50),
+        ]
+        report = summarize_bypass_episodes(rows, now=dt.datetime(2026, 9, 27, 11, 0), days=1)
+        self.assertEqual(report["count"], 2)
+        self.assertEqual([episode["samples"] for episode in report["episodes"]], [2, 1])
+
+    def test_bypass_episode_summary_ignores_rows_outside_window(self):
+        rows = [self._bypass_row("2026-09-20T08:00:00", bypass=True, soc=50)]
+        report = summarize_bypass_episodes(rows, now=dt.datetime(2026, 9, 27, 12, 0), days=1)
+        self.assertEqual(report["count"], 0)
+        self.assertEqual(report["total_minutes"], 0)
+
+    def test_bypass_episodes_section_formats_at_full_detail(self):
+        rows = [
+            self._bypass_row("2026-09-27T16:15:00", bypass=True, soc=76, grid_w=3600, charge_w=3000),
+            self._bypass_row("2026-09-27T16:30:00", bypass=True, soc=99, grid_w=1800, charge_w=0),
+            self._bypass_row("2026-09-27T16:45:00", bypass=True, soc=99, grid_w=1800, charge_w=0),
+        ]
+        with patch("growatt_guard.reports.read_dashboard_metrics_history", return_value=rows):
+            section = _bypass_episodes_section(dt.datetime(2026, 9, 27, 18, 0), days=1)
+        self.assertIn("Grid bypass episodes (last 1d", section)
+        self.assertIn("at>=99%", section)
+        self.assertIn("not charging", section)
+
+    def test_bypass_episodes_section_reports_none(self):
+        with patch("growatt_guard.reports.read_dashboard_metrics_history", return_value=[]):
+            section = _bypass_episodes_section(dt.datetime(2026, 9, 27, 18, 0), days=1)
+        self.assertEqual(
+            section,
+            "Grid bypass episodes (last 1d, metric-history resolution): none observed.",
+        )
 
 

@@ -13,7 +13,11 @@ from growatt_guard.config import Config
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import load_context
 from growatt_guard.notifications import embed_summary, send_discord_embed
-from growatt_guard.dashboard_metrics import read_dashboard_metrics_history
+from growatt_guard.dashboard_metrics import (
+    BYPASS_FULL_SOC,
+    read_dashboard_metrics_history,
+    summarize_bypass_episodes,
+)
 from growatt_guard.weather import choose_preserve_threshold
 from growatt_guard.paths import DATA_HOME
 
@@ -42,6 +46,7 @@ def command_daily_summary(config: Config) -> int:
 
         tomorrow_kwh_m2 = get_tomorrow_solar_kwh_m2(config)
     summary = build_daily_summary(status, tomorrow_kwh_m2=tomorrow_kwh_m2)
+    summary = f"{summary}\n\n{_bypass_episodes_section(dt.datetime.now(), days=1)}"
     if config.discord_webhook_url:
         send_discord_embed(config, embed_summary("Daily Summary", summary))
     print(summary)
@@ -86,6 +91,58 @@ def _complete_solar_window(values: dict[str, int], now: dt.datetime, *, days: in
         for offset in range(days - 1, -1, -1)
     }
     return expected.issubset(values)
+
+
+def _fmt_minutes(minutes: float) -> str:
+    if minutes < 60:
+        return f"{minutes:.0f} min"
+    return f"{minutes / 60.0:.1f} h"
+
+
+def _fmt_soc_range(soc_min: float | None, soc_max: float | None) -> str:
+    if soc_min is None or soc_max is None:
+        return "SOC ?"
+    if soc_min == soc_max:
+        return f"{soc_min:g}%"
+    return f"{soc_min:g}-{soc_max:g}%"
+
+
+def _bypass_episodes_section(now: dt.datetime, *, days: int) -> str:
+    """Read-only summary of grid-bypass episodes from the local metric history."""
+    history = read_dashboard_metrics_history(now=now, days=days)
+    report = summarize_bypass_episodes(history, now=now, days=days)
+    header = f"Grid bypass episodes (last {days}d, metric-history resolution):"
+    if not report["episodes"]:
+        return f"{header} none observed."
+    lines = [header]
+    for episode in report["episodes"]:
+        started = dt.datetime.fromisoformat(episode["start"]).strftime("%m-%d %H:%M")
+        soc = _fmt_soc_range(episode["soc_min"], episode["soc_max"])
+        duration = (
+            "single sample"
+            if episode["samples"] <= 1
+            else f"~{_fmt_minutes(episode['duration_minutes'])}"
+        )
+        detail = f"  {started}  {duration}  {soc}"
+        if episode["full_minutes"] > 0:
+            detail += (
+                f"  at>={BYPASS_FULL_SOC:g}%: {_fmt_minutes(episode['full_minutes'])}"
+                f", {episode['full_grid_kwh']:.1f} kWh grid"
+            )
+            if episode["full_idle_minutes"] > 0:
+                detail += f" ({_fmt_minutes(episode['full_idle_minutes'])} not charging)"
+        lines.append(detail)
+    total = (
+        f"  Total: {report['count']} episode(s), ~{_fmt_minutes(report['total_minutes'])} bypassed"
+    )
+    if report["total_full_minutes"] > 0:
+        total += (
+            f"; at>={BYPASS_FULL_SOC:g}%: {_fmt_minutes(report['total_full_minutes'])},"
+            f" {report['total_full_grid_kwh']:.1f} kWh grid"
+            f" ({_fmt_minutes(report['total_full_idle_minutes'])} not charging)"
+        )
+    lines.append(total + ".")
+    return "\n".join(lines)
 
 
 def command_weekly_summary(config: Config) -> int:
@@ -150,6 +207,7 @@ def command_weekly_summary(config: Config) -> int:
         low_battery_soc=config.low_battery_soc,
         battery_bms_cutoff_soc=config.battery_bms_cutoff_soc,
     )
+    summary = f"{summary}\n\n{_bypass_episodes_section(now, days=days)}"
     if config.discord_webhook_url:
         if not send_discord_embed(config, embed_summary("Weekly Summary", summary)):
             raise GrowattGuardError("Weekly summary could not be sent to Discord.")

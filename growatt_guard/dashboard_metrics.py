@@ -23,6 +23,8 @@ DASHBOARD_JSON_FILE = BASE_DIR / "dashboard.json"
 DASHBOARD_METRICS_FILE = LOG_DIR / "dashboard_metrics.jsonl"
 DASHBOARD_METRICS_RETENTION_DAYS = 8
 MIN_DASHBOARD_REFRESH_MINUTES = 5
+BYPASS_EPISODE_GAP_MINUTES = 60
+BYPASS_FULL_SOC = 99.0
 
 PV_POWER_KEYS = ("ppv", "ppvText", "pPv", "pvPower")
 PV_TODAY_KEYS = ("epvToday", "ePvToday", "epvTodayTotal")
@@ -448,4 +450,113 @@ def build_dashboard_history_payload(
             "load_kwh": [_series_value(latest_by_date.get(day.isoformat(), {}), "load_today_kwh") for day in dates],
             "grid_kwh": [_series_value(latest_by_date.get(day.isoformat(), {}), "grid_today_kwh") for day in dates],
         },
+    }
+
+
+def summarize_bypass_episodes(
+    history: list[dict[str, Any]],
+    *,
+    now: dt.datetime | None = None,
+    days: int = DASHBOARD_METRICS_RETENTION_DAYS,
+    gap_minutes: float = BYPASS_EPISODE_GAP_MINUTES,
+    full_soc: float = BYPASS_FULL_SOC,
+) -> dict[str, Any]:
+    """Aggregate metric-history rows into grid-bypass episodes and at-full time.
+
+    Read-only and offline: derives frequency, duration, and time spent bypassed
+    at or above ``full_soc`` (grid energy drawn while full, and the portion of
+    that time with no active charging) from the bounded metric history.
+    Durations are lower bounds because the history is sampled on the dashboard
+    refresh interval, and samples separated by more than ``gap_minutes`` are
+    treated as separate episodes.
+    """
+    now_local = now or dt.datetime.now()
+    if now_local.tzinfo is not None:
+        now_local = now_local.astimezone().replace(tzinfo=None)
+    cutoff = now_local - dt.timedelta(days=days)
+    gap = dt.timedelta(minutes=gap_minutes)
+
+    samples: list[tuple[dt.datetime, dict[str, Any]]] = []
+    for row in history:
+        ts = _parse_metric_timestamp(row)
+        if ts is None or ts < cutoff or ts > now_local:
+            continue
+        samples.append((ts, row))
+    samples.sort(key=lambda item: item[0])
+
+    episodes: list[dict[str, Any]] = []
+    start: dt.datetime | None = None
+    last: dt.datetime | None = None
+    sample_count = 0
+    soc_min: float | None = None
+    soc_max: float | None = None
+    full_minutes = 0.0
+    full_idle_minutes = 0.0
+    full_grid_kwh = 0.0
+    prev_ts: dt.datetime | None = None
+    prev_detected = False
+
+    def flush() -> None:
+        nonlocal start, last, sample_count, soc_min, soc_max
+        nonlocal full_minutes, full_idle_minutes, full_grid_kwh, prev_ts, prev_detected
+        if start is not None and last is not None:
+            episodes.append({
+                "start": start.isoformat(),
+                "end": last.isoformat(),
+                "duration_minutes": round((last - start).total_seconds() / 60.0, 1),
+                "samples": sample_count,
+                "soc_min": soc_min,
+                "soc_max": soc_max,
+                "full_minutes": round(full_minutes, 1),
+                "full_idle_minutes": round(full_idle_minutes, 1),
+                "full_grid_kwh": round(full_grid_kwh, 2),
+            })
+        start = last = prev_ts = None
+        sample_count = 0
+        soc_min = soc_max = None
+        full_minutes = full_idle_minutes = full_grid_kwh = 0.0
+        prev_detected = False
+
+    for ts, row in samples:
+        if not row.get("bypass_detected"):
+            flush()
+            prev_ts = ts
+            prev_detected = False
+            continue
+        if start is None or last is None or (ts - last) > gap:
+            flush()
+            start = ts
+        last = ts
+        sample_count += 1
+        soc = _series_value(row, "soc")
+        if soc is not None:
+            soc_min = soc if soc_min is None else min(soc_min, soc)
+            soc_max = soc if soc_max is None else max(soc_max, soc)
+        if (
+            prev_detected
+            and prev_ts is not None
+            and (ts - prev_ts) <= gap
+            and soc is not None
+            and soc >= full_soc
+        ):
+            delta_minutes = (ts - prev_ts).total_seconds() / 60.0
+            full_minutes += delta_minutes
+            full_grid_kwh += (_series_value(row, "grid_w") or 0.0) * delta_minutes / 60.0 / 1000.0
+            if (_series_value(row, "charge_w") or 0.0) <= 0:
+                full_idle_minutes += delta_minutes
+        prev_ts = ts
+        prev_detected = True
+    flush()
+
+    return {
+        "window_days": days,
+        "gap_minutes": gap_minutes,
+        "full_soc": full_soc,
+        "generated_at": now_local.isoformat(),
+        "episodes": episodes,
+        "count": len(episodes),
+        "total_minutes": round(sum(ep["duration_minutes"] for ep in episodes), 1),
+        "total_full_minutes": round(sum(ep["full_minutes"] for ep in episodes), 1),
+        "total_full_idle_minutes": round(sum(ep["full_idle_minutes"] for ep in episodes), 1),
+        "total_full_grid_kwh": round(sum(ep["full_grid_kwh"] for ep in episodes), 2),
     }
