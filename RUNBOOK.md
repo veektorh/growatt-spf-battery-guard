@@ -124,8 +124,14 @@ the plant's timezone with the server's and must not be compared to each other.
 While `lost` is set, `preserve-battery`, `return-sbu`, `watchdog-sbu` and
 `auto-topup-check` refuse to run, `battery-alert` stops reasoning about the frozen SOC,
 and `health-check` reports `[WARN] Inverter reporting`. It is a warning rather than a
-failure so that an outage cannot block deployments. One Discord alert is sent when
-the inverter goes quiet and one when it comes back, tracked in `state/device_lost.json`.
+failure so that an outage cannot block deployments.
+
+The dashboard refresh loop reads status every 5 minutes, so it is usually the first to
+notice the outage and to spot recovery. `battery-alert` and the mode-changing commands
+feed the same state machine, tracked in `state/device_lost.json`. Discord gets one alert
+when the inverter goes quiet — including the last-known SOC, labelled stale — and one when
+it comes back. If the inverter stays silent, the alert repeats hourly (`DEVICE_LOST_REALERT_MINUTES`)
+so a long outage cannot look like a single alert that was already handled.
 
 Nothing needs clearing by hand — the state file is removed on the first reading that
 shows the inverter reporting again.

@@ -30,7 +30,7 @@ from growatt_guard.dashboard_assets import (
 )
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.forecast_calibration import apply_weather_adjustment, update_forecast_calibration
-from growatt_guard.growatt_api import load_context
+from growatt_guard.growatt_api import load_context, track_device_reporting
 from growatt_guard.notifications import (
     notify_failure,
     record_pvoutput_failure,
@@ -192,6 +192,9 @@ def command_dashboard_refresh(config: Any, output: str, interval_minutes: float,
 
 def refresh_observability_once(config: Any, output: str) -> dict[str, Any]:
     _, _, status = load_context(config)
+    # This loop is the most frequent Growatt reader (every refresh interval), so
+    # it is where a device that stops reporting is caught and acknowledged first.
+    track_device_reporting(config, "observability-refresh", status)
     output_path = write_dashboard_from_status(config, status, output)
     try:
         pvoutput_ok, pvoutput_message = publish_pvoutput_status_from_status(config, status)
