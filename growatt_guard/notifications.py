@@ -9,6 +9,7 @@ from growatt_guard.state import (
     clear_device_lost_state,
     clear_growatt_cloud_failure_state,
     clear_pvoutput_failure_state,
+    parse_utc_datetime,
     read_device_lost_state,
     read_growatt_cloud_failure_state,
     read_pvoutput_failure_state,
@@ -21,6 +22,10 @@ from growatt_guard.state import (
 _COLOR_OK = 0x57F287
 _COLOR_WARN = 0xFEE75C
 _COLOR_FAIL = 0xED4245
+
+# Re-notify this often while the inverter stays silent, so a dongle that stays
+# down for hours cannot look like a single alert that was already handled.
+DEVICE_LOST_REALERT_MINUTES = 60
 
 
 def _f(name: str, value: str, inline: bool = True) -> dict:
@@ -213,18 +218,35 @@ def embed_cloud_failure(command: str, count: int, threshold: int, message: str) 
     return _embed("⚠️ Growatt cloud failures", _COLOR_FAIL, fields)
 
 
-def embed_device_lost(command: str, last_seen: str | None) -> dict:
+def embed_device_lost(
+    command: str,
+    last_seen: str | None,
+    *,
+    soc: float | None = None,
+    re_notify: bool = False,
+) -> dict:
     fields = [
         _f("Blocked command", command),
         _f("Last seen", last_seen or "unknown"),
+    ]
+    if soc is not None:
+        # Frozen with the rest of the snapshot, so label it as last-known rather
+        # than presenting a stale SOC as a live reading.
+        fields.append(_f("Last known SOC", f"{soc:g}% (stale)"))
+    fields.append(
         _f(
             "Effect",
             "Growatt is still serving the last snapshot, so SOC and mode readings are "
             "frozen. Mode changes are blocked until the inverter reports again.",
             inline=False,
-        ),
-    ]
-    return _embed("\u26a0\ufe0f Inverter not reporting", _COLOR_FAIL, fields)
+        )
+    )
+    title = (
+        "\u26a0\ufe0f Inverter still not reporting"
+        if re_notify
+        else "\u26a0\ufe0f Inverter not reporting"
+    )
+    return _embed(title, _COLOR_FAIL, fields)
 
 
 def embed_device_reporting(last_seen: str | None) -> dict:
@@ -375,24 +397,51 @@ def record_growatt_cloud_failure(config: Any, command: str, message: str) -> Non
     write_growatt_cloud_failure_state(state)
 
 
-def record_device_lost(config: Any, command: str, last_seen: str | None) -> None:
+def record_device_lost(
+    config: Any,
+    command: str,
+    last_seen: str | None,
+    *,
+    soc: float | None = None,
+) -> None:
     # Kept separate from the cloud-failure streak: the cloud is answering fine, it is
     # the inverter that stopped reporting, and the two need different fixes.
     state = read_device_lost_state() or {}
+    now = utc_now()
     alerted = bool(state.get("alerted"))
+    last_alert_at = state.get("last_alert_at")
+
+    # Alert on the first detection, then again every DEVICE_LOST_REALERT_MINUTES
+    # while the outage persists. A state written before re-alert tracking existed
+    # has no timestamp, so treat it as due rather than staying silent.
+    due = not alerted
+    if alerted:
+        if last_alert_at:
+            try:
+                elapsed = (now - parse_utc_datetime(str(last_alert_at))).total_seconds()
+                due = elapsed >= DEVICE_LOST_REALERT_MINUTES * 60
+            except ValueError:
+                due = True
+        else:
+            due = True
+
     state.update(
         {
             "alerted": alerted,
-            "first_seen_lost_at": state.get("first_seen_lost_at") or utc_now().isoformat(),
-            "last_checked_at": utc_now().isoformat(),
+            "first_seen_lost_at": state.get("first_seen_lost_at") or now.isoformat(),
+            "last_checked_at": now.isoformat(),
             "last_command": command,
             "last_seen": last_seen,
         }
     )
+    if soc is not None:
+        state["last_soc"] = soc
 
-    if not alerted and config.discord_notify_failure:
-        if send_discord_embed(config, embed_device_lost(command, last_seen)):
+    if due and config.discord_notify_failure:
+        if send_discord_embed(config, embed_device_lost(command, last_seen, soc=soc, re_notify=alerted)):
             state["alerted"] = True
+            state["last_alert_at"] = now.isoformat()
+            state["alert_count"] = int(state.get("alert_count", 0)) + 1
 
     write_device_lost_state(state)
 

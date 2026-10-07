@@ -13,7 +13,11 @@ from growatt_guard.exceptions import GrowattGuardError
 
 import requests
 
-from growatt_guard.notifications import record_growatt_cloud_success
+from growatt_guard.notifications import (
+    record_device_lost,
+    record_device_reporting,
+    record_growatt_cloud_success,
+)
 from growatt_guard.paths import DATA_HOME
 
 try:
@@ -536,6 +540,27 @@ def extract_status_completion_soc(status: dict[str, Any]) -> float | None:
     if not soc_result:
         return None
     return soc_result[0]
+
+
+def track_device_reporting(config: Any, command: str, status: dict[str, Any]) -> bool:
+    """Feed a status read into the inverter device-lost state machine.
+
+    Returns True while the inverter is not reporting. Any command that already
+    holds a status payload can call this; the state machine de-duplicates the
+    alert, re-notifies on a sustained outage, and emits a single recovery
+    notice. Reporting the frozen SOC as "last known" keeps the alert useful
+    without pretending a stale reading is live.
+    """
+    if not extract_device_lost(status):
+        record_device_reporting(config)
+        return False
+    record_device_lost(
+        config,
+        command,
+        extract_last_seen_text(status),
+        soc=extract_status_soc(status),
+    )
+    return True
 
 
 def describe_status_output_source(status: dict[str, Any]) -> str:

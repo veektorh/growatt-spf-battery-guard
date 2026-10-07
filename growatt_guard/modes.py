@@ -20,7 +20,6 @@ from growatt_guard.forecast_calibration import (
 )
 from growatt_guard.growatt_api import (
     describe_status_output_source,
-    extract_device_lost,
     extract_first_metric,
     extract_completion_soc,
     extract_last_seen_text,
@@ -32,6 +31,7 @@ from growatt_guard.growatt_api import (
     parse_number,
     set_mode,
     summarize_status,
+    track_device_reporting,
     verify_mode_switch,
     write_probe,
 )
@@ -43,8 +43,6 @@ from growatt_guard.notifications import (
     embed_sbu_return_blocked,
     embed_watchdog_failed,
     embed_watchdog_repaired,
-    record_device_lost,
-    record_device_reporting,
     send_discord_embed,
     send_discord_message,
 )
@@ -124,8 +122,7 @@ def ensure_device_reporting(config: Config, command: str, status: dict) -> bool:
     # network, so every reading stays plausible while being hours old. Acting on it
     # is worse than doing nothing: the mode write goes nowhere and the audit trail
     # records a switch that never happened.
-    if not extract_device_lost(status):
-        record_device_reporting(config)
+    if not track_device_reporting(config, command, status):
         return False
 
     last_seen = extract_last_seen_text(status)
@@ -143,7 +140,6 @@ def ensure_device_reporting(config: Config, command: str, status: dict) -> bool:
         result="skipped",
         note=message,
     )
-    record_device_lost(config, command, last_seen)
     print(message)
     return True
 

@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from helpers import make_config
 from growatt_guard.alerts import command_battery_alert
+from growatt_guard.dashboard_service import refresh_observability_once
 from growatt_guard.growatt_api import extract_device_lost, extract_last_seen_text
 from growatt_guard.growatt_api import DeviceRef
 from growatt_guard.health import HealthCheckItem, command_health_check
@@ -94,6 +95,65 @@ class DeviceLostGuardTests(unittest.TestCase):
         self.assertEqual(len(titles), 2)
         self.assertIn("not reporting", titles[0])
         self.assertIn("reporting again", titles[1])
+
+    def test_lost_device_alert_reports_last_known_soc_as_stale(self):
+        config = make_config(discord_webhook_url="https://example.invalid/hook")
+        status = load_fixture("spf_lost_device.json")
+        with TemporaryDirectory() as tmpdir:
+            p1, p2 = state_patches(tmpdir)
+            with p1, p2, redirect_stdout(StringIO()), patch(
+                "growatt_guard.modes.append_mode_audit"
+            ), patch("growatt_guard.notifications.send_discord_embed", return_value=True) as send:
+                ensure_device_reporting(config, "auto-topup-check", status)
+        fields = {field["name"]: field["value"] for field in send.call_args.args[1]["fields"]}
+        self.assertEqual(fields["Last known SOC"], "87% (stale)")
+
+    def test_lost_device_realerts_after_the_re_alert_interval(self):
+        config = make_config(discord_webhook_url="https://example.invalid/hook")
+        status = load_fixture("spf_lost_device.json")
+        base = dt.datetime(2026, 10, 7, 5, 0, 0, tzinfo=dt.timezone.utc)
+        clock = {"now": base}
+
+        def fake_now():
+            return clock["now"]
+
+        with TemporaryDirectory() as tmpdir:
+            p1, p2 = state_patches(tmpdir)
+            with p1, p2, redirect_stdout(StringIO()), patch(
+                "growatt_guard.modes.append_mode_audit"
+            ), patch(
+                "growatt_guard.notifications.utc_now", side_effect=fake_now
+            ), patch("growatt_guard.notifications.send_discord_embed", return_value=True) as send:
+                ensure_device_reporting(config, "auto-topup-check", status)
+                ensure_device_reporting(config, "auto-topup-check", status)
+                self.assertEqual(send.call_count, 1)
+                clock["now"] = base + dt.timedelta(minutes=61)
+                ensure_device_reporting(config, "auto-topup-check", status)
+
+        self.assertEqual(send.call_count, 2)
+        titles = [call.args[1]["title"] for call in send.call_args_list]
+        self.assertNotIn("still", titles[0])
+        self.assertIn("still not reporting", titles[1])
+
+
+class ObservabilityDeviceTrackingTests(unittest.TestCase):
+    def test_refresh_observability_tracks_device_reporting(self):
+        config = make_config()
+        status = load_fixture("spf_lost_device.json")
+        with TemporaryDirectory() as tmpdir:
+            with patch(
+                "growatt_guard.dashboard_service.load_context",
+                return_value=(None, DeviceRef("plant123", "SN123", "storage", {}), status),
+            ), patch(
+                "growatt_guard.dashboard_service.write_dashboard_from_status",
+                return_value=Path(tmpdir) / "dashboard.html",
+            ), patch(
+                "growatt_guard.dashboard_service.publish_pvoutput_status_from_status",
+                return_value=(True, "PVOutput OK"),
+            ), patch("growatt_guard.dashboard_service.track_device_reporting") as track:
+                refresh_observability_once(config, str(Path(tmpdir) / "dashboard.html"))
+
+        track.assert_called_once_with(config, "observability-refresh", status)
 
 
 class BatteryAlertStaleTests(unittest.TestCase):
