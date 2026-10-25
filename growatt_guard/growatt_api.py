@@ -89,6 +89,7 @@ from growatt_guard.growatt_telemetry import (
     estimate_runtime,
     estimate_topup_for_sunrise,
     extract_battery_status,
+    extract_battery_temperature,
     extract_channel_metric_sum,
     extract_completion_soc,
     extract_device_lost,
@@ -98,6 +99,7 @@ from growatt_guard.growatt_telemetry import (
     extract_protective_soc,
     extract_soc,
     extract_spf_output_source,
+    format_battery_temperature,
     format_duration_minutes,
     format_metric,
     output_source_label,
@@ -509,6 +511,9 @@ def summarize_status(
         n = parse_number(_vbat[0])
         if n is not None:
             parts.append(f"vbat={n:g}")
+    battery_temp = extract_battery_temperature(status)
+    if battery_temp is not None:
+        parts.append(f"bat_temp={round(battery_temp[0], 1):g}C")
     if hours_to_sunrise is not None and hours_to_sunrise > 0:
         parts.append(f"sunrise_h={hours_to_sunrise:.2f}")
         if charge_rate_w > 0 and soc_result is not None and bat_w_val is not None and bat_w_val > 0:

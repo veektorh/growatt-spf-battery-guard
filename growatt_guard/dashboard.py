@@ -32,6 +32,7 @@ from growatt_guard.growatt_api import (
     extract_soc,
     resolve_soc,
     extract_spf_output_source,
+    format_battery_temperature,
     format_duration_minutes,
     load_context,
     parse_number,
@@ -263,6 +264,7 @@ def build_dashboard_html(
     _vbat = extract_first_metric(status, ("vBat", "vBat1", "vbat"))
     _vbat_n = parse_number(_vbat[0]) if _vbat else None
     vbat = f"{_vbat_n:g} V" if _vbat_n is not None else "—"
+    battery_temp = format_battery_temperature(status)
     sunrise_display = "—"
     topup_sunrise_display = "—"
     if hours_to_sunrise is not None and hours_to_sunrise > 0:
@@ -893,6 +895,7 @@ def build_dashboard_html(
             "battery_context": battery_context,
             "battery_flow_display": battery_flow_display,
             "battery_power_label": battery_power_label,
+            "battery_temp": battery_temp,
             "battery_throughput_display": battery_throughput_display,
             "charge_today_display": charge_today_display,
             "charge_battery_pct": daily_mix.get("charge_battery_pct"),
@@ -1058,6 +1061,7 @@ def build_dashboard_html(
         <div class="battery-stats">
           <div><span>Charge rate</span><strong>{esc(battery_charge_rate_display)}</strong><em>Configured grid charge</em></div>
           <div><span>Voltage</span><strong>{esc(vbat)}</strong><em>Battery bus reading</em></div>
+          <div><span>Battery temp</span><strong>{esc(battery_temp)}</strong><em>BMS reported</em></div>
           <div><span>Day throughput</span><strong>{esc(battery_throughput_display)}</strong><em>Charge plus discharge today</em></div>
           <div><span>Expected grid top-up</span><strong>{esc(_grid_forecast_str)}</strong><em>Duration {esc(_topup_duration_str)}</em></div>
           <div><span>Estimate basis</span><strong>{esc(sunrise_reserve_detail_display)}</strong><em>Projection input for tonight risk</em></div>
@@ -1252,6 +1256,7 @@ def build_dashboard_html(
         <div class="muted small">Topup estimate: {esc(tonight_topup_display)}</div>
       </div>
       <div class="card"><div class="label">Battery Voltage</div><div class="value">{esc(vbat)}</div></div>
+      <div class="card"><div class="label">Battery Temperature</div><div class="value">{esc(battery_temp)}</div><div class="muted small">BMS reported cell temperature</div></div>
       <div class="card"><div class="label">Current Load Runtime</div><div class="value">{esc(est_runtime)}</div><div class="muted small">{esc(runtime_note)}</div></div>
       <div class="card"><div class="label">Pause State</div><div class="value">{esc(pause)}</div><div class="muted small">Outage days: {esc(outage)}</div></div>
       <div class="card"><div class="label">Emergency Alert</div><div class="value">{esc(alert)}</div></div>

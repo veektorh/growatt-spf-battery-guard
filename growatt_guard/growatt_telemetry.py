@@ -33,6 +33,14 @@ PV_TODAY_CHANNELS = (
     ("epv1Today", "ePv1Today"),
     ("epv2Today", "ePv2Today"),
 )
+# `bmsBatteryTemp` is the only battery temperature this SPF firmware populates;
+# `batTemp`, `maxCellTemp`/`minCellTemp` and `bmsTemperature` report 0 when
+# unreported and the module probes report -40 as a sentinel. Zero and
+# out-of-range readings are therefore skipped, never shown as a real value.
+BATTERY_TEMP_KEYS = ("bmsBatteryTemp", "batTemp", "batteryTemp", "maxCellTemp", "cellTemp")
+BATTERY_TEMP_MIN_C = -20.0
+BATTERY_TEMP_MAX_C = 100.0
+
 DETAIL_PREFERRED_METRIC_KEYS = {
     "pCharge",
     "pCharge1",
@@ -427,6 +435,29 @@ def extract_battery_status(data: dict[str, Any]) -> str | None:
             if s and "." not in s:
                 return s
     return None
+
+
+def extract_battery_temperature(data: dict[str, Any]) -> tuple[float, str] | None:
+    """Return the first plausible battery temperature in °C with its source path."""
+    for key in BATTERY_TEMP_KEYS:
+        result = extract_first_metric(data, (key,))
+        if result is None:
+            continue
+        celsius = parse_number(result[0])
+        if celsius is None or celsius == 0:
+            continue
+        if not BATTERY_TEMP_MIN_C < celsius <= BATTERY_TEMP_MAX_C:
+            continue
+        return celsius, result[1]
+    return None
+
+
+def format_battery_temperature(data: dict[str, Any]) -> str:
+    """Return a display string such as "30.8 °C", or an em dash when unreported."""
+    result = extract_battery_temperature(data)
+    if result is None:
+        return "—"
+    return f"{round(result[0], 1):g} °C"
 
 
 def _first_metric_number(data: dict[str, Any], keys: tuple[str, ...]) -> tuple[float | None, str]:

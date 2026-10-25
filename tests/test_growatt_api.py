@@ -17,7 +17,7 @@ from growatt_power_guard import (
     verify_mode_switch,
     command_watchdog_sbu,
 )
-from growatt_guard.growatt_api import detect_grid_bypass, detect_unexpected_grid_bypass, extract_battery_status, estimate_runtime, estimate_charge_time, estimate_topup_for_sunrise, format_duration_minutes
+from growatt_guard.growatt_api import detect_grid_bypass, detect_unexpected_grid_bypass, extract_battery_status, extract_battery_temperature, estimate_runtime, estimate_charge_time, estimate_topup_for_sunrise, format_duration_minutes
 
 
 class GrowattApiTests(unittest.TestCase):
@@ -1037,6 +1037,63 @@ class ExtractMetricsTests(unittest.TestCase):
         }
         result = summarize_status(status)
         self.assertIn("vbat=52.3", result)
+
+    def test_summarize_status_includes_battery_temperature(self):
+        status = {
+            "plant_id": "p1",
+            "device_sn": "SN1",
+            "device_type": "storage",
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {
+                    "bmsSoc": 62,
+                    "bmsBatteryTemp": 30.799999237060547,
+                    "batTemp": 0,
+                    "maxCellTemp": 0,
+                },
+            },
+        }
+
+        result = summarize_status(status)
+
+        self.assertIn("bat_temp=30.8C", result)
+
+    def test_summarize_status_omits_unreported_battery_temperature(self):
+        status = {
+            "plant_id": "p1",
+            "device_sn": "SN1",
+            "device_type": "storage",
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {
+                    "bmsSoc": 62,
+                    "bmsBatteryTemp": 0,
+                    "batTemp": 0,
+                    "maxCellTemp": 0,
+                    "module2MaxTemp": -40,
+                },
+            },
+        }
+
+        result = summarize_status(status)
+
+        self.assertNotIn("bat_temp=", result)
+
+    def test_battery_temperature_skips_sentinels_and_falls_back(self):
+        status = {
+            "storage_params": {
+                "storageDetailBean": {
+                    "bmsBatteryTemp": 0,
+                    "batTemp": 34.5,
+                    "module2MaxTemp": -40,
+                }
+            }
+        }
+
+        self.assertEqual(
+            extract_battery_temperature(status),
+            (34.5, "storage_params.storageDetailBean.batTemp"),
+        )
 
     def test_summarize_status_includes_sunrise_fields(self):
         status = {

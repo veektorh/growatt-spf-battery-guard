@@ -269,6 +269,39 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Weather signal is unavailable.", html)
         self.assertIn("Set PANEL_KWP", html)
 
+    def test_dashboard_surfaces_battery_temperature(self):
+        class Threshold:
+            threshold = 50
+            reason = ""
+            weather_category = ""
+
+        status = {
+            "device": {"capacity": "50%"},
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {
+                    "bmsSoc": 50,
+                    "bmsBatteryTemp": 30.799999237060547,
+                    "batTemp": 0,
+                },
+            },
+        }
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+
+        with patch("growatt_guard.dashboard_viewmodel.read_pause_state", return_value=None), patch(
+            "growatt_guard.dashboard_viewmodel.read_battery_alert_state", return_value=None
+        ), patch("growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value=None), patch(
+            "growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None
+        ), patch("growatt_guard.dashboard.read_mode_audit_rows", return_value=[]):
+            html = build_dashboard_html(status, schedule, {"dates": {}}, Threshold(), metrics_history=[])
+            metrics = extract_dashboard_metrics(status)
+            sources = extract_dashboard_metric_sources(status)
+
+        self.assertIn("Battery Temperature", html)
+        self.assertIn("30.8 °C", html)
+        self.assertEqual(metrics["battery_temp_c"], 30.8)
+        self.assertEqual(sources["battery_temp_c"], "storage_params.storageDetailBean.bmsBatteryTemp")
+
     def test_dashboard_next_action_finds_upcoming_job(self):
         schedule = {
             "timezone": "Africa/Lagos",
