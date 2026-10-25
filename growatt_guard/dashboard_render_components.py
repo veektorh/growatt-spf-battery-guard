@@ -378,7 +378,7 @@ def _render_night_view(view: dict[str, Any]) -> str:
             <div class="design-metric-stack">
               <div><span>Usable reserve</span><strong>{esc(view['usable_kwh_display'])}</strong><em>above {esc(view['reserve_floor_display'])} floor</em></div>
               <div><span>Live flow</span><strong>{esc(view['battery_flow_display'])}</strong><em>{esc(view['battery_context'])}</em></div>
-              <div><span>Runtime</span><strong>{esc(view['est_runtime'])}</strong><em>{esc(view['vbat'])} bus</em></div>
+              <div><span>Runtime</span><strong>{esc(view['est_runtime'])}</strong><em>{esc(view['vbat'])} bus · {esc(view['battery_temp'])}</em></div>
             </div>
           </div>
           <div class="design-stat-row"><div><strong>{esc(view['charge_today_display'])}</strong><span>charged today</span></div><div><strong>{esc(view['discharge_today_display'])}</strong><span>discharged</span></div><div><strong>{esc(view['battery_throughput_display'])}</strong><span>throughput</span></div></div>

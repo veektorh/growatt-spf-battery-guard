@@ -10,6 +10,7 @@ from typing import Any, TypedDict
 from growatt_guard.growatt_api import (
     PV_POWER_CHANNELS, PV_TODAY_CHANNELS, deep_values,
     detect_unexpected_grid_bypass, extract_battery_status,
+    extract_battery_temperature,
     extract_channel_metric_sum, extract_first_metric, extract_soc,
     resolve_soc,
     extract_spf_output_source, parse_number,
@@ -76,6 +77,7 @@ class DashboardMetrics(TypedDict, total=False):
     discharge_today_kwh: float | None
     battery_net_w: float | None
     vbat: float | None
+    battery_temp_c: float | None
 
 
 
@@ -211,6 +213,7 @@ def extract_dashboard_metric_sources(status: dict[str, Any]) -> dict[str, str]:
         "discharge_w": first_path(DISCHARGE_POWER_KEYS),
         "discharge_today_kwh": _metric_max_source(status, DISCHARGE_TODAY_KEYS),
         "vbat": first_path(BATTERY_VOLTAGE_KEYS),
+        "battery_temp_c": battery_temp[1] if (battery_temp := extract_battery_temperature(status)) else "",
     }
 
 
@@ -287,6 +290,9 @@ def extract_dashboard_metrics(status: dict[str, Any], now: dt.datetime | None = 
         "discharge_today_kwh": _rounded(_metric_max(status, DISCHARGE_TODAY_KEYS), 2),
         "battery_net_w": _rounded(battery_net_w, 0),
         "vbat": _rounded(_metric_number(status, BATTERY_VOLTAGE_KEYS), 2),
+        "battery_temp_c": (
+            _rounded(battery_temp[0], 1) if (battery_temp := extract_battery_temperature(status)) else None
+        ),
     }
 
 

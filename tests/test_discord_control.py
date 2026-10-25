@@ -220,6 +220,29 @@ class DiscordControlTests(unittest.TestCase):
         self.assertEqual(fields["Battery"], "Charging · 500 W · 3h 53m to full")
         self.assertEqual(fields["Output"], "900 W")
 
+    def test_build_dashboard_embed_includes_battery_temperature(self):
+        status = {
+            "plant_id": "p1",
+            "device_sn": "SN1",
+            "device_type": "storage",
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {
+                    "bmsSoc": 62,
+                    "bmsBatteryTemp": 30.799999237060547,
+                    "statusText": "Discharge",
+                    "pDischarge": 0,
+                    "pCharge": 0,
+                },
+            },
+        }
+        output = summarize_status(status)
+
+        embed = build_dashboard_embed(FakeDiscord, output, return_code=0)
+        fields = {field["name"]: field["value"] for field in embed.fields}
+
+        self.assertEqual(fields["Battery"], "Discharge · 30.8C")
+
     def test_build_dashboard_embed_degrades_when_summary_lacks_soc_and_mode(self):
         status = json.loads(
             (Path(__file__).resolve().parent / "fixtures" / "spf_missing_soc_output.json").read_text(

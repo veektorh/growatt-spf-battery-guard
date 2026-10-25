@@ -223,6 +223,7 @@ def build_dashboard_embed(discord_module: Any, status_output: str, return_code: 
     runtime_min_raw = _extract(r"runtime_min=(\d+)")
     charge_min_raw = _extract(r"charge_min=(\d+)")
     vbat_raw = _extract(r"vbat=([^,]+)")
+    bat_temp_raw = _extract(r"bat_temp=([^,]+)")
     sunrise_h_raw = _extract(r"sunrise_h=([^,]+)")
     topup_sunrise_raw = _extract(r"topup_sunrise_min=(\d+)")
 
@@ -264,6 +265,8 @@ def build_dashboard_embed(discord_module: Any, status_output: str, return_code: 
             bat_value += f" · {dur} to full"
         except ValueError:
             pass
+    if bat_temp_raw != "unknown":
+        bat_value += f" · {bat_temp_raw}"
     embed.add_field(name="Battery", value=bat_value or "—", inline=True)
     embed.add_field(name="Output", value=f"{out_w_raw} W" if out_w_raw != "unknown" else "—", inline=True)
     embed.add_field(name="Load", value=f"{load_pct_raw}%" if load_pct_raw != "unknown" else "—", inline=True)
