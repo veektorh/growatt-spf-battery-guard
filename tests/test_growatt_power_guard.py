@@ -912,9 +912,9 @@ class GrowattPowerGuardTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            summary = build_monthly_summary(dt.datetime(2026, 6, 20, 12, 0))
+            summary = build_monthly_summary(dt.datetime(2026, 7, 1, 12, 0))
 
-        self.assertIn("monthly performance", summary)
+        self.assertIn("monthly performance - 2026-06-01 to 2026-06-30", summary)
         self.assertIn("Utility switches: 1", summary)
         self.assertIn("Average preserve-check SOC: 51%", summary)
 

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import datetime as dt
 from pathlib import Path
+from typing import Any
 
 from growatt_guard.audit import (
     build_daily_summary,
     build_monthly_summary,
     build_weekly_summary,
+    month_window,
     prune_audit_rows,
 )
 from growatt_guard.config import Config
@@ -121,22 +123,57 @@ def _fmt_soc_range(soc_min: float | None, soc_max: float | None) -> str:
     return f"{soc_min:g}-{soc_max:g}%"
 
 
+def _metric_sampling_minutes(
+    history: list[dict[str, Any]],
+    *,
+    now: dt.datetime,
+    days: int,
+) -> float | None:
+    """Median spacing between metric-history samples inside the window, in minutes."""
+    cutoff = now - dt.timedelta(days=days)
+    stamps: list[dt.datetime] = []
+    for row in history:
+        raw = row.get("timestamp")
+        if not isinstance(raw, str):
+            continue
+        try:
+            parsed = dt.datetime.fromisoformat(raw)
+        except ValueError:
+            continue
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone().replace(tzinfo=None)
+        if parsed < cutoff or parsed > now:
+            continue
+        stamps.append(parsed)
+    stamps.sort()
+    gaps = sorted(
+        (later - earlier).total_seconds() / 60.0
+        for earlier, later in zip(stamps, stamps[1:])
+    )
+    if not gaps:
+        return None
+    return gaps[len(gaps) // 2]
+
+
 def _bypass_episodes_section(now: dt.datetime, *, days: int) -> str:
     """Read-only summary of grid-bypass episodes from the local metric history."""
+    if now.tzinfo is not None:
+        now = now.astimezone().replace(tzinfo=None)
     history = read_dashboard_metrics_history(now=now, days=days)
     report = summarize_bypass_episodes(history, now=now, days=days)
-    header = f"Grid bypass episodes (last {days}d, metric-history resolution):"
+    interval = _metric_sampling_minutes(history, now=now, days=days)
+    header = f"Grid bypass episodes (last {days}d, metric-history resolution"
+    header += f" ~{interval:.0f} min):" if interval else "):"
     if not report["episodes"]:
         return f"{header} none observed."
     lines = [header]
     for episode in report["episodes"]:
         started = dt.datetime.fromisoformat(episode["start"]).strftime("%m-%d %H:%M")
         soc = _fmt_soc_range(episode["soc_min"], episode["soc_max"])
-        duration = (
-            "single sample"
-            if episode["samples"] <= 1
-            else f"~{_fmt_minutes(episode['duration_minutes'])}"
-        )
+        if episode["samples"] <= 1:
+            duration = f"1 sample, <{interval:.0f} min" if interval else "1 sample"
+        else:
+            duration = f"~{_fmt_minutes(episode['duration_minutes'])}"
         detail = f"  {started}  {duration}  {soc}"
         if episode["full_minutes"] > 0:
             detail += (
@@ -146,9 +183,18 @@ def _bypass_episodes_section(now: dt.datetime, *, days: int) -> str:
             if episode["full_idle_minutes"] > 0:
                 detail += f" ({_fmt_minutes(episode['full_idle_minutes'])} not charging)"
         lines.append(detail)
-    total = (
-        f"  Total: {report['count']} episode(s), ~{_fmt_minutes(report['total_minutes'])} bypassed"
-    )
+    measured = [episode for episode in report["episodes"] if episode["samples"] > 1]
+    single = [episode for episode in report["episodes"] if episode["samples"] <= 1]
+    if measured:
+        detail = (
+            f"~{_fmt_minutes(sum(episode['duration_minutes'] for episode in measured))} bypassed"
+            f" across {len(measured)} measured episode(s)"
+        )
+        if single:
+            detail += f"; {len(single)} single-sample detection(s) shorter than the poll interval"
+    else:
+        detail = f"{len(single)} single-sample detection(s) shorter than the poll interval"
+    total = f"  Total: {report['count']} episode(s); {detail}"
     if report["total_full_minutes"] > 0:
         total += (
             f"; at>={BYPASS_FULL_SOC:g}%: {_fmt_minutes(report['total_full_minutes'])},"
@@ -231,24 +277,29 @@ def command_weekly_summary(config: Config) -> int:
 
 def command_monthly_summary(config: Config) -> int:
     now = dt.datetime.now()
-    this_month_start = now - dt.timedelta(days=30)
-    last_month_start = now - dt.timedelta(days=60)
+    month_start, month_end = month_window(now.date())
+    previous_start, previous_end = month_window(month_start - dt.timedelta(days=1))
 
-    solar_this: dict = {}
-    solar_last: dict = {}
+    solar_this: dict[str, int] = {}
+    solar_last: dict[str, int] = {}
     if config.pvoutput_enabled:
         from growatt_guard.pvoutput import fetch_pvoutput_daily_outputs
 
-        solar_this = fetch_pvoutput_daily_outputs(config, this_month_start.date(), now.date())
-        solar_last = fetch_pvoutput_daily_outputs(config, last_month_start.date(), this_month_start.date())
+        solar_this = fetch_pvoutput_daily_outputs(config, month_start, month_end)
+        solar_last = fetch_pvoutput_daily_outputs(config, previous_start, previous_end)
 
     summary = build_monthly_summary(
         now=now,
         solar_this_month=solar_this or None,
         solar_last_month=solar_last or None,
+        solar_this_month_source="PVOutput" if solar_this else "",
+        solar_last_month_source="PVOutput" if solar_last else "",
+        solar_this_month_expected_days=(month_end - month_start).days + 1 if solar_this else 0,
+        solar_last_month_expected_days=(previous_end - previous_start).days + 1 if solar_last else 0,
     )
     if config.discord_webhook_url:
-        send_discord_embed(config, embed_summary("Monthly Summary", summary))
+        if not send_discord_embed(config, embed_summary("Monthly Summary", summary)):
+            raise GrowattGuardError("Monthly summary could not be sent to Discord.")
     print(summary)
     return 0
 

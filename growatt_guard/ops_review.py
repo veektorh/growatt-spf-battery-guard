@@ -77,7 +77,7 @@ def _parse_dashboard_timestamp(payload: dict[str, Any]) -> dt.datetime | None:
 
 def _fmt_value(value: Any, suffix: str = "") -> str:
     if isinstance(value, float):
-        return f"{value:g}{suffix}"
+        return f"{round(value, 1):g}{suffix}"
     if isinstance(value, int):
         return f"{value}{suffix}"
     if value is None or value == "":

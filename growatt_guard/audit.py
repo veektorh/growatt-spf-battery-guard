@@ -186,6 +186,7 @@ def parse_audit_timestamp(value: str) -> dt.datetime | None:
 def read_mode_audit_rows(
     *,
     since: dt.datetime | None = None,
+    until: dt.datetime | None = None,
     limit: int | None = None,
     newest_first: bool = False,
 ) -> list[dict[str, str]]:
@@ -198,6 +199,12 @@ def read_mode_audit_rows(
             row
             for row in rows
             if (timestamp := parse_audit_timestamp(row.get("timestamp", ""))) is not None and timestamp >= since
+        ]
+    if until is not None:
+        rows = [
+            row
+            for row in rows
+            if (timestamp := parse_audit_timestamp(row.get("timestamp", ""))) is not None and timestamp < until
         ]
     if newest_first:
         rows = list(reversed(rows))
@@ -226,6 +233,18 @@ def parse_audit_float(row: dict[str, str], key: str) -> float | None:
 
 def average(values: list[float]) -> float | None:
     return sum(values) / len(values) if values else None
+
+
+def fmt_percent(value: float) -> str:
+    """Format a percentage with at most one decimal place."""
+    return f"{round(value, 1):g}%"
+
+
+def month_window(reference: dt.date) -> tuple[dt.date, dt.date]:
+    """Return the inclusive date range of the calendar month before ``reference``."""
+    first_of_month = reference.replace(day=1)
+    month_end = first_of_month - dt.timedelta(days=1)
+    return month_end.replace(day=1), month_end
 
 
 def parse_topup_minutes(row: dict[str, str]) -> int | None:
@@ -342,7 +361,7 @@ def build_weekly_summary(
     battery_bms_cutoff_soc: float = 25.0,
 ) -> str:
     now = now or dt.datetime.now()
-    since = now - dt.timedelta(days=7)
+    since = dt.datetime.combine(now.date() - dt.timedelta(days=6), dt.time.min)
     rows = real_audit_rows(read_mode_audit_rows(since=since))
     preserve_rows = [row for row in rows if row.get("command") == "preserve-battery"]
     preserve_socs = [soc for row in preserve_rows if (soc := parse_audit_float(row, "soc")) is not None]
@@ -389,7 +408,7 @@ def build_weekly_summary(
         topup_line += ")"
     lines.append(topup_line)
     if avg_soc is not None:
-        lines.append(f"Average preserve-check SOC: {avg_soc:g}%")
+        lines.append(f"Average preserve-check SOC: {fmt_percent(avg_soc)}")
         lines.append(f"Lowest preserve-check SOC: {min(preserve_socs):g}%")
     else:
         lines.append("Average preserve-check SOC: not enough data")
@@ -488,7 +507,7 @@ def _weekly_tuning_lines(
     if topup_start_socs:
         avg_topup_soc = average(topup_start_socs)
         if avg_topup_soc is not None:
-            lines.append(f"Avg auto-topup start SOC: {avg_topup_soc:g}%")
+            lines.append(f"Avg auto-topup start SOC: {fmt_percent(avg_topup_soc)}")
 
     hint = "Hold current threshold until another few nights of data confirm the pattern."
     if near_cutoff_count > 0:
@@ -574,10 +593,16 @@ def build_monthly_summary(
     now: dt.datetime | None = None,
     solar_this_month: dict[str, int] | None = None,
     solar_last_month: dict[str, int] | None = None,
+    solar_this_month_source: str = "",
+    solar_last_month_source: str = "",
+    solar_this_month_expected_days: int = 0,
+    solar_last_month_expected_days: int = 0,
 ) -> str:
     now = now or dt.datetime.now()
-    since = now - dt.timedelta(days=30)
-    rows = real_audit_rows(read_mode_audit_rows(since=since))
+    month_start, month_end = month_window(now.date())
+    since = dt.datetime.combine(month_start, dt.time.min)
+    until = dt.datetime.combine(month_end + dt.timedelta(days=1), dt.time.min)
+    rows = real_audit_rows(read_mode_audit_rows(since=since, until=until))
     preserve_rows = [row for row in rows if row.get("command") == "preserve-battery"]
     preserve_socs = [soc for row in preserve_rows if (soc := parse_audit_float(row, "soc")) is not None]
     utility_switches = [row for row in rows if row.get("action") == "switch-to-utility"]
@@ -589,7 +614,7 @@ def build_monthly_summary(
 
     avg_soc = average(preserve_socs)
     lines = [
-        f"Growatt monthly performance - {since.strftime('%Y-%m-%d')} to {now.strftime('%Y-%m-%d')}",
+        f"Growatt monthly performance - {month_start.isoformat()} to {month_end.isoformat()}",
         f"Audit rows: {len(rows)}",
         f"Preserve-battery checks: {len(preserve_rows)}",
         f"Utility switches: {len(utility_switches)}",
@@ -599,7 +624,7 @@ def build_monthly_summary(
         f"Failures: {len(failures)}",
     ]
     if avg_soc is not None:
-        lines.append(f"Average preserve-check SOC: {avg_soc:g}%")
+        lines.append(f"Average preserve-check SOC: {fmt_percent(avg_soc)}")
         lines.append(f"Lowest preserve-check SOC: {min(preserve_socs):g}%")
     else:
         lines.append("Average preserve-check SOC: not enough data")
@@ -614,22 +639,40 @@ def build_monthly_summary(
         days = len(solar_this_month)
         total_wh = sum(solar_this_month.values())
         avg_wh = total_wh / days
+        this_completeness = (
+            f"{days}/{solar_this_month_expected_days} days"
+            if solar_this_month_expected_days
+            else f"{days} day{'s' if days != 1 else ''} data"
+        )
+        this_source = f"; source: {solar_this_month_source}" if solar_this_month_source else ""
         lines.append(
             f"Solar this month: {total_wh / 1000:.1f} kWh total, "
-            f"{avg_wh / 1000:.2f} kWh/day avg ({days} day{'s' if days != 1 else ''} data)"
+            f"{avg_wh / 1000:.2f} kWh/day avg ({this_completeness}{this_source})"
         )
         if solar_last_month:
             days_last = len(solar_last_month)
             total_last_wh = sum(solar_last_month.values())
             avg_last_wh = total_last_wh / days_last
+            last_completeness = (
+                f"{days_last}/{solar_last_month_expected_days} days"
+                if solar_last_month_expected_days
+                else f"{days_last} day{'s' if days_last != 1 else ''} data"
+            )
+            last_source = f"; source: {solar_last_month_source}" if solar_last_month_source else ""
             lines.append(
                 f"Solar last month: {total_last_wh / 1000:.1f} kWh total, "
-                f"{avg_last_wh / 1000:.2f} kWh/day avg"
+                f"{avg_last_wh / 1000:.2f} kWh/day avg ({last_completeness}{last_source})"
             )
-            if avg_last_wh > 0:
+            complete = (
+                (not solar_this_month_expected_days or days >= solar_this_month_expected_days)
+                and (not solar_last_month_expected_days or days_last >= solar_last_month_expected_days)
+            )
+            if avg_last_wh > 0 and complete:
                 change = (avg_wh - avg_last_wh) / avg_last_wh * 100
                 direction = "▲" if change >= 0 else "▼"
                 lines.append(f"Month-over-month yield: {direction} {abs(change):.0f}%")
+            elif avg_last_wh > 0:
+                lines.append("Month-over-month yield: unavailable (incomplete solar data).")
 
     return "\n".join(lines)
 
