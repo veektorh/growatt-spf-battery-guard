@@ -11,6 +11,7 @@ from typing import Any
 
 import growatt_guard.audit as audit_module
 import growatt_guard.dashboard_metrics as metrics_module
+import growatt_guard.bypass_history as bypass_history_module
 import growatt_guard.daily_generation as daily_generation_module
 import growatt_guard.schedule_overrides as overrides_module
 import growatt_guard.state as state_module
@@ -85,6 +86,10 @@ def build_backup_payload(*, include_active_hold: bool = False) -> dict[str, Any]
     if daily_generation_module.DAILY_GENERATION_FILE.exists():
         sections["daily_generation"] = _read_jsonl(
             daily_generation_module.DAILY_GENERATION_FILE, "daily generation"
+        )
+    if bypass_history_module.BYPASS_DAILY_FILE.exists():
+        sections["bypass_daily"] = _read_jsonl(
+            bypass_history_module.BYPASS_DAILY_FILE, "bypass rollup"
         )
     forecasts = state_module.read_forecast_calibration_history()
     if forecasts:
@@ -161,12 +166,15 @@ def _validate_restore_sections(sections: Any) -> dict[str, Any]:
         raise GrowattGuardError("Backup sections must be an object.")
     allowed = {
         "schedule_overrides", "mode_audit", "dashboard_metrics", "daily_generation",
-        "forecast_calibration", "utility_hold",
+        "bypass_daily", "forecast_calibration", "utility_hold",
     }
     unknown = sorted(set(sections) - allowed)
     if unknown:
         raise GrowattGuardError(f"Backup contains unsupported section(s): {', '.join(unknown)}")
-    for name in ("mode_audit", "dashboard_metrics", "daily_generation", "forecast_calibration"):
+    for name in (
+        "mode_audit", "dashboard_metrics", "daily_generation", "bypass_daily",
+        "forecast_calibration",
+    ):
         value = sections.get(name)
         if value is not None and (not isinstance(value, list) or not all(isinstance(row, dict) for row in value)):
             raise GrowattGuardError(f"Backup {name} must be a list of objects.")
@@ -248,6 +256,23 @@ def command_restore_state(config: Any, input_path: str, allow_active_hold: bool 
             for row in sorted(daily_generation, key=lambda item: str(item["date"]))
         )
         _atomic_write_text(daily_generation_module.DAILY_GENERATION_FILE, content)
+    bypass_daily = sections.get("bypass_daily")
+    if bypass_daily is not None:
+        dates: set[str] = set()
+        for row in bypass_daily:
+            try:
+                day = dt.date.fromisoformat(str(row["date"])).isoformat()
+                episodes = int(row["episodes"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise GrowattGuardError("Every bypass rollup row needs a valid date and episodes.") from exc
+            if episodes < 0 or day in dates:
+                raise GrowattGuardError("Bypass rollup rows must have unique dates and non-negative episodes.")
+            dates.add(day)
+        content = "".join(
+            json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
+            for row in sorted(bypass_daily, key=lambda item: str(item["date"]))
+        )
+        _atomic_write_text(bypass_history_module.BYPASS_DAILY_FILE, content)
     forecasts = sections.get("forecast_calibration")
     if forecasts is not None:
         state_module.write_forecast_calibration_history(forecasts)

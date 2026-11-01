@@ -360,6 +360,12 @@ def append_dashboard_metric_snapshot(
         finalize_completed_daily_generation(rows, now=now)
     except Exception:  # noqa: BLE001 - retain the bounded metric history for a later retry
         logging.exception("Could not finalize the durable daily generation ledger")
+    try:
+        from growatt_guard.bypass_history import finalize_completed_bypass_days
+
+        finalize_completed_bypass_days(rows, now=now)
+    except Exception:  # noqa: BLE001 - rollup failures must not break metric capture
+        logging.exception("Could not finalize the durable bypass rollup ledger")
     return metric
 
 

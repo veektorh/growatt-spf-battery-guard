@@ -105,12 +105,14 @@
       "name": "Post weekly operational review",
       "cron": "20 21 * * 0",
       "command": "ops-review",
-      "args": ["--notify"]
+      "args": [
+        "--notify"
+      ]
     },
     {
       "id": "monthly-summary",
       "name": "Post monthly performance summary on the 1st",
-      "cron": "10 21 1 * *",
+      "cron": "40 21 1 * *",
       "command": "monthly-summary"
     },
     {
@@ -118,6 +120,15 @@
       "name": "Rotate old generated logs",
       "cron": "10 0 * * *",
       "command": "rotate-logs"
+    },
+    {
+      "id": "solar-reconcile",
+      "name": "Reconcile the daily solar ledger with PVOutput",
+      "cron": "20 0 * * *",
+      "command": "solar-reconcile",
+      "args": [
+        "--notify"
+      ]
     },
     {
       "id": "prune-audit",

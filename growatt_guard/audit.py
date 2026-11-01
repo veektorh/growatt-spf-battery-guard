@@ -597,6 +597,7 @@ def build_monthly_summary(
     solar_last_month_source: str = "",
     solar_this_month_expected_days: int = 0,
     solar_last_month_expected_days: int = 0,
+    solar_data_notes: list[str] | None = None,
 ) -> str:
     now = now or dt.datetime.now()
     month_start, month_end = month_window(now.date())
@@ -673,6 +674,9 @@ def build_monthly_summary(
                 lines.append(f"Month-over-month yield: {direction} {abs(change):.0f}%")
             elif avg_last_wh > 0:
                 lines.append("Month-over-month yield: unavailable (incomplete solar data).")
+    if solar_data_notes:
+        lines.append("Solar data notes:")
+        lines.extend(f"  - {note}" for note in solar_data_notes)
 
     return "\n".join(lines)
 

@@ -599,6 +599,40 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("at>=99%", section)
         self.assertIn("not charging", section)
 
+    def test_bypass_episode_is_labeled_post_return_sbu(self):
+        rows = [self._bypass_row("2026-09-27T08:00:00", bypass=True, soc=49)]
+        audit = [
+            {
+                "timestamp": "2026-09-27T07:50:00",
+                "command": "return-sbu",
+                "action": "switch-to-sbu",
+                "dry_run": "false",
+                "result": "ok",
+            }
+        ]
+        with patch("growatt_guard.reports.read_dashboard_metrics_history", return_value=rows), \
+             patch("growatt_guard.audit.read_mode_audit_rows", return_value=audit):
+            section = _bypass_episodes_section(dt.datetime(2026, 9, 27, 9, 0), days=1)
+
+        self.assertIn("(post-return-SBU)", section)
+
+    def test_bypass_episode_is_labeled_during_auto_topup(self):
+        rows = [self._bypass_row("2026-09-27T08:20:00", bypass=True, soc=49)]
+        audit = [
+            {
+                "timestamp": "2026-09-27T08:00:00",
+                "command": "auto-topup-check",
+                "action": "auto-topup-started",
+                "dry_run": "false",
+                "result": "ok",
+            }
+        ]
+        with patch("growatt_guard.reports.read_dashboard_metrics_history", return_value=rows), \
+             patch("growatt_guard.audit.read_mode_audit_rows", return_value=audit):
+            section = _bypass_episodes_section(dt.datetime(2026, 9, 27, 9, 0), days=1)
+
+        self.assertIn("(during auto-topup)", section)
+
     def test_bypass_episodes_section_reports_none(self):
         with patch("growatt_guard.reports.read_dashboard_metrics_history", return_value=[]):
             section = _bypass_episodes_section(dt.datetime(2026, 9, 27, 18, 0), days=1)

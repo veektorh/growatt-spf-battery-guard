@@ -12,6 +12,7 @@ from growatt_guard.audit import (
     prune_audit_rows,
 )
 from growatt_guard.config import Config
+from growatt_guard.daily_generation import read_daily_generation
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import load_context
 from growatt_guard.notifications import embed_summary, send_discord_embed
@@ -39,6 +40,9 @@ ROTATE_LOG_GENERATED_PATTERNS = (
     ".dash_tmp_*.html",
 )
 ENV_BACKUP_PATTERNS = (".env.pre-*", ".env.before-*", ".env.bak-*")
+# A bypass sample this soon after a return-SBU is the inverter draining the tail of
+# its grid-charge state, not an automation fault.
+BYPASS_RETURN_CONTEXT_MINUTES = 30
 
 
 def prune_env_backups(cutoff: dt.datetime) -> int:
@@ -155,6 +159,86 @@ def _metric_sampling_minutes(
     return gaps[len(gaps) // 2]
 
 
+def _bypass_contexts(
+    now: dt.datetime,
+    *,
+    days: int,
+) -> tuple[list[dt.datetime], list[tuple[dt.datetime, dt.datetime]]]:
+    """Return return-SBU times and top-up intervals from the mode audit trail."""
+    from growatt_guard.audit import parse_audit_timestamp, read_mode_audit_rows, real_audit_rows
+
+    since = now - dt.timedelta(days=days)
+    returns: list[dt.datetime] = []
+    topups: list[tuple[dt.datetime, dt.datetime]] = []
+    open_start: dt.datetime | None = None
+    for row in real_audit_rows(read_mode_audit_rows(since=since)):
+        timestamp = parse_audit_timestamp(row.get("timestamp", ""))
+        if timestamp is None:
+            continue
+        action = row.get("action", "")
+        if action == "auto-topup-started":
+            if open_start is not None:
+                topups.append((open_start, timestamp))
+            open_start = timestamp
+        elif action in {"topup-target-reached", "topup-expired"} and open_start is not None:
+            topups.append((open_start, timestamp))
+            open_start = None
+        elif action == "switch-to-sbu":
+            returns.append(timestamp)
+            if open_start is not None:
+                topups.append((open_start, timestamp))
+                open_start = None
+    if open_start is not None:
+        topups.append((open_start, now))
+    return returns, topups
+
+
+def _episode_context(
+    started: dt.datetime,
+    returns: list[dt.datetime],
+    topups: list[tuple[dt.datetime, dt.datetime]],
+) -> str:
+    window = dt.timedelta(minutes=BYPASS_RETURN_CONTEXT_MINUTES)
+    for returned in returns:
+        if dt.timedelta(0) <= started - returned <= window:
+            return "post-return-SBU"
+    for start, end in topups:
+        if start <= started <= end:
+            return "during auto-topup"
+    return ""
+
+
+def _bypass_month_section(month_start: dt.date, month_end: dt.date) -> str:
+    """Month-scale bypass totals from the durable daily rollup."""
+    from growatt_guard.bypass_history import read_bypass_daily
+
+    rows = [
+        row
+        for row in read_bypass_daily()
+        if month_start.isoformat() <= str(row["date"]) <= month_end.isoformat()
+    ]
+    header = "Grid bypass (month rollup):"
+    expected_days = (month_end - month_start).days + 1
+    if not rows:
+        return f"{header} no rollup coverage for this month."
+    episodes = sum(int(row["episodes"]) for row in rows)
+    samples = sum(int(row.get("samples", 0)) for row in rows)
+    minutes = sum(float(row.get("duration_minutes", 0)) for row in rows)
+    full_minutes = sum(float(row.get("full_minutes", 0)) for row in rows)
+    grid_kwh = sum(float(row.get("full_grid_kwh", 0)) for row in rows)
+    detail = f"  Coverage {len(rows)}/{expected_days} days; {episodes} episode(s), {samples} sample(s)"
+    if minutes > 0:
+        detail += f", ~{_fmt_minutes(minutes)} bypassed"
+    elif episodes:
+        detail += ", each shorter than one poll interval"
+    lines = [header, detail]
+    if full_minutes > 0:
+        lines.append(
+            f"  at>={BYPASS_FULL_SOC:g}%: {_fmt_minutes(full_minutes)}, {grid_kwh:.1f} kWh grid"
+        )
+    return "\n".join(lines)
+
+
 def _bypass_episodes_section(now: dt.datetime, *, days: int) -> str:
     """Read-only summary of grid-bypass episodes from the local metric history."""
     if now.tzinfo is not None:
@@ -167,14 +251,19 @@ def _bypass_episodes_section(now: dt.datetime, *, days: int) -> str:
     if not report["episodes"]:
         return f"{header} none observed."
     lines = [header]
+    returns, topups = _bypass_contexts(now, days=days)
     for episode in report["episodes"]:
-        started = dt.datetime.fromisoformat(episode["start"]).strftime("%m-%d %H:%M")
+        start_dt = dt.datetime.fromisoformat(episode["start"])
+        started = start_dt.strftime("%m-%d %H:%M")
         soc = _fmt_soc_range(episode["soc_min"], episode["soc_max"])
         if episode["samples"] <= 1:
             duration = f"1 sample, <{interval:.0f} min" if interval else "1 sample"
         else:
             duration = f"~{_fmt_minutes(episode['duration_minutes'])}"
         detail = f"  {started}  {duration}  {soc}"
+        context = _episode_context(start_dt, returns, topups)
+        if context:
+            detail += f"  ({context})"
         if episode["full_minutes"] > 0:
             detail += (
                 f"  at>={BYPASS_FULL_SOC:g}%: {_fmt_minutes(episode['full_minutes'])}"
@@ -275,28 +364,81 @@ def command_weekly_summary(config: Config) -> int:
     return 0
 
 
+def _ledger_window(ledger: dict[str, int], start: dt.date, end: dt.date) -> dict[str, int]:
+    window: dict[str, int] = {}
+    day = start
+    while day <= end:
+        key = day.isoformat()
+        if key in ledger:
+            window[key] = ledger[key]
+        day += dt.timedelta(days=1)
+    return window
+
+
 def command_monthly_summary(config: Config) -> int:
     now = dt.datetime.now()
     month_start, month_end = month_window(now.date())
     previous_start, previous_end = month_window(month_start - dt.timedelta(days=1))
-
-    solar_this: dict[str, int] = {}
-    solar_last: dict[str, int] = {}
+    ledger = {str(row["date"]): int(row["generated_wh"]) for row in read_daily_generation()}
+    solar_this = _ledger_window(ledger, month_start, month_end)
+    solar_last = _ledger_window(ledger, previous_start, previous_end)
+    ledger_this = len(solar_this)
+    ledger_last = len(solar_last)
+    notes: list[str] = []
     if config.pvoutput_enabled:
         from growatt_guard.pvoutput import fetch_pvoutput_daily_outputs
 
-        solar_this = fetch_pvoutput_daily_outputs(config, month_start, month_end)
-        solar_last = fetch_pvoutput_daily_outputs(config, previous_start, previous_end)
-
+        reference_this = fetch_pvoutput_daily_outputs(config, month_start, month_end)
+        reference_last = fetch_pvoutput_daily_outputs(config, previous_start, previous_end)
+        filled = 0
+        for reference, target, window_start, window_end in (
+            (reference_this, solar_this, month_start, month_end),
+            (reference_last, solar_last, previous_start, previous_end),
+        ):
+            for day, generated_wh in reference.items():
+                try:
+                    parsed = dt.date.fromisoformat(day)
+                except ValueError:
+                    continue
+                if not window_start <= parsed <= window_end or day in target:
+                    continue
+                target[day] = int(generated_wh)
+                filled += 1
+        drift = [
+            day
+            for day, generated_wh in reference_this.items()
+            if month_start.isoformat() <= day <= month_end.isoformat()
+            and day in ledger
+            and abs(int(generated_wh) - ledger[day]) > max(200.0, abs(ledger[day]) * 0.02)
+        ]
+        if filled:
+            notes.append(f"Filled {filled} missing day(s) from PVOutput.")
+        if drift:
+            notes.append(
+                f"PVOutput differs from the ledger on {len(drift)} day(s); "
+                "run solar-reconcile to review."
+            )
+    this_source = (
+        "daily generation ledger"
+        if len(solar_this) == ledger_this
+        else ("PVOutput" if ledger_this == 0 else "daily generation ledger + PVOutput")
+    )
+    last_source = (
+        "daily generation ledger"
+        if len(solar_last) == ledger_last
+        else ("PVOutput" if ledger_last == 0 else "daily generation ledger + PVOutput")
+    )
     summary = build_monthly_summary(
         now=now,
         solar_this_month=solar_this or None,
         solar_last_month=solar_last or None,
-        solar_this_month_source="PVOutput" if solar_this else "",
-        solar_last_month_source="PVOutput" if solar_last else "",
+        solar_this_month_source=this_source if solar_this else "",
+        solar_last_month_source=last_source if solar_last else "",
         solar_this_month_expected_days=(month_end - month_start).days + 1 if solar_this else 0,
         solar_last_month_expected_days=(previous_end - previous_start).days + 1 if solar_last else 0,
+        solar_data_notes=notes,
     )
+    summary = f"{summary}\n\n{_bypass_month_section(month_start, month_end)}"
     if config.discord_webhook_url:
         if not send_discord_embed(config, embed_summary("Monthly Summary", summary)):
             raise GrowattGuardError("Monthly summary could not be sent to Discord.")

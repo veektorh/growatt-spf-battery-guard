@@ -25,6 +25,7 @@ from growatt_guard.pvoutput_backfill import command_pvoutput_backfill
 from growatt_guard.schedule import command_validate_schedule
 from growatt_guard.schedule_overrides import command_outage_profile, command_schedule_override
 from growatt_guard.schedule_views import command_schedule_calendar
+from growatt_guard.solar_reconcile import command_solar_reconcile
 from growatt_guard.topup_status import command_topup_status
 
 
@@ -107,6 +108,27 @@ def build_parser() -> argparse.ArgumentParser:
     ops_review_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     subparsers.add_parser("rotate-logs", help="Delete old generated probe/log files according to LOG_RETENTION_DAYS.")
     subparsers.add_parser("prune-audit", help="Remove audit CSV rows older than AUDIT_RETENTION_DAYS (default 90).")
+    reconcile_parser = subparsers.add_parser(
+        "solar-reconcile",
+        help="Compare the finalized daily solar ledger with PVOutput and repair drift.",
+    )
+    reconcile_parser.add_argument(
+        "--days",
+        type=int,
+        default=7,
+        help="Days to reconcile, ending yesterday (default: 7).",
+    )
+    reconcile_parser.add_argument(
+        "--no-apply",
+        dest="apply",
+        action="store_false",
+        help="Preview drift without repairing the ledger.",
+    )
+    reconcile_parser.add_argument(
+        "--notify",
+        action="store_true",
+        help="Post a Discord summary when drift or gaps were found.",
+    )
     subparsers.add_parser("weather-threshold", help="Print the current weather-aware preserve-battery threshold.")
     subparsers.add_parser("battery-alert", help="Send a Discord alert if battery SOC is below EMERGENCY_SOC.")
     subparsers.add_parser("validate-schedule", help="Validate schedule.json.")
@@ -394,6 +416,10 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_rotate_logs(config)
         if command == "prune-audit":
             return app.command_prune_audit(config)
+        if command == "solar-reconcile":
+            return command_solar_reconcile(
+                config, days=args.days, apply=args.apply, notify=args.notify
+            )
         if command == "weather-threshold":
             return app.command_weather_threshold(config)
         if command == "battery-alert":

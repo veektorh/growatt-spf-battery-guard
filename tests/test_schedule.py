@@ -36,6 +36,32 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(schedule["timezone"], "Africa/Lagos")
         self.assertGreaterEqual(len(schedule["jobs"]), 1)
 
+    def test_lint_flags_reports_that_share_a_minute(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "weekly-summary", "cron": "10 21 * * 0", "command": "weekly-summary"},
+                {"id": "monthly-summary", "cron": "10 21 1 * *", "command": "monthly-summary"},
+            ],
+        }
+        details = [item.detail for item in lint_schedule(schedule) if item.status == "WARN"]
+
+        self.assertTrue(
+            any("both post a report at 21:10" in detail for detail in details), details
+        )
+
+    def test_lint_accepts_staggered_reports(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "weekly-summary", "cron": "10 21 * * 0", "command": "weekly-summary"},
+                {"id": "monthly-summary", "cron": "40 21 1 * *", "command": "monthly-summary"},
+            ],
+        }
+        details = [item.detail for item in lint_schedule(schedule) if item.status == "WARN"]
+
+        self.assertFalse(any("both post a report" in detail for detail in details), details)
+
     def test_topup_completion_monitor_runs_all_day_without_baseline_api_accounting(self):
         schedule = validate_schedule()
         job = next(item for item in schedule["jobs"] if item["id"] == "topup-complete-check")

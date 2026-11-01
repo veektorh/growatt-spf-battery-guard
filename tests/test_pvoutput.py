@@ -1,5 +1,7 @@
 import datetime as dt
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -475,6 +477,50 @@ class WeeklySolarYieldTests(unittest.TestCase):
             solar_last_week_expected_days=1,
         )
         self.assertNotIn("panel cleanliness", result)
+
+
+class MonthlyReportSourceTests(unittest.TestCase):
+    def test_monthly_report_prefers_the_ledger_and_notes_pvoutput_gaps(self):
+        from growatt_guard.audit import month_window
+        from growatt_guard.reports import command_monthly_summary
+
+        start, end = month_window(dt.date.today())
+        previous_start, previous_end = month_window(start - dt.timedelta(days=1))
+        this_days = [start + dt.timedelta(days=i) for i in range((end - start).days + 1)]
+        last_days = [
+            previous_start + dt.timedelta(days=i)
+            for i in range((previous_end - previous_start).days + 1)
+        ]
+        ledger = [
+            {"date": day.isoformat(), "generated_wh": 30000, "source": "growatt-observability"}
+            for day in this_days[:-1]
+        ]
+        ledger += [
+            {"date": day.isoformat(), "generated_wh": 28000, "source": "growatt-observability"}
+            for day in last_days
+        ]
+        reference = {day.isoformat(): 30000 for day in this_days}
+        reference[this_days[0].isoformat()] = 12000
+        rollup = [
+            {"date": day.isoformat(), "episodes": 1, "samples": 1}
+            for day in this_days[:20]
+        ]
+
+        with patch("growatt_guard.reports.read_daily_generation", return_value=ledger), \
+             patch("growatt_guard.pvoutput.fetch_pvoutput_daily_outputs", return_value=reference), \
+             patch("growatt_guard.bypass_history.read_bypass_daily", return_value=rollup):
+            buffer = StringIO()
+            with redirect_stdout(buffer):
+                command_monthly_summary(make_config(pvoutput_enabled=True))
+        output = buffer.getvalue()
+
+        self.assertIn("Solar this month", output)
+        self.assertIn(f"({len(this_days)}/{len(this_days)} days;", output)
+        self.assertIn("source: daily generation ledger + PVOutput", output)
+        self.assertIn("Filled 1 missing day(s) from PVOutput.", output)
+        self.assertIn("PVOutput differs from the ledger on 1 day(s)", output)
+        self.assertIn("Month-over-month yield", output)
+        self.assertIn(f"Coverage 20/{len(this_days)} days", output)
 
 
 class MonthlySolarYieldTests(unittest.TestCase):

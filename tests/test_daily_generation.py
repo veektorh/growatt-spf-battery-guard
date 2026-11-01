@@ -78,6 +78,27 @@ class DailyGenerationTests(unittest.TestCase):
         self.assertEqual(saved[-1]["date"], "2026-10-05")
         self.assertEqual(saved[-1]["generated_wh"], 11200)
 
+    def test_all_day_stale_counter_is_not_recorded(self):
+        rows = [
+            {"timestamp": "2026-10-05T00:15:00+01:00", "pv_today_kwh": 16.2},
+            {"timestamp": "2026-10-05T12:00:00+01:00", "pv_today_kwh": 16.2},
+            {"timestamp": "2026-10-05T23:45:00+01:00", "pv_today_kwh": 16.2},
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ledger = Path(tmpdir) / "daily_generation.jsonl"
+            merge_daily_generation(
+                {dt.date(2026, 10, 4): 16200}, source="growatt-history", path=ledger
+            )
+            added, _ = finalize_completed_daily_generation(
+                rows,
+                now=dt.datetime(2026, 10, 6, 0, 5, tzinfo=dt.timezone(dt.timedelta(hours=1))),
+                path=ledger,
+            )
+            saved = read_daily_generation(ledger)
+
+        self.assertEqual(added, 0)
+        self.assertEqual([row["date"] for row in saved], ["2026-10-04"])
+
     def test_merge_is_idempotent_and_strict_conflicts_fail_closed(self):
         day = dt.date(2026, 8, 11)
         with tempfile.TemporaryDirectory() as tmpdir:

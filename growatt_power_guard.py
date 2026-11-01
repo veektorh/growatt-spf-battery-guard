@@ -182,6 +182,10 @@ from growatt_guard.reports import (
     command_weather_threshold,
     command_weekly_summary,
 )
+from growatt_guard.solar_reconcile import (
+    build_reconciliation,
+    command_solar_reconcile,
+)
 from growatt_guard.outage_days import (
     OUTAGE_MODES,
     command_outage_status,
