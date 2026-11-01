@@ -611,7 +611,7 @@ def lint_schedule(schedule: dict[str, Any]) -> list[HealthCheckItem]:
                 "OK",
                 (
                     f"estimated Growatt API runs peak at {api_runs}/day; "
-                    "no duplicate pollers, fast pollers, or risky mode-changing jobs found."
+                    "no duplicate pollers, fast pollers, report collisions, or risky mode-changing jobs found."
                 ),
             )
         )
