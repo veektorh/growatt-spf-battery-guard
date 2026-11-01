@@ -14,6 +14,9 @@ from growatt_guard.paths import DATA_HOME
 
 DAILY_GENERATION_FILE = DATA_HOME / "history" / "daily_generation.jsonl"
 FINAL_OBSERVATION_HOUR = 20
+# Growatt reports pv_today in 0.1 kWh steps, so a drop larger than rounding means the
+# counter reset and every earlier sample in the day was a stale carry-over.
+STALE_RESET_MIN_DROP_KWH = 0.2
 
 
 def _parse_timestamp(value: Any) -> dt.datetime | None:
@@ -139,6 +142,24 @@ def merge_daily_generation(
     return added, tuple(conflicts)
 
 
+def _final_observation(samples: list[tuple[dt.datetime, float]]) -> tuple[dt.datetime, float]:
+    """Return the day's closing sample, ignoring a stale carry-over from the previous day.
+
+    Growatt can keep serving the previous day's ``pv_today`` total after midnight and
+    then drop it when the counter resets, so every sample before the last drop belongs
+    to the previous day. Taking ``max`` over the day records that stale peak as the
+    day's generation, which inflates any day that out-generated the day before it.
+    """
+    ordered = sorted(samples)
+    segment_peak = ordered[0][1]
+    for _, value in ordered[1:]:
+        if value < segment_peak - STALE_RESET_MIN_DROP_KWH:
+            segment_peak = value
+            continue
+        segment_peak = max(segment_peak, value)
+    return ordered[-1]
+
+
 def finalize_completed_daily_generation(
     metric_rows: list[dict[str, Any]],
     *,
@@ -174,10 +195,10 @@ def finalize_completed_daily_generation(
     records: dict[dt.date, int] = {}
     observed_through: dict[dt.date, str] = {}
     for day, samples in values.items():
-        last_timestamp = max(timestamp for timestamp, _ in samples)
+        last_timestamp, generated_kwh = _final_observation(samples)
         if last_timestamp.hour < FINAL_OBSERVATION_HOUR:
             continue
-        records[day] = round(max(value for _, value in samples) * 1000)
+        records[day] = round(generated_kwh * 1000)
         observed_through[day] = last_timestamp.isoformat()
 
     added, conflicts = merge_daily_generation(

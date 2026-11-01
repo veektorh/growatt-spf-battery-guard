@@ -435,6 +435,14 @@ class WeeklySolarYieldTests(unittest.TestCase):
             with self.assertRaisesRegex(GrowattGuardError, "could not be sent"):
                 command_weekly_summary(config)
 
+    def test_monthly_summary_raises_when_discord_delivery_fails(self):
+        from growatt_guard.exceptions import GrowattGuardError
+        from growatt_guard.reports import command_monthly_summary
+        config = make_config(discord_webhook_url="https://example.invalid/hook")
+        with patch("growatt_guard.reports.send_discord_embed", return_value=False):
+            with self.assertRaisesRegex(GrowattGuardError, "could not be sent"):
+                command_monthly_summary(config)
+
     def test_no_solar_section_when_no_data(self):
         from growatt_guard.audit import build_weekly_summary
         result = build_weekly_summary(now=dt.datetime(2026, 6, 21))

@@ -97,7 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("watchdog-sbu", help="Verify output source is SBU; retry SBU once if needed.")
     subparsers.add_parser("daily-summary", help="Post/print a daily Growatt and automation summary.")
     subparsers.add_parser("weekly-summary", help="Post/print a weekly automation performance summary.")
-    subparsers.add_parser("monthly-summary", help="Post/print a 30-day automation performance summary.")
+    subparsers.add_parser("monthly-summary", help="Post/print the previous calendar month's performance summary.")
     ops_review_parser = subparsers.add_parser(
         "ops-review",
         help="Print a local operations review from dashboard, audit, and state files.",
