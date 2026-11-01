@@ -194,12 +194,32 @@ def finalize_completed_daily_generation(
 
     records: dict[dt.date, int] = {}
     observed_through: dict[dt.date, str] = {}
-    for day, samples in values.items():
+    previous_wh = int(existing[-1]["generated_wh"]) if existing else None
+    for day in sorted(values):
+        samples = values[day]
         last_timestamp, generated_kwh = _final_observation(samples)
         if last_timestamp.hour < FINAL_OBSERVATION_HOUR:
             continue
-        records[day] = round(generated_kwh * 1000)
+        generated_wh = round(generated_kwh * 1000)
+        peak = max(value for _, value in samples)
+        trough = min(value for _, value in samples)
+        counter_flat = (peak - trough) <= STALE_RESET_MIN_DROP_KWH
+        if (
+            previous_wh is not None
+            and previous_wh > 0
+            and generated_wh == previous_wh
+            and counter_flat
+        ):
+            logging.warning(
+                "Daily generation for %s repeats %sWh with a flat pv_today counter; "
+                "treating it as an all-day stale carry-over and leaving the day unrecorded.",
+                day.isoformat(),
+                generated_wh,
+            )
+            continue
+        records[day] = generated_wh
         observed_through[day] = last_timestamp.isoformat()
+        previous_wh = generated_wh
 
     added, conflicts = merge_daily_generation(
         records,

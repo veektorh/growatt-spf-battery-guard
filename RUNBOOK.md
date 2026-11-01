@@ -494,6 +494,20 @@ already contained every date. This is normally a one-time import: future days
 are finalized automatically from late-evening observability samples. The
 fallback uploader reserves eight hourly API requests for normal live uploads.
 
+Two durable ledgers sit beside it, both seeded automatically from the retained
+metric history and both included in `backup-state`:
+
+| File | Contents | Written by |
+|---|---|---|
+| `history/daily_generation.jsonl` | one finalized PV total per completed day | observability refresh, `pvoutput-backfill` |
+| `history/bypass_daily.jsonl` | episodes, samples, minutes, and at-full grid kWh per completed day | observability refresh |
+
+`solar-reconcile` runs nightly at 00:20 and reconciles the last seven finalized
+days with PVOutput, repairing gaps and drift while posting a Discord summary of
+what changed. Review its output before assuming a ledger value is authoritative
+when PVOutput is disabled: without PVOutput the command reports that there is
+nothing to reconcile.
+
 ## Local Application Health Watchdog
 
 Configure `APP_HEALTH_TARGETS` with loopback `/health` endpoints and their

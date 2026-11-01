@@ -354,6 +354,7 @@ topup-complete-check resumes automation after topup, with SOC delta and implied 
 daily-summary posts the end-of-day summary
 weekly-summary posts the weekly performance report
 monthly-summary posts the previous calendar month's performance summary
+solar-reconcile alerts and repairs when the daily solar ledger drifts from PVOutput
 health-check --notify posts readiness diagnostics, including the next scheduled jobs
 battery-alert detects or clears an emergency SOC episode
 runtime-alert sends and clears a low-runtime warning
@@ -995,6 +996,13 @@ already complete and no upload was needed. After that one-time seed, completed
 days are added automatically from a late-evening observability sample. Existing
 daily rows are never silently replaced. Use `--overwrite-conflicts` only after
 independently verifying the Growatt value for every reported conflict.
+
+`solar-reconcile` (nightly at 00:20) compares the last seven finalized days in
+`history/daily_generation.jsonl` with PVOutput, repairs gaps and drift beyond
+0.2 kWh or 2%, and posts a Discord summary when it changed anything. The same
+pass also keeps `history/bypass_daily.jsonl`, the per-day bypass rollup that
+makes month-scale bypass reporting possible after the eight-day metric history
+has rotated away.
 
 ## Expose Dashboard On A Domain
 

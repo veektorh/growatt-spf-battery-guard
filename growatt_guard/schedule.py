@@ -34,6 +34,7 @@ SCHEDULE_COMMANDS = {
     "dashboard-stale-alert",
     "pvoutput-upload",
     "observability-refresh",
+    "solar-reconcile",
     "auto-topup-check",
     "topup-complete-check",
     "waste-alert-check",
@@ -43,6 +44,7 @@ SCHEDULE_COMMANDS = {
 SCHEDULE_COMMAND_ARGS = {
     "health-check": {"--notify"},
     "ops-review": {"--notify"},
+    "solar-reconcile": {"--notify"},
 }
 GROWATT_READ_COMMANDS = {
     "auto-topup-check",
@@ -55,6 +57,10 @@ GROWATT_READ_COMMANDS = {
     "waste-alert-check",
 }
 CONDITIONAL_GROWATT_READ_COMMANDS = {"topup-complete-check"}
+# Jobs that each post their own Discord summary. Two of them in the same minute bury
+# one report under the other, so collisions are a schedule defect, not just noise.
+REPORT_COMMANDS = {"daily-summary", "weekly-summary", "monthly-summary", "ops-review"}
+REPORT_COLLISION_WINDOW_DAYS = 400
 MODE_CHANGING_COMMANDS = {"preserve-battery", "utility-check", "morning-check", "return-sbu", "watchdog-sbu"}
 GROWATT_API_COMMANDS = GROWATT_READ_COMMANDS | MODE_CHANGING_COMMANDS
 GROWATT_API_DAILY_WARNING_THRESHOLD = 200
@@ -441,6 +447,51 @@ def estimate_growatt_api_runs_per_day(
             max_by_job = by_job
     return max_total, max_date, max_by_job
 
+
+def _job_minutes_of_day(cron: str) -> set[int]:
+    minute, hour, *_ = cron.split()
+    return {
+        hour_value * 60 + minute_value
+        for hour_value in range(24)
+        for minute_value in range(60)
+        if cron_part_matches(minute_value, minute, 0, 59)
+        and cron_part_matches(hour_value, hour, 0, 23)
+    }
+
+
+def _job_matches_date(cron: str, day: dt.date) -> bool:
+    _, _, day_field, month_field, day_of_week = cron.split()
+    cron_dow = (day.weekday() + 1) % 7
+    return (
+        cron_part_matches(day.day, day_field, 1, 31)
+        and cron_part_matches(day.month, month_field, 1, 12)
+        and (
+            cron_part_matches(cron_dow, day_of_week, 0, 7)
+            or (cron_dow == 0 and cron_part_matches(7, day_of_week, 0, 7))
+        )
+    )
+
+
+def _first_report_collision(
+    first: tuple[str, str],
+    second: tuple[str, str],
+    *,
+    start: dt.date,
+    days: int = REPORT_COLLISION_WINDOW_DAYS,
+) -> tuple[dt.date, int] | None:
+    first_id, first_cron = first
+    second_id, second_cron = second
+    shared = _job_minutes_of_day(first_cron) & _job_minutes_of_day(second_cron)
+    if not shared:
+        return None
+    shared_minute = min(shared)
+    for offset in range(days):
+        day = start + dt.timedelta(days=offset)
+        if _job_matches_date(first_cron, day) and _job_matches_date(second_cron, day):
+            return day, shared_minute
+    return None
+
+
 def lint_schedule(schedule: dict[str, Any]) -> list[HealthCheckItem]:
     items: list[HealthCheckItem] = []
     jobs = schedule.get("jobs", [])
@@ -492,6 +543,30 @@ def lint_schedule(schedule: dict[str, Any]) -> list[HealthCheckItem]:
                 f"Growatt read jobs share cron {cron!r}: {', '.join(job_ids)}; stagger or combine them to reduce bursts.",
             )
         )
+
+    report_jobs = [
+        (schedule_job_id(job, index), str(job.get("cron", "")).strip())
+        for index, job in enumerate(jobs, start=1)
+        if isinstance(job, dict) and str(job.get("command", "")).strip() in REPORT_COMMANDS
+    ]
+    today = dt.date.today()
+    for position, first in enumerate(report_jobs):
+        for second in report_jobs[position + 1 :]:
+            collision = _first_report_collision(first, second, start=today)
+            if collision is None:
+                continue
+            day, minute_of_day = collision
+            items.append(
+                HealthCheckItem(
+                    "Schedule lint",
+                    "WARN",
+                    (
+                        f"{first[0]} and {second[0]} both post a report at "
+                        f"{minute_of_day // 60:02d}:{minute_of_day % 60:02d} "
+                        f"(first on {day.isoformat()}); stagger one so neither report is buried."
+                    ),
+                )
+            )
 
     runs = next_scheduled_runs(schedule, now=dt.datetime.now().replace(second=0, microsecond=0), limit=64)
     previous_mode_run: tuple[dt.datetime, str] | None = None
