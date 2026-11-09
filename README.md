@@ -463,7 +463,7 @@ against the active profile.
 | Key | Label | Weekday cuts | Weekend cuts | Afternoon mode jobs |
 |---|---|---|---|---|
 | `estate-current` | 19h weekday / 24h weekend | 08:00-10:30, 15:30-18:00 | none | preserve 13:30/14:00/14:30, return 15:25, watchdog 15:31 |
-| `estate-16h` | 16h weekday / 18h weekend | 08:00-12:00, 14:00-18:00 | 08:00-11:00, 15:00-18:00 | weekday preserve 13:00/13:20/13:40, return 13:55, watchdog 14:01; weekend preserve 14:30, return 14:55, watchdog 15:01 |
+| `estate-16h` | 16h weekday / 18h weekend | 08:00-12:00, 14:00-18:00 | 08:00-11:00, 15:00-18:00 | weekday preserve 12:05/12:35/13:15, return 13:55, watchdog 14:01; weekend preserve 11:05/12:35/14:15, return 14:55, watchdog 15:01 |
 
 Both profiles share the 06:30/06:40 preserve, 07:55 return, and 08:01 watchdog
 sequence; `estate-16h` adds a 06:00 preserve so a low battery has an extra hour
