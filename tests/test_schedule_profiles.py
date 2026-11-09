@@ -15,7 +15,9 @@ from helpers import make_config
 import growatt_power_guard  # noqa: F401 — ensures app_module() resolves GrowattGuardError
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.schedule import (
+    build_profiles_payload,
     check_cron_schedule,
+    format_cron_summary,
     format_outage_windows,
     load_schedule_document,
     outages_for_date,
@@ -158,6 +160,25 @@ class ProfileValidationTests(unittest.TestCase):
             format_outage_windows(windows),
             "weekdays 08:00-12:00, 14:00-18:00; weekends 08:00-11:00, 15:00-18:00",
         )
+
+    def test_format_cron_summary_describes_profile_times(self):
+        self.assertEqual(format_cron_summary("30 6 * * *"), "daily 06:30")
+        self.assertEqual(format_cron_summary("55 13 * * 1-5"), "weekdays 13:55")
+        self.assertEqual(format_cron_summary("55 14 * * 0,6"), "weekends 14:55")
+        self.assertEqual(format_cron_summary("*/10 * * * *"), "every 10 min")
+
+    def test_payload_includes_job_times_for_confirmation(self):
+        with TemporaryDirectory() as tmpdir:
+            document = load_schedule_document(_write_schedule(tmpdir))
+            with patch("growatt_guard.schedule.read_schedule_profile_state", return_value=None):
+                payload = build_profiles_payload(document)
+
+        reduced = next(profile for profile in payload["profiles"] if profile["name"] == "reduced")
+        self.assertEqual(
+            [job["when"] for job in reduced["jobs"]],
+            ["weekdays 13:55", "weekends 14:55"],
+        )
+        self.assertTrue(all(job["name"] for job in reduced["jobs"]))
 
 
 class ProfileCommandTests(unittest.TestCase):
@@ -447,6 +468,9 @@ class DashboardProfileToggleTests(unittest.TestCase):
         self.assertIn("Current plan", html)
         self.assertIn("Reduced plan", html)
         self.assertIn("profile-button", html)
+        self.assertIn('data-profile="reduced"', html)
+        self.assertIn('id="profile-confirm"', html)
+        self.assertIn('id="profile-confirm-form"', html)
 
 
 if __name__ == "__main__":

@@ -170,6 +170,15 @@
     .profile-button { cursor: pointer; font: inherit; }
     .profile-button:disabled { opacity: 0.55; cursor: default; }
     .profile-button:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
+    .profile-dialog { width: min(560px, calc(100% - 32px)); padding: 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); color: var(--ink); }
+    .profile-dialog::backdrop { background: rgba(4, 8, 14, 0.62); }
+    .profile-detail { margin-top: 14px; }
+    .profile-job-list { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+    .profile-confirm { background: var(--accent-soft); border-color: var(--accent); }
+    .layout-night .profile-dialog { background: #fff; color: #16233a; border-color: #d7e0ec; }
+    .layout-night .profile-dialog .muted { color: #5b6b82; }
+    .layout-night .profile-dialog .pill { background: #f4f7fb; border-color: #d7e0ec; color: #16233a; }
+    .layout-night .profile-dialog .profile-confirm { background: #e8f0ff; border-color: #2563eb; color: #12305f; }
     .glance-grid {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));

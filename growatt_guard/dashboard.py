@@ -321,10 +321,9 @@ def build_dashboard_html(
             suffix = " · active" if is_active else ""
             disabled = " disabled" if is_active else ""
             buttons.append(
-                '<form method="post" action="/profile">'
-                f'<input type="hidden" name="name" value="{esc(profile_name)}">'
-                f'<button type="submit" class="pill profile-button"{disabled}>'
-                f"{esc(label + suffix)}</button></form>"
+                f'<button type="button" class="pill profile-button" '
+                f'data-profile="{esc(profile_name)}"{disabled}>'
+                f"{esc(label + suffix)}</button>"
             )
         profile_buttons_html = "".join(buttons)
     profile_line = f"Outage days: {outage}" + (f" · Profile: {profile}" if profile else "")
@@ -1069,6 +1068,25 @@ def build_dashboard_html(
       <div class="muted small" id="profile-outages">Outages: {esc(profile_outages)}</div>
       <div id="profile-buttons" class="profile-actions">{profile_buttons_html}</div>
     </section>
+    <dialog id="profile-confirm" class="profile-dialog" aria-labelledby="profile-confirm-title">
+      <form method="post" action="/profile" id="profile-confirm-form">
+        <input type="hidden" name="name" id="profile-confirm-name">
+        <div class="label" id="profile-confirm-title">Switch estate profile</div>
+        <div class="muted small" id="profile-confirm-desc"></div>
+        <div class="profile-detail">
+          <strong>Outages</strong>
+          <div class="muted small" id="profile-confirm-outages"></div>
+        </div>
+        <div class="profile-detail">
+          <strong>Preserve / mode jobs</strong>
+          <ul class="profile-job-list" id="profile-confirm-jobs"></ul>
+        </div>
+        <div class="profile-actions">
+          <button type="button" class="pill profile-button" id="profile-confirm-cancel">Cancel</button>
+          <button type="submit" class="pill profile-button profile-confirm">Confirm switch</button>
+        </div>
+      </form>
+    </dialog>
     <div class="dashboard-view dashboard-night">
       {night_view_html}
     </div>

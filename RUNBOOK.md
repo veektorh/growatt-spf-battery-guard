@@ -109,9 +109,10 @@ cd ~/automation
 ```
 
 `set-profile` also posts to Discord, and `/growatt_profile` does the same from
-the control channel. The dashboard's Estate Profile card can switch profiles
-too; it is a write endpoint, so keep the dashboard behind its basic-auth proxy.
-Cron installs every profile's variants as
+the control channel. The dashboard's Estate Profile card previews the target's
+outage windows and preserve/mode jobs and requires **Confirm switch** before
+writing; it is a write endpoint, so keep the dashboard behind its basic-auth
+proxy. Cron installs every profile's variants as
 `run-scheduled --profile <name> <job-id>`; inactive variants exit immediately.
 After editing profile outage windows or job times, run `validate-schedule` and
 reinstall cron.
