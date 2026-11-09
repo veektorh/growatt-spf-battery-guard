@@ -120,6 +120,56 @@ reinstall cron.
 `estate-16h` has weekend cuts, so `set-outage-days all` must stay active. If the
 mode is `weekdays`, `set-profile` warns that weekend mode jobs will be skipped.
 
+### Adding or changing an estate schedule
+
+When the estate publishes a new rationing notice:
+
+1. **Resolve the wording before editing anything.** Confirm whether the listed
+   blocks are powered windows or cut windows, and which day types they apply to.
+   Check the arithmetic: a "16 hours weekday / 18 hours weekend" plan must mean
+   `24 - cuts = 16/18`. If the arithmetic and the listed blocks disagree, stop
+   and ask the estate. Reading it backwards can put an overnight block on the
+   battery.
+2. **Add a profile; do not overwrite the active one.** Copy the closest profile
+   in `schedule.json`, give it a new key and label, and put the notice wording
+   in its `description`. Keep the previous profile until the notice is
+   confirmed so switching back is one command.
+3. **Build the mode jobs around the cut boundaries.**
+   - Morning cut: preserve at 06:00/06:30/06:40 for an 08:00 cut; `return-sbu`
+     5 minutes before, `watchdog-sbu` 1 minute after.
+   - Afternoon cut: start preserve at the restoral time + 5 minutes and repeat
+     about every 30 minutes through the supply window; `return-sbu` 5 minutes
+     before the cut, watchdog 1 minute after. Do not leave the only preserve in
+     the last 30 minutes of the window — a dark day needs the full restoral
+     period to charge.
+   - Use `* * 1-5` for weekday jobs and `* * 0,6` for weekend jobs. Job ids may
+     repeat across profiles, but must not collide with a shared job id.
+4. **Check the limits before switching.** `AUTO_TOPUP_SUNRISE_FLOOR_SOC` must
+   sit above `EMERGENCY_SOC` (live: 35 vs 30), otherwise the overnight plan aims
+   at the alarm line. Confirm `BATTERY_CAPACITY_WH`, `BATTERY_BMS_CUTOFF_SOC`,
+   and the preserve thresholds still match the bank. A daylight cut needs
+   roughly `load_kw × hours` kWh above the cutoff; the battery has
+   `BATTERY_CAPACITY_WH × (soc - cutoff) / 100` usable kWh.
+5. **Validate and preview both day types.**
+   ```bash
+   .venv/bin/python growatt_power_guard.py validate-schedule
+   .venv/bin/python growatt_power_guard.py schedule-preview --days 8
+   ./install_cloud_cron.sh --dry-run
+   ```
+   `validate-schedule` lints every inactive profile too; preview a weekday and a
+   weekend to confirm crons, restoral windows, and return/watchdog placement.
+6. **Deploy, then verify the installed count.** After deploy, `health-check`
+   must report `N jobs across M profile(s)` and
+   `crontab -l | grep -c growatt-power-guard` must equal the installer's line
+   count.
+7. **Switch only when the estate actually changes.** Use `set-profile` or the
+   dashboard confirmation sheet. Keep `set-outage-days all` active if the
+   profile has weekend cuts. If the notice changes again, switch back — every
+   profile's cron variants are already installed, so no reinstall is needed.
+
+For a one-off change (holiday, maintenance, a single cancelled cut), use
+`schedule-override` date overrides instead of editing a profile.
+
 ## Outage Days
 
 The estate occasionally cancels or reinstates weekend power cuts. Mode-changing

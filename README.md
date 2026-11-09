@@ -492,6 +492,9 @@ endpoint, and `serve-dashboard` binds to `127.0.0.1` by default.
 outage days mode is `weekdays`, `set-profile` warns that weekend mode jobs will
 be skipped.
 
+For the full checklist when the estate publishes a new schedule, see
+[RUNBOOK.md](RUNBOOK.md#adding-or-changing-an-estate-schedule).
+
 ### Current schedule (`estate-current`)
 
 Estate power is unavailable during these windows:
