@@ -24,6 +24,7 @@ from growatt_guard.pvoutput import command_pvoutput_upload
 from growatt_guard.pvoutput_backfill import command_pvoutput_backfill
 from growatt_guard.schedule import command_validate_schedule
 from growatt_guard.schedule_overrides import command_outage_profile, command_schedule_override
+from growatt_guard.schedule_profiles import command_profiles, command_set_profile
 from growatt_guard.schedule_views import command_schedule_calendar
 from growatt_guard.solar_reconcile import command_solar_reconcile
 from growatt_guard.topup_status import command_topup_status
@@ -148,6 +149,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("test-discord", help="Send a test Discord webhook message.")
     run_parser = subparsers.add_parser("run-scheduled", help="Run a schedule job by id, applying date overrides first.")
     run_parser.add_argument("job_id", help="Schedule job id from schedule.json.")
+    run_parser.add_argument(
+        "--profile",
+        default=None,
+        help="Only run this job when the named schedule profile is active (set by cron).",
+    )
     run_parser.add_argument("--dry-plan", action="store_true", help="Print what would happen without running anything.")
     health_parser = subparsers.add_parser("health-check", help="Run read-only configuration and connectivity checks.")
     health_parser.add_argument("--notify", action="store_true", help="Post the health report to Discord.")
@@ -215,6 +221,17 @@ def build_parser() -> argparse.ArgumentParser:
     outage_parser.add_argument("mode", choices=("all", "weekdays"), help="Outage day mode for mode-changing jobs.")
     outage_parser.add_argument("--reason", default="", help="Optional reason stored in outage state and Discord alert.")
     subparsers.add_parser("outage-status", help="Show the current outage days mode.")
+    profiles_parser = subparsers.add_parser(
+        "profiles", help="List estate schedule profiles and the active one."
+    )
+    profiles_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    set_profile_parser = subparsers.add_parser(
+        "set-profile", help="Switch the active estate schedule profile."
+    )
+    set_profile_parser.add_argument("name", help="Profile name from schedule.json.")
+    set_profile_parser.add_argument(
+        "--reason", default="", help="Optional reason stored in profile state and Discord alert."
+    )
     subparsers.add_parser("clear-stale-lock", help="Remove a stale mode-command lock file if one exists.")
     subparsers.add_parser("clear-login-cooldown", help="Clear the Growatt login cooldown set after an account lock (507).")
     preview_parser = subparsers.add_parser(
@@ -457,7 +474,9 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
         if command == "serve-discord-bot":
             return command_serve_discord_bot(config)
         if command == "run-scheduled":
-            return app.command_run_scheduled(config, args.job_id, dry_plan=args.dry_plan)
+            return app.command_run_scheduled(
+                config, args.job_id, dry_plan=args.dry_plan, profile=args.profile
+            )
         if command == "pause":
             return app.command_pause(config, args.hours, args.reason)
         if command == "resume":
@@ -468,6 +487,10 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_set_outage_days(config, args.mode, args.reason)
         if command == "outage-status":
             return app.command_outage_status(config)
+        if command == "profiles":
+            return command_profiles(config, args.json)
+        if command == "set-profile":
+            return command_set_profile(config, args.name, args.reason)
         if command == "clear-stale-lock":
             return app.command_clear_stale_lock(config)
         if command == "clear-login-cooldown":

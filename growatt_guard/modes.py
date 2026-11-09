@@ -971,8 +971,27 @@ def _run_scheduled_dry_plan(
     return 0
 
 
-def command_run_scheduled(config: Config, job_id: str, dry_plan: bool = False) -> int:
+def command_run_scheduled(
+    config: Config,
+    job_id: str,
+    dry_plan: bool = False,
+    profile: str | None = None,
+) -> int:
     schedule = validate_schedule()
+    active_profile = schedule.get("active_profile")
+    if profile is not None:
+        requested = profile.strip()
+        if not active_profile:
+            raise GrowattGuardError("schedule.json has no profiles; --profile is not supported.")
+        if requested != active_profile:
+            message = (
+                f"Skipped `{job_id}`: profile `{requested}` is not active "
+                f"(`{active_profile}`)."
+            )
+            logging.info(message)
+            print(message)
+            return 0
+
     job, index = find_schedule_job(schedule, job_id)
     overrides = validate_schedule_overrides(schedule)
     override = today_schedule_override(overrides)

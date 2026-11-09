@@ -85,31 +85,54 @@ guard_script = sys.argv[5]
 
 schedule = json.loads(schedule_path.read_text(encoding="utf-8"))
 timezone = schedule.get("timezone", "Africa/Lagos")
-jobs = schedule.get("jobs", [])
-if not isinstance(jobs, list) or not jobs:
+shared_jobs = schedule.get("jobs") or []
+profiles = schedule.get("profiles")
+
+if profiles is not None:
+    if not isinstance(profiles, dict) or not profiles:
+        raise SystemExit("schedule.json profiles must be a non-empty object")
+    job_groups = [(None, shared_jobs)]
+    for profile_name, body in profiles.items():
+        if not isinstance(body, dict):
+            raise SystemExit(f"Invalid schedule profile: {profile_name}")
+        job_groups.append((profile_name, body.get("jobs") or []))
+else:
+    job_groups = [(None, shared_jobs)]
+
+if not any(jobs for _, jobs in job_groups):
     raise SystemExit("schedule.json must contain at least one job")
 
 print(f"CRON_TZ={timezone}")
-for job in jobs:
-    job_id = job["id"].strip()
-    cron = job["cron"].strip()
-    command = job["command"].strip()
-    args = job.get("args", [])
-    if args is None:
-        args = []
-    if not isinstance(args, list) or not all(isinstance(arg, str) and arg.strip() for arg in args):
-        raise SystemExit(f"Invalid schedule job args: {job}")
-    if not job_id or not cron or not command:
-        raise SystemExit(f"Invalid schedule job: {job}")
-    print(
-        f"{cron} cd {shlex.quote(root)} && "
-        f"GROWATT_GUARD_HOME={shlex.quote(root)} "
-        f"GROWATT_GUARD_DATA_DIR={shlex.quote(data_root)} "
-        f"{shlex.quote(guard_bin)} "
-        f"{(shlex.quote(guard_script) + ' ') if guard_script else ''}"
-        f"run-scheduled {shlex.quote(job_id)} >> "
-        f"{shlex.quote(str(Path(data_root) / 'logs' / 'cron.log'))} 2>&1 # growatt-power-guard"
-    )
+for profile_name, jobs in job_groups:
+    if not isinstance(jobs, list):
+        raise SystemExit(f"Invalid jobs list for profile: {profile_name}")
+    for job in jobs:
+        job_id = job["id"].strip()
+        cron = job["cron"].strip()
+        command = job["command"].strip()
+        args = job.get("args", [])
+        if args is None:
+            args = []
+        if not isinstance(args, list) or not all(isinstance(arg, str) and arg.strip() for arg in args):
+            raise SystemExit(f"Invalid schedule job args: {job}")
+        if not job_id or not cron or not command:
+            raise SystemExit(f"Invalid schedule job: {job}")
+        if profile_name is None:
+            runner = f"run-scheduled {shlex.quote(job_id)}"
+        else:
+            runner = (
+                f"run-scheduled --profile {shlex.quote(profile_name)} "
+                f"{shlex.quote(job_id)}"
+            )
+        print(
+            f"{cron} cd {shlex.quote(root)} && "
+            f"GROWATT_GUARD_HOME={shlex.quote(root)} "
+            f"GROWATT_GUARD_DATA_DIR={shlex.quote(data_root)} "
+            f"{shlex.quote(guard_bin)} "
+            f"{(shlex.quote(guard_script) + ' ') if guard_script else ''}"
+            f"{runner} >> "
+            f"{shlex.quote(str(Path(data_root) / 'logs' / 'cron.log'))} 2>&1 # growatt-power-guard"
+        )
 PYCRON
 
 if [[ "${DRY_RUN}" == "true" ]]; then

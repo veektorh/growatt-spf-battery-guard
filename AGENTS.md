@@ -30,9 +30,10 @@ This project automates battery-preservation mode switching for a Growatt SPF inv
 - `growatt_guard/exceptions.py`: `GrowattGuardError`; imported by helpers to avoid circular imports with the shim.
 - `growatt_guard/growatt_api.py`: Growatt session/device coordination, status probing, mode writes, and verification.
 - `growatt_guard/growatt_telemetry.py`: pure recursive telemetry extraction, normalization, runtime estimates, and bypass detection.
-- `growatt_guard/schedule.py`: cron parsing, schedule validation/lint, and the canonical effective-job model.
+- `growatt_guard/schedule.py`: cron parsing, schedule validation/lint, named estate profiles (shared jobs plus per-profile outages/jobs), and the canonical effective-job model.
+- `growatt_guard/schedule_profiles.py`: active-profile status and switching commands (CLI and Discord route).
 - `growatt_guard/schedule_views.py`: calendar and preview JSON/terminal presentation.
-- `growatt_guard/schedule_overrides.py`: override persistence/mutation commands and outage profiles.
+- `growatt_guard/schedule_overrides.py`: override persistence/mutation commands and date-scoped outage-profile presets (skip-all, maintenance, health-only).
 - `growatt_guard/modes.py`: core inverter mode commands (`preserve-battery`, `force-utility`, `return-sbu`, `watchdog-sbu`), scheduled dispatch, charge-rate estimation, and `test-discord`.
 - `growatt_guard/topup.py`: auto-topup planning, canonical hold persistence, completion policies, and Utility adoption.
 - `growatt_guard/alerts.py`: battery, bypass, runtime, and avoidable-Utility-waste alert commands.

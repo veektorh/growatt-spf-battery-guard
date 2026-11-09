@@ -85,6 +85,7 @@ from growatt_guard.state import (
 )
 from growatt_guard.schedule import (
     cron_matches,
+    format_outage_windows,
     next_scheduled_runs,
     schedule_job_id,
     schedule_job_tokens,
@@ -306,6 +307,27 @@ def build_dashboard_html(
     pause_state = read_pause_state()
     pause = pause_message(pause_state) if pause_state else "active"
     outage = outage_mode()
+    profile = str(schedule.get("active_profile") or "").strip()
+    profile_label = str(schedule.get("profile_label") or profile or "single schedule")
+    profile_description = str(schedule.get("profile_description") or "").strip()
+    profile_outages = format_outage_windows(schedule.get("outage_windows") or [])
+    profile_buttons_html = ""
+    schedule_profiles = schedule.get("profiles") or {}
+    if schedule_profiles:
+        buttons: list[str] = []
+        for profile_name, body in schedule_profiles.items():
+            label = str(body.get("label") or profile_name)
+            is_active = profile_name == profile
+            suffix = " · active" if is_active else ""
+            disabled = " disabled" if is_active else ""
+            buttons.append(
+                '<form method="post" action="/profile">'
+                f'<input type="hidden" name="name" value="{esc(profile_name)}">'
+                f'<button type="submit" class="pill profile-button"{disabled}>'
+                f"{esc(label + suffix)}</button></form>"
+            )
+        profile_buttons_html = "".join(buttons)
+    profile_line = f"Outage days: {outage}" + (f" · Profile: {profile}" if profile else "")
     alert_state = read_battery_alert_state()
     alert = "active" if alert_state and alert_state.get("active") else "clear"
     cloud_state = read_growatt_cloud_failure_state()
@@ -1036,6 +1058,17 @@ def build_dashboard_html(
       </div>
     </header>
     {skip_all_banner}
+    <section class="card profile-card" id="estate-profile" aria-label="Estate schedule profile">
+      <div class="mix-header">
+        <div>
+          <div class="label">Estate Profile</div>
+          <div class="muted small" id="profile-description">{esc(profile_description)}</div>
+        </div>
+        <span class="pill" id="profile-label">{esc(profile_label)}</span>
+      </div>
+      <div class="muted small" id="profile-outages">Outages: {esc(profile_outages)}</div>
+      <div id="profile-buttons" class="profile-actions">{profile_buttons_html}</div>
+    </section>
     <div class="dashboard-view dashboard-night">
       {night_view_html}
     </div>
@@ -1258,7 +1291,7 @@ def build_dashboard_html(
       <div class="card"><div class="label">Battery Voltage</div><div class="value">{esc(vbat)}</div></div>
       <div class="card"><div class="label">Battery Temperature</div><div class="value">{esc(battery_temp)}</div><div class="muted small">BMS reported cell temperature</div></div>
       <div class="card"><div class="label">Current Load Runtime</div><div class="value">{esc(est_runtime)}</div><div class="muted small">{esc(runtime_note)}</div></div>
-      <div class="card"><div class="label">Pause State</div><div class="value">{esc(pause)}</div><div class="muted small">Outage days: {esc(outage)}</div></div>
+      <div class="card"><div class="label">Pause State</div><div class="value">{esc(pause)}</div><div class="muted small">{esc(profile_line)}</div></div>
       <div class="card"><div class="label">Emergency Alert</div><div class="value">{esc(alert)}</div></div>
       <div class="card"><div class="label">Cloud Streak</div><div class="value">{esc(cloud_streak)}</div></div>
       <div class="card"><div class="label">Today Override</div><div class="value">{esc(override_note)}</div></div>

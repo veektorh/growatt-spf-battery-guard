@@ -38,12 +38,18 @@ from growatt_guard.notifications import (
     send_discord_message,
 )
 from growatt_guard.pvoutput import publish_pvoutput_status_from_status
-from growatt_guard.schedule import validate_schedule, validate_schedule_overrides
+from growatt_guard.schedule import (
+    build_profiles_payload,
+    load_schedule_document,
+    validate_schedule,
+    validate_schedule_overrides,
+)
 from growatt_guard.state import (
     clear_dashboard_stale_alert_state,
     read_dashboard_stale_alert_state,
     utc_now,
     write_dashboard_stale_alert_state,
+    write_schedule_profile_state,
 )
 from growatt_guard.topup_status import collect_topup_status
 from growatt_guard.weather import (
@@ -341,7 +347,28 @@ def dashboard_asset_for_path(output_path: Path, request_path: str) -> tuple[int,
 
 def make_dashboard_handler(output_path: Path):
     class DashboardHandler(http.server.BaseHTTPRequestHandler):
+        def _send_json(self, status_code: int, payload: dict[str, Any]) -> None:
+            body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+            self.send_response(status_code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+            parsed_path = urllib.parse.urlsplit(self.path).path
+            if parsed_path == "/api/profile":
+                try:
+                    self._send_json(200, build_profiles_payload())
+                except (GrowattGuardError, OSError, ValueError) as exc:
+                    logging.warning("Dashboard profile read failed: %s", exc)
+                    self._send_json(
+                        500,
+                        {"error": "profile_unavailable", "message": str(exc)},
+                    )
+                return
+
             asset = dashboard_asset_for_path(output_path, self.path)
             if asset is None:
                 self.send_error(404)
@@ -353,6 +380,49 @@ def make_dashboard_handler(output_path: Path):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
+
+        def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+            parsed_path = urllib.parse.urlsplit(self.path).path
+            if parsed_path != "/profile":
+                self.send_error(404)
+                return
+
+            origin = self.headers.get("Origin", "")
+            host = self.headers.get("Host", "")
+            if origin and urllib.parse.urlsplit(origin).netloc != host:
+                self.send_error(403, "Cross-origin profile switch rejected")
+                return
+
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                length = 0
+            if length <= 0 or length > 4096:
+                self.send_error(400, "Invalid form body")
+                return
+
+            form = urllib.parse.parse_qs(
+                self.rfile.read(length).decode("utf-8", "replace"),
+                keep_blank_values=True,
+            )
+            name = (form.get("name") or [""])[0].strip()
+            try:
+                document = load_schedule_document()
+                profiles = document.get("profiles") or {}
+                if not name or name not in profiles:
+                    self.send_error(400, "Unknown schedule profile")
+                    return
+                write_schedule_profile_state(name, "dashboard toggle")
+            except (GrowattGuardError, OSError, ValueError) as exc:
+                logging.warning("Dashboard profile switch failed: %s", exc)
+                self.send_error(500, "Profile switch failed")
+                return
+
+            logging.info("Dashboard switched schedule profile to %s", name)
+            self.send_response(303)
+            self.send_header("Location", "/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - BaseHTTPRequestHandler API
             logging.info("Dashboard server: " + format, *args)

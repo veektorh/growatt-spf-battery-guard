@@ -180,6 +180,9 @@ def build_dashboard_data_payload(
         },
         "schedule": {
             "timezone": schedule.get("timezone", ""),
+            "active_profile": schedule.get("active_profile"),
+            "profile_description": schedule.get("profile_description", ""),
+            "outages": schedule.get("outage_windows", []),
             "next_action": next_action,
             "today": [
                 {"time": t, "job_id": jid, "command": cmd, "status": st}

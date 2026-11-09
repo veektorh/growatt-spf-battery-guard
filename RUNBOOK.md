@@ -95,6 +95,30 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py resume
 ```
 
+## Estate Profiles
+
+`schedule.json` groups outage-timed mode jobs into named profiles. Switch the
+active profile without editing the file or reinstalling cron; the choice is
+stored in `state/schedule_profile.json` and applies on the next cron tick:
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py profiles
+.venv/bin/python growatt_power_guard.py set-profile estate-16h --reason "estate notice"
+.venv/bin/python growatt_power_guard.py schedule-preview --days 7
+```
+
+`set-profile` also posts to Discord, and `/growatt_profile` does the same from
+the control channel. The dashboard's Estate Profile card can switch profiles
+too; it is a write endpoint, so keep the dashboard behind its basic-auth proxy.
+Cron installs every profile's variants as
+`run-scheduled --profile <name> <job-id>`; inactive variants exit immediately.
+After editing profile outage windows or job times, run `validate-schedule` and
+reinstall cron.
+
+`estate-16h` has weekend cuts, so `set-outage-days all` must stay active. If the
+mode is `weekdays`, `set-profile` warns that weekend mode jobs will be skipped.
+
 ## Outage Days
 
 The estate occasionally cancels or reinstates weekend power cuts. Mode-changing

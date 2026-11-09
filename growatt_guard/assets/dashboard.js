@@ -493,3 +493,42 @@
         }
       } catch(e) {}
     })();
+    (function() {
+      const card = document.getElementById('estate-profile');
+      if (!card) return;
+      const labelEl = document.getElementById('profile-label');
+      const descEl = document.getElementById('profile-description');
+      const outagesEl = document.getElementById('profile-outages');
+      const buttonsEl = document.getElementById('profile-buttons');
+
+      function renderProfile(data) {
+        if (!data || !data.active_profile) return;
+        if (labelEl) labelEl.textContent = data.label || data.active_profile;
+        if (descEl) descEl.textContent = data.description || '';
+        if (outagesEl) outagesEl.textContent = 'Outages: ' + (data.outages_text || 'none');
+        if (!buttonsEl) return;
+        buttonsEl.textContent = '';
+        (data.profiles || []).forEach(function(profile) {
+          const form = document.createElement('form');
+          form.method = 'post';
+          form.action = '/profile';
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = 'name';
+          input.value = profile.name;
+          const button = document.createElement('button');
+          button.type = 'submit';
+          button.className = 'pill profile-button';
+          button.textContent = profile.active ? profile.label + ' · active' : profile.label;
+          if (profile.active) button.disabled = true;
+          form.appendChild(input);
+          form.appendChild(button);
+          buttonsEl.appendChild(form);
+        });
+      }
+
+      fetch('/api/profile', { cache: 'no-store' })
+        .then(function(response) { return response.ok ? response.json() : null; })
+        .then(renderProfile)
+        .catch(function() {});
+    })();
