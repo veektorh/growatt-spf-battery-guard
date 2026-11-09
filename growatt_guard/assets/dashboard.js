@@ -500,31 +500,66 @@
       const descEl = document.getElementById('profile-description');
       const outagesEl = document.getElementById('profile-outages');
       const buttonsEl = document.getElementById('profile-buttons');
+      const dialog = document.getElementById('profile-confirm');
+      const form = document.getElementById('profile-confirm-form');
+      const nameInput = document.getElementById('profile-confirm-name');
+      const titleEl = document.getElementById('profile-confirm-title');
+      const dialogDesc = document.getElementById('profile-confirm-desc');
+      const dialogOutages = document.getElementById('profile-confirm-outages');
+      const jobList = document.getElementById('profile-confirm-jobs');
+      const cancelBtn = document.getElementById('profile-confirm-cancel');
+      let profiles = {};
+
+      function openConfirm(name) {
+        const profile = profiles[name];
+        if (!profile || !form || !nameInput) return;
+        nameInput.value = name;
+        if (titleEl) titleEl.textContent = 'Switch to ' + profile.label;
+        if (dialogDesc) dialogDesc.textContent = profile.description || '';
+        if (dialogOutages) dialogOutages.textContent = profile.outages_text || 'none';
+        if (jobList) {
+          jobList.textContent = '';
+          (profile.jobs || []).forEach(function(job) {
+            const item = document.createElement('li');
+            item.textContent = job.when + ' — ' + job.name;
+            jobList.appendChild(item);
+          });
+        }
+        if (dialog && typeof dialog.showModal === 'function') {
+          dialog.showModal();
+        } else if (window.confirm('Switch to ' + profile.label + '?')) {
+          form.submit();
+        }
+      }
 
       function renderProfile(data) {
         if (!data || !data.active_profile) return;
         if (labelEl) labelEl.textContent = data.label || data.active_profile;
         if (descEl) descEl.textContent = data.description || '';
         if (outagesEl) outagesEl.textContent = 'Outages: ' + (data.outages_text || 'none');
+        profiles = {};
+        (data.profiles || []).forEach(function(profile) {
+          profiles[profile.name] = profile;
+        });
         if (!buttonsEl) return;
         buttonsEl.textContent = '';
         (data.profiles || []).forEach(function(profile) {
-          const form = document.createElement('form');
-          form.method = 'post';
-          form.action = '/profile';
-          const input = document.createElement('input');
-          input.type = 'hidden';
-          input.name = 'name';
-          input.value = profile.name;
           const button = document.createElement('button');
-          button.type = 'submit';
+          button.type = 'button';
           button.className = 'pill profile-button';
+          button.dataset.profile = profile.name;
           button.textContent = profile.active ? profile.label + ' · active' : profile.label;
-          if (profile.active) button.disabled = true;
-          form.appendChild(input);
-          form.appendChild(button);
-          buttonsEl.appendChild(form);
+          if (profile.active) {
+            button.disabled = true;
+          } else {
+            button.addEventListener('click', function() { openConfirm(profile.name); });
+          }
+          buttonsEl.appendChild(button);
         });
+      }
+
+      if (cancelBtn && dialog) {
+        cancelBtn.addEventListener('click', function() { dialog.close(); });
       }
 
       fetch('/api/profile', { cache: 'no-store' })

@@ -480,11 +480,13 @@ Discord: `/growatt_profile` with no `profile` shows the active profile and
 available names; `/growatt_profile profile:estate-16h` switches.
 
 The dashboard shows an **Estate Profile** card with the active label, its
-outage windows, and one switch button per profile. Buttons post to `/profile`;
-the page then refreshes the card from `/api/profile` without waiting for the
-next observability refresh. Keep the dashboard behind the basic-auth proxy: the
-toggle is a write endpoint, and `serve-dashboard` binds to `127.0.0.1` by
-default.
+outage windows, and one button per profile. Selecting a profile opens a
+confirmation sheet listing the switch target's outage windows and every
+preserve/return/watchdog job with its day and time; nothing changes until
+**Confirm switch** is pressed. The POST goes to `/profile`, and the card
+refreshes from `/api/profile` without waiting for the next observability
+refresh. Keep the dashboard behind the basic-auth proxy: the toggle is a write
+endpoint, and `serve-dashboard` binds to `127.0.0.1` by default.
 
 `estate-16h` includes weekend cuts, so keep `set-outage-days all` active. If
 outage days mode is `weekdays`, `set-profile` warns that weekend mode jobs will

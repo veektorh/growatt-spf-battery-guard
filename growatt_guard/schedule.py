@@ -614,6 +614,50 @@ def format_outage_windows(windows: list[dict[str, str]]) -> str:
     return "; ".join(f"{days} {', '.join(times)}" for days, times in grouped.items())
 
 
+def format_cron_summary(cron: str) -> str:
+    """Return a human schedule summary for simple cron expressions."""
+    text = str(cron).strip()
+    parts = text.split()
+    if len(parts) != 5:
+        return text
+    minute, hour, day, month, day_of_week = parts
+    if (
+        minute.startswith("*/")
+        and hour == "*"
+        and day == "*"
+        and month == "*"
+        and day_of_week == "*"
+    ):
+        return f"every {minute[2:]} min"
+    if not (minute.isdigit() and hour.isdigit()):
+        return text
+    at = f"{int(hour):02d}:{int(minute):02d}"
+    if day != "*" or month != "*":
+        return f"{text} ({at})"
+    if day_of_week == "*":
+        return f"daily {at}"
+    if day_of_week == "1-5":
+        return f"weekdays {at}"
+    if day_of_week in {"0,6", "6,0", "0,7", "7,0"}:
+        return f"weekends {at}"
+    return f"{text} ({at})"
+
+
+def _profile_job_summaries(profile: dict[str, Any]) -> list[dict[str, str]]:
+    jobs: list[dict[str, str]] = []
+    for job in profile.get("jobs", []):
+        command = str(job.get("command", "")).strip()
+        jobs.append(
+            {
+                "id": str(job.get("id", "")),
+                "name": str(job.get("name") or command),
+                "command": command,
+                "when": format_cron_summary(str(job.get("cron", ""))),
+            }
+        )
+    return jobs
+
+
 def build_profiles_payload(document: dict[str, Any] | None = None) -> dict[str, Any]:
     """Return the active and available profile metadata for CLI, Discord, and the dashboard."""
     document = document or load_schedule_document()
@@ -636,6 +680,7 @@ def build_profiles_payload(document: dict[str, Any] | None = None) -> dict[str, 
         "description": body["description"],
         "outages": body["outages"],
         "outages_text": format_outage_windows(body["outages"]),
+        "jobs": _profile_job_summaries(body),
         "profiles": [
             {
                 "name": name,
@@ -643,6 +688,7 @@ def build_profiles_payload(document: dict[str, Any] | None = None) -> dict[str, 
                 "description": profile["description"],
                 "outages": profile["outages"],
                 "outages_text": format_outage_windows(profile["outages"]),
+                "jobs": _profile_job_summaries(profile),
                 "active": name == active,
             }
             for name, profile in profiles.items()
