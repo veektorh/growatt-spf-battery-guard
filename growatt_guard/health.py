@@ -286,7 +286,14 @@ def command_health_check(config: Config, notify: bool = False) -> int:
     schedule: dict[str, Any] | None = None
     try:
         schedule = validate_schedule()
-        checks.append(HealthCheckItem("Schedule", "OK", f"{len(schedule['jobs'])} jobs in {schedule['timezone']}."))
+        profile = schedule.get("active_profile")
+        schedule_detail = f"{len(schedule['jobs'])} jobs in {schedule['timezone']}."
+        if profile:
+            schedule_detail = (
+                f"{len(schedule['jobs'])} active jobs in {schedule['timezone']} "
+                f"(profile {profile})."
+            )
+        checks.append(HealthCheckItem("Schedule", "OK", schedule_detail))
     except GrowattGuardError as exc:
         checks.append(HealthCheckItem("Schedule", "FAIL", str(exc)))
 

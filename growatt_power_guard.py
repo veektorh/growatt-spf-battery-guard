@@ -203,11 +203,17 @@ from growatt_guard.pause import (
     run_with_command_lock,
 )
 from growatt_guard.schedule import (
+    active_profile_name,
+    build_profiles_payload,
     check_cron_schedule,
     command_validate_schedule,
     find_schedule_job,
+    format_outage_windows,
     lint_schedule,
+    load_schedule_document,
     next_scheduled_runs,
+    outages_for_date,
+    schedule_job_ids,
     schedule_job_tokens,
     today_schedule_override,
     validate_schedule,
@@ -231,6 +237,7 @@ from growatt_guard.schedule_overrides import (
     command_outage_profile,
     command_schedule_override,
 )
+from growatt_guard.schedule_profiles import command_profiles, command_set_profile
 from growatt_guard.schedule_views import (
     build_schedule_calendar_ics,
     build_schedule_preview_payload,

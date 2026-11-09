@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import os
 import re
 import subprocess
@@ -11,6 +12,7 @@ from typing import Any
 
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.paths import APP_HOME, DATA_HOME
+from growatt_guard.state import read_schedule_profile_state
 
 
 BASE_DIR = APP_HOME
@@ -162,22 +164,54 @@ def check_cron_schedule(schedule: dict[str, Any]) -> list[HealthCheckItem]:
 
     cron_text = completed.stdout
     cron_lines = [line.strip() for line in cron_text.splitlines()]
-    expected_jobs = schedule["jobs"]
+
+    profiles = schedule.get("profiles") or {}
+    expected: list[tuple[str, str, str]] = []
+    if profiles:
+        for index, job in enumerate(schedule.get("shared_jobs") or [], start=1):
+            expected.append(
+                (
+                    str(job["cron"]).strip(),
+                    f"run-scheduled {schedule_job_id(job, index)}",
+                    "growatt_power_guard.py " + " ".join(schedule_job_tokens(job, index)),
+                )
+            )
+        for name, body in profiles.items():
+            for index, job in enumerate(body.get("jobs", []), start=1):
+                expected.append(
+                    (
+                        str(job["cron"]).strip(),
+                        f"run-scheduled --profile {name} {schedule_job_id(job, index)}",
+                        "growatt_power_guard.py " + " ".join(schedule_job_tokens(job, index)),
+                    )
+                )
+    else:
+        for index, job in enumerate(schedule["jobs"], start=1):
+            expected.append(
+                (
+                    str(job["cron"]).strip(),
+                    f"run-scheduled {schedule_job_id(job, index)}",
+                    "growatt_power_guard.py " + " ".join(schedule_job_tokens(job, index)),
+                )
+            )
+
     missing: list[str] = []
-    for index, job in enumerate(expected_jobs, start=1):
-        cron = str(job["cron"]).strip()
-        job_id = schedule_job_id(job, index)
-        tokens = schedule_job_tokens(job, index)
-        wrapper_fragment = f" run-scheduled {job_id} "
-        direct_fragment = "growatt_power_guard.py " + " ".join(tokens)
+    for cron, run_tokens, direct_fragment in expected:
         found = any(
             line.startswith(f"{cron} ")
-            and (wrapper_fragment in f" {line} " or direct_fragment in line)
+            and f" {run_tokens} " in f" {line} "
             and "# growatt-power-guard" in line
             for line in cron_lines
         )
         if not found:
-            missing.append(f"{cron} run-scheduled {job_id}")
+            found = any(
+                line.startswith(f"{cron} ")
+                and direct_fragment in line
+                and "# growatt-power-guard" in line
+                for line in cron_lines
+            )
+        if not found:
+            missing.append(f"{cron} {run_tokens}")
 
     checks: list[HealthCheckItem] = []
     installed_count = sum(1 for line in cron_lines if "# growatt-power-guard" in line)
@@ -187,13 +221,16 @@ def check_cron_schedule(schedule: dict[str, Any]) -> list[HealthCheckItem]:
                 "Cron jobs",
                 "FAIL",
                 (
-                    f"{installed_count}/{len(expected_jobs)} growatt jobs found; "
+                    f"{installed_count}/{len(expected)} growatt jobs found; "
                     f"missing: {', '.join(missing)}"
                 ),
             )
         )
     else:
-        checks.append(HealthCheckItem("Cron jobs", "OK", f"{len(expected_jobs)} scheduled jobs installed."))
+        detail = f"{len(expected)} scheduled jobs installed."
+        if profiles:
+            detail = f"{len(expected)} jobs across {len(profiles)} profile(s) installed."
+        checks.append(HealthCheckItem("Cron jobs", "OK", detail))
 
     timezone = str(schedule.get("timezone", "")).strip()
     if timezone and f"CRON_TZ={timezone}" not in cron_text:
@@ -302,7 +339,7 @@ def validate_schedule_overrides(schedule: dict[str, Any], path: Path = SCHEDULE_
     if not isinstance(dates, dict):
         raise schedule_error("schedule_overrides.json dates must be an object.")
 
-    job_ids = {schedule_job_id(job, index) for index, job in enumerate(schedule["jobs"], start=1)}
+    job_ids = schedule_job_ids(schedule)
     for date_key, override in dates.items():
         try:
             dt.date.fromisoformat(str(date_key))
@@ -354,48 +391,331 @@ def today_schedule_override(overrides: dict[str, Any], today: dt.date | None = N
     return value if isinstance(value, dict) else {}
 
 
-def validate_schedule(path: Path = SCHEDULE_FILE) -> dict[str, Any]:
-    if not path.exists():
-        raise schedule_error(f"Schedule file not found: {path}")
-    try:
-        schedule = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise schedule_error(f"Invalid schedule JSON: {exc}") from exc
+PROFILE_NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
+OUTAGE_DAY_TYPES = ("daily", "weekdays", "weekends")
 
-    timezone = schedule.get("timezone")
-    jobs = schedule.get("jobs")
-    if not isinstance(timezone, str) or not timezone.strip():
-        raise schedule_error("schedule.json must contain a non-empty timezone.")
+
+def _validate_job_list(jobs: Any, label: str) -> list[dict[str, Any]]:
     if not isinstance(jobs, list) or not jobs:
-        raise schedule_error("schedule.json must contain at least one job.")
+        raise schedule_error(f"{label} must contain at least one job.")
 
     job_ids: set[str] = set()
     for index, job in enumerate(jobs, start=1):
         if not isinstance(job, dict):
-            raise schedule_error(f"Schedule job {index} must be an object.")
+            raise schedule_error(f"{label} job {index} must be an object.")
         job_id = schedule_job_id(job, index)
         if job_id in job_ids:
-            raise schedule_error(f"Schedule job {index} has duplicate id: {job_id!r}")
+            raise schedule_error(f"{label} job {index} has duplicate id: {job_id!r}")
         job_ids.add(job_id)
         cron = str(job.get("cron", "")).strip()
         command = str(job.get("command", "")).strip()
         if len(cron.split()) != 5:
-            raise schedule_error(f"Schedule job {index} has invalid cron expression: {cron!r}")
+            raise schedule_error(f"{label} job {index} has invalid cron expression: {cron!r}")
         if command not in SCHEDULE_COMMANDS:
-            raise schedule_error(f"Schedule job {index} has unsupported command: {command!r}")
+            raise schedule_error(f"{label} job {index} has unsupported command: {command!r}")
         schedule_job_args(job, command, index)
-    return schedule
+    return jobs
+
+
+def _parse_hhmm(value: Any, label: str) -> str:
+    text = str(value or "").strip()
+    if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", text):
+        raise schedule_error(f"{label} must be HH:MM, got {value!r}.")
+    return text
+
+
+def _time_minutes(value: str) -> int:
+    hours, minutes = value.split(":")
+    return int(hours) * 60 + int(minutes)
+
+
+def _validate_outage_windows(windows: Any, label: str) -> list[dict[str, str]]:
+    if windows in (None, ""):
+        return []
+    if not isinstance(windows, list):
+        raise schedule_error(f"{label} outages must be a list.")
+
+    validated: list[dict[str, str]] = []
+    for index, window in enumerate(windows, start=1):
+        if not isinstance(window, dict):
+            raise schedule_error(f"{label} outage {index} must be an object.")
+        days = str(window.get("days", "daily")).strip()
+        if days not in OUTAGE_DAY_TYPES:
+            raise schedule_error(
+                f"{label} outage {index} days must be one of: {', '.join(OUTAGE_DAY_TYPES)}."
+            )
+        start = _parse_hhmm(window.get("start"), f"{label} outage {index} start")
+        end = _parse_hhmm(window.get("end"), f"{label} outage {index} end")
+        if _time_minutes(end) <= _time_minutes(start):
+            raise schedule_error(f"{label} outage {index} end must be after start.")
+
+        for other_index, other in enumerate(validated, start=1):
+            days_overlap = days == "daily" or other["days"] == "daily" or days == other["days"]
+            times_overlap = _time_minutes(start) < _time_minutes(other["end"]) and _time_minutes(
+                other["start"]
+            ) < _time_minutes(end)
+            if days_overlap and times_overlap:
+                raise schedule_error(f"{label} outages {other_index} and {index} overlap.")
+        validated.append({"days": days, "start": start, "end": end})
+    return validated
+
+
+def load_schedule_document(path: Path = SCHEDULE_FILE) -> dict[str, Any]:
+    """Load and validate schedule.json, including every named profile.
+
+    The returned document uses ``jobs`` for jobs shared by all profiles and
+    ``profiles`` for the per-estate-regime job lists. A legacy file with only a
+    top-level ``jobs`` list is accepted and returned with no profiles.
+    """
+    if not path.exists():
+        raise schedule_error(f"Schedule file not found: {path}")
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise schedule_error(f"Invalid schedule JSON: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise schedule_error("schedule.json must contain a JSON object.")
+
+    timezone = raw.get("timezone")
+    if not isinstance(timezone, str) or not timezone.strip():
+        raise schedule_error("schedule.json must contain a non-empty timezone.")
+
+    profiles_raw = raw.get("profiles")
+    if profiles_raw is None:
+        jobs = _validate_job_list(raw.get("jobs"), "schedule.json")
+        return {"timezone": timezone.strip(), "active_profile": None, "profiles": {}, "jobs": jobs}
+
+    if not isinstance(profiles_raw, dict) or not profiles_raw:
+        raise schedule_error("schedule.json profiles must be a non-empty object.")
+
+    shared_jobs_raw = raw.get("jobs", [])
+    shared_jobs = _validate_job_list(shared_jobs_raw, "schedule.json shared") if shared_jobs_raw else []
+    shared_ids = {schedule_job_id(job, index) for index, job in enumerate(shared_jobs, start=1)}
+
+    profiles: dict[str, dict[str, Any]] = {}
+    for raw_name, body in profiles_raw.items():
+        name = str(raw_name).strip()
+        if not PROFILE_NAME_RE.fullmatch(name):
+            raise schedule_error(f"Invalid schedule profile name: {raw_name!r}")
+        if name in profiles:
+            raise schedule_error(f"Duplicate schedule profile name: {name!r}")
+        if not isinstance(body, dict):
+            raise schedule_error(f"Schedule profile {name!r} must be an object.")
+
+        description = body.get("description", "")
+        if not isinstance(description, str):
+            raise schedule_error(f"Schedule profile {name!r} description must be a string.")
+        label = body.get("label", name)
+        if not isinstance(label, str) or not label.strip():
+            raise schedule_error(f"Schedule profile {name!r} label must be a non-empty string.")
+        outages = _validate_outage_windows(body.get("outages", []), f"Schedule profile {name!r}")
+
+        profile_jobs_raw = body.get("jobs")
+        profile_jobs = (
+            _validate_job_list(profile_jobs_raw, f"Schedule profile {name!r}")
+            if profile_jobs_raw
+            else []
+        )
+        if not shared_jobs and not profile_jobs:
+            raise schedule_error(f"Schedule profile {name!r} has no jobs.")
+        profile_ids = {
+            schedule_job_id(job, index) for index, job in enumerate(profile_jobs, start=1)
+        }
+        duplicate_ids = sorted(shared_ids & profile_ids)
+        if duplicate_ids:
+            raise schedule_error(
+                f"Schedule profile {name!r} reuses shared job ids: {', '.join(duplicate_ids)}"
+            )
+        profiles[name] = {
+            "label": label.strip(),
+            "description": description.strip(),
+            "outages": outages,
+            "jobs": profile_jobs,
+        }
+
+    active_profile = raw.get("active_profile")
+    if active_profile is None:
+        active_profile = next(iter(profiles))
+    elif not isinstance(active_profile, str) or active_profile.strip() not in profiles:
+        raise schedule_error(f"schedule.json active_profile is not a known profile: {active_profile!r}")
+    else:
+        active_profile = active_profile.strip()
+
+    return {
+        "timezone": timezone.strip(),
+        "active_profile": active_profile,
+        "profiles": profiles,
+        "jobs": shared_jobs,
+    }
+
+
+def active_profile_name(
+    document: dict[str, Any],
+    requested: str | None = None,
+) -> str | None:
+    """Resolve the active profile: explicit request, local switch state, then schedule default."""
+    profiles = document.get("profiles") or {}
+    if not profiles:
+        if requested is not None:
+            raise schedule_error("schedule.json has no profiles; --profile is not supported.")
+        return None
+
+    if requested is not None:
+        name = requested.strip()
+        if name not in profiles:
+            available = ", ".join(profiles)
+            raise schedule_error(f"Unknown schedule profile: {requested!r}. Available: {available}.")
+        return name
+
+    state = read_schedule_profile_state()
+    state_name = str((state or {}).get("name", "")).strip()
+    if state_name and state_name not in profiles:
+        logging.warning(
+            "Ignoring switched schedule profile %r: it is not defined in schedule.json.", state_name
+        )
+        state_name = ""
+
+    configured = str(document.get("active_profile") or "").strip()
+    if state_name:
+        return state_name
+    if configured in profiles:
+        return configured
+    return next(iter(profiles))
+
+
+def schedule_job_ids(schedule: dict[str, Any]) -> set[str]:
+    """Every job id a date override may reference, across shared and profile jobs."""
+    job_ids = {str(job.get("id", "")) for job in schedule.get("jobs", []) if isinstance(job, dict)}
+    for body in (schedule.get("profiles") or {}).values():
+        for job in body.get("jobs", []):
+            if isinstance(job, dict):
+                job_ids.add(str(job.get("id", "")))
+    job_ids.discard("")
+    return job_ids
+
+
+def outages_for_date(windows: list[dict[str, str]], date: dt.date) -> list[dict[str, str]]:
+    day_type = "weekends" if date.weekday() >= 5 else "weekdays"
+    return [
+        window
+        for window in windows
+        if str(window.get("days", "daily")) in ("daily", day_type)
+    ]
+
+
+def format_outage_windows(windows: list[dict[str, str]]) -> str:
+    if not windows:
+        return "none"
+    grouped: dict[str, list[str]] = {}
+    for window in windows:
+        grouped.setdefault(str(window.get("days", "daily")), []).append(
+            f"{window['start']}-{window['end']}"
+        )
+    return "; ".join(f"{days} {', '.join(times)}" for days, times in grouped.items())
+
+
+def build_profiles_payload(document: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return the active and available profile metadata for CLI, Discord, and the dashboard."""
+    document = document or load_schedule_document()
+    profiles = document.get("profiles") or {}
+    if not profiles:
+        return {
+            "active_profile": None,
+            "label": "",
+            "description": "",
+            "outages": [],
+            "outages_text": "none",
+            "profiles": [],
+        }
+
+    active = active_profile_name(document)
+    body = profiles[active]
+    return {
+        "active_profile": active,
+        "label": body["label"],
+        "description": body["description"],
+        "outages": body["outages"],
+        "outages_text": format_outage_windows(body["outages"]),
+        "profiles": [
+            {
+                "name": name,
+                "label": profile["label"],
+                "description": profile["description"],
+                "outages": profile["outages"],
+                "outages_text": format_outage_windows(profile["outages"]),
+                "active": name == active,
+            }
+            for name, profile in profiles.items()
+        ],
+    }
+
+
+def validate_schedule(path: Path = SCHEDULE_FILE, profile: str | None = None) -> dict[str, Any]:
+    """Return the active profile's effective schedule.
+
+    ``jobs`` is always the effective list (shared jobs plus the selected
+    profile's jobs), so callers that only understand the legacy shape keep
+    working. ``profiles`` carries per-profile metadata (including each
+    profile's own jobs) for cron installation and profile switching.
+    """
+    document = load_schedule_document(path)
+    name = active_profile_name(document, profile)
+    shared_jobs = document["jobs"]
+    profiles = document["profiles"]
+
+    if name is None:
+        return {
+            "timezone": document["timezone"],
+            "jobs": list(shared_jobs),
+            "active_profile": None,
+            "profile_description": "",
+            "outage_windows": [],
+            "profiles": {},
+            "shared_jobs": list(shared_jobs),
+        }
+
+    body = profiles[name]
+    return {
+        "timezone": document["timezone"],
+        "jobs": [*shared_jobs, *body["jobs"]],
+        "active_profile": name,
+        "profile_label": body["label"],
+        "profile_description": body["description"],
+        "outage_windows": list(body["outages"]),
+        "profiles": profiles,
+        "shared_jobs": list(shared_jobs),
+    }
 
 
 def command_validate_schedule(config: Any | None = None) -> int:
     _ = config
     schedule = validate_schedule()
-    print(f"Schedule OK: {len(schedule['jobs'])} jobs in {schedule['timezone']}.")
+    profile = schedule.get("active_profile")
+    if profile:
+        shared_count = len(schedule.get("shared_jobs") or [])
+        print(
+            f"Schedule OK: {len(schedule['jobs'])} active jobs "
+            f"({shared_count} shared + {len(schedule['jobs']) - shared_count} {profile}), "
+            f"{len(schedule.get('profiles') or {})} profile(s) in {schedule['timezone']}."
+        )
+        print(f"Active profile: {profile} — {format_outage_windows(schedule.get('outage_windows') or [])}")
+    else:
+        print(f"Schedule OK: {len(schedule['jobs'])} jobs in {schedule['timezone']}.")
     overrides = validate_schedule_overrides(schedule)
     if overrides.get("dates"):
         print(f"Schedule overrides OK: {len(overrides['dates'])} date override(s).")
     for item in lint_schedule(schedule):
         print(f"{item.name} {item.status}: {item.detail}")
+    for name, body in (schedule.get("profiles") or {}).items():
+        if name == profile:
+            continue
+        view = {
+            "timezone": schedule["timezone"],
+            "jobs": [*(schedule.get("shared_jobs") or []), *body["jobs"]],
+        }
+        for item in lint_schedule(view):
+            if item.status != "OK":
+                print(f"Profile {name} — {item.name} {item.status}: {item.detail}")
     return 0
 
 

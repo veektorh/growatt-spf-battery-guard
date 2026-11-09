@@ -35,10 +35,12 @@ def configure_state_dir(path: str | os.PathLike[str]) -> Path:
     global TOPUP_STATE_FILE, TOPUP_SKIP_NOTIFICATION_FILE
     global CHARGE_RATE_HISTORY_FILE, DISCHARGE_RATE_HISTORY_FILE, FORECAST_CALIBRATION_FILE, RUNTIME_ALERT_FILE
     global UTILITY_HOLD_FILE, WASTE_ALERT_FILE, SOC_DIVERGENCE_ALERT_FILE, OUTAGE_DAYS_FILE
+    global SCHEDULE_PROFILE_FILE
 
     STATE_DIR = Path(path)
     PAUSE_FILE = STATE_DIR / "automation_pause.json"
     OUTAGE_DAYS_FILE = STATE_DIR / "outage_days.json"
+    SCHEDULE_PROFILE_FILE = STATE_DIR / "schedule_profile.json"
     BATTERY_ALERT_FILE = STATE_DIR / "battery_alert.json"
     BATTERY_ALERT_MUTED_FILE = STATE_DIR / "battery_alert_muted.json"
     BYPASS_ALERT_FILE = STATE_DIR / "bypass_alert.json"
@@ -280,6 +282,31 @@ def write_outage_days_state(mode: str, reason: str = "") -> dict[str, Any]:
         "updated_at": utc_now().isoformat(),
     }
     write_json_state(OUTAGE_DAYS_FILE, state)
+    return state
+
+
+def read_schedule_profile_state() -> dict[str, Any] | None:
+    state = read_json_state(SCHEDULE_PROFILE_FILE, "schedule profile")
+    if state is None:
+        return None
+    name = str(state.get("name", "")).strip()
+    if not name:
+        logging.warning("Ignoring invalid schedule profile state: empty name")
+        return None
+    state["name"] = name
+    return state
+
+
+def write_schedule_profile_state(name: str, reason: str = "") -> dict[str, Any]:
+    name = name.strip()
+    if not name:
+        raise ValueError("Schedule profile name must not be empty.")
+    state = {
+        "name": name,
+        "reason": reason,
+        "updated_at": utc_now().isoformat(),
+    }
+    write_json_state(SCHEDULE_PROFILE_FILE, state)
     return state
 
 

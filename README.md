@@ -406,6 +406,7 @@ Available slash commands:
 /growatt_pause       — pause scheduled mode-changing automation
 /growatt_resume      — resume automation after a pause
 /growatt_outage_days — view or set which days the estate has power cuts (all or weekdays only)
+/growatt_profile    — show the active estate schedule profile, or switch to another by name
 /growatt_sbu         — manually switch to SBU priority
 /growatt_utility     — manually switch to Utility first
 /growatt_preserve    — run preserve-battery immediately
@@ -425,7 +426,71 @@ succeeds, `return-sbu` exits successfully, and the canonical Utility ownership
 file has been cleared. Failed, blocked, paused, or unverified SBU cleanup keeps
 ownership state for a safe retry.
 
-## Current Light Schedule
+## Estate Profiles
+
+`schedule.json` holds jobs shared by every estate regime plus named `profiles`.
+Each profile declares the estate `outages` for display and the mode-changing
+`jobs` (preserve, return-SBU, watchdog) that match those outage times. The
+active profile is stored in `state/schedule_profile.json`, so switching does not
+edit `schedule.json` and does not need a cron reinstall.
+
+```json
+{
+  "timezone": "Africa/Lagos",
+  "active_profile": "estate-current",
+  "jobs": [
+    {"id": "daily-summary", "cron": "0 21 * * *", "command": "daily-summary"}
+  ],
+  "profiles": {
+    "estate-current": {
+      "label": "19h weekday / 24h weekend",
+      "description": "Weekday cuts only",
+      "outages": [{"days": "weekdays", "start": "08:00", "end": "10:30"}],
+      "jobs": [
+        {"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"}
+      ]
+    }
+  }
+}
+```
+
+Cron installs every profile's job variants as
+`run-scheduled --profile <name> <job-id>`; `run-scheduled` exits immediately
+when that profile is not active, so a switch applies on the next scheduled tick.
+`--profile` is only passed by cron; manual `run-scheduled <job-id>` resolves
+against the active profile.
+
+| Key | Label | Weekday cuts | Weekend cuts | Afternoon mode jobs |
+|---|---|---|---|---|
+| `estate-current` | 19h weekday / 24h weekend | 08:00-10:30, 15:30-18:00 | none | preserve 13:30/14:00/14:30, return 15:25, watchdog 15:31 |
+| `estate-16h` | 16h weekday / 18h weekend | 08:00-12:00, 14:00-18:00 | 08:00-11:00, 15:00-18:00 | weekday preserve 13:00/13:20/13:40, return 13:55, watchdog 14:01; weekend preserve 14:30, return 14:55, watchdog 15:01 |
+
+Both profiles share the 06:30/06:40 preserve, 07:55 return, and 08:01 watchdog
+sequence; `estate-16h` adds a 06:00 preserve so a low battery has an extra hour
+to charge before its longer 08:00-12:00 cut.
+
+```bash
+cd ~/automation
+.venv/bin/python growatt_power_guard.py profiles
+.venv/bin/python growatt_power_guard.py set-profile estate-16h --reason "estate notice"
+.venv/bin/python growatt_power_guard.py schedule-preview --days 7
+```
+
+Discord: `/growatt_profile` with no `profile` shows the active profile and
+available names; `/growatt_profile profile:estate-16h` switches.
+
+The dashboard shows an **Estate Profile** card with the active label, its
+outage windows, and one switch button per profile. Buttons post to `/profile`;
+the page then refreshes the card from `/api/profile` without waiting for the
+next observability refresh. Keep the dashboard behind the basic-auth proxy: the
+toggle is a write endpoint, and `serve-dashboard` binds to `127.0.0.1` by
+default.
+
+`estate-16h` includes weekend cuts, so keep `set-outage-days all` active. If
+outage days mode is `weekdays`, `set-profile` warns that weekend mode jobs will
+be skipped.
+
+### Current schedule (`estate-current`)
 
 Estate power is unavailable during these windows:
 
@@ -454,7 +519,11 @@ The automation should therefore:
 00:20 monthly     prune audit CSV rows older than retention
 ```
 
-The cloud cron installer reads these jobs from [schedule.json](schedule.json). Cron calls `run-scheduled <job-id>`, which applies date overrides before running the job. To change outage times, edit `schedule.json`, validate it, then reinstall cron:
+The cloud cron installer reads the shared jobs and every profile from
+[schedule.json](schedule.json). Cron calls
+`run-scheduled [--profile <name>] <job-id>`, which applies date overrides before
+running the job. To change an outage window or a job time, edit `schedule.json`,
+validate it, then reinstall cron:
 
 ```bash
 cd ~/automation
@@ -462,6 +531,9 @@ cd ~/automation
 ./install_cloud_cron.sh --dry-run
 ./install_cloud_cron.sh
 ```
+
+`set-outage-days` remains the coarse weekend gate for legacy schedules and for
+profiles without weekend cuts; it does not replace profile outage windows.
 
 ## Run manually
 
@@ -495,7 +567,9 @@ python .\growatt_power_guard.py pause-status
 python .\growatt_power_guard.py resume
 python .\growatt_power_guard.py schedule-preview
 python .\growatt_power_guard.py schedule-preview --days 14
-python .\growatt_power_guard.py run-scheduled morning-preserve --dry-plan
+python .\growatt_power_guard.py profiles
+python .\growatt_power_guard.py set-profile estate-16h --reason "estate notice"
+python .\growatt_power_guard.py run-scheduled --profile estate-current morning-preserve --dry-plan
 ```
 
 ## Schedule on Windows
@@ -506,19 +580,23 @@ These commands create the current estate schedule:
 powershell -ExecutionPolicy Bypass -File .\install_growatt_schedule.ps1
 ```
 
+The PowerShell installer mirrors the `estate-current` profile and passes
+`--profile estate-current`, so its tasks no-op when another profile is active.
+Use the Linux cron installer on the VPS for multi-profile switching.
+
 Or create them manually:
 
 ```powershell
 schtasks /Create /F /TN "Growatt Morning Health Report" /SC DAILY /ST 06:10 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-health"
-schtasks /Create /F /TN "Growatt Utility Check Morning" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 06:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-preserve"
-schtasks /Create /F /TN "Growatt Utility Check Morning Retry" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 06:40 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-preserve-retry"
-schtasks /Create /F /TN "Growatt SBU Before Morning Outage" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 07:55 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-return-sbu"
-schtasks /Create /F /TN "Growatt SBU Watchdog Morning" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:01 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-watchdog"
-schtasks /Create /F /TN "Growatt Utility Check Afternoon Early" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 13:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-preserve-early"
-schtasks /Create /F /TN "Growatt Utility Check Afternoon Retry" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:00 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-preserve-retry"
-schtasks /Create /F /TN "Growatt Utility Check Afternoon Final" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-preserve"
-schtasks /Create /F /TN "Growatt SBU Before Afternoon Outage" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:25 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-return-sbu"
-schtasks /Create /F /TN "Growatt SBU Watchdog Afternoon" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:31 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled afternoon-watchdog"
+schtasks /Create /F /TN "Growatt Utility Check Morning" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 06:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current morning-preserve"
+schtasks /Create /F /TN "Growatt Utility Check Morning Retry" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 06:40 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current morning-preserve-retry"
+schtasks /Create /F /TN "Growatt SBU Before Morning Outage" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 07:55 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current morning-return-sbu"
+schtasks /Create /F /TN "Growatt SBU Watchdog Morning" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:01 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current morning-watchdog"
+schtasks /Create /F /TN "Growatt Utility Check Afternoon Early" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 13:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current afternoon-preserve-early"
+schtasks /Create /F /TN "Growatt Utility Check Afternoon Retry" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:00 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current afternoon-preserve-retry"
+schtasks /Create /F /TN "Growatt Utility Check Afternoon Final" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current afternoon-preserve"
+schtasks /Create /F /TN "Growatt SBU Before Afternoon Outage" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:25 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current afternoon-return-sbu"
+schtasks /Create /F /TN "Growatt SBU Watchdog Afternoon" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:31 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current afternoon-watchdog"
 schtasks /Create /F /TN "Growatt Daily Summary" /SC DAILY /ST 21:00 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled daily-summary"
 schtasks /Create /F /TN "Growatt Emergency Battery Alert" /SC MINUTE /MO 30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled battery-alert"
 schtasks /Create /F /TN "Growatt Weekly Summary" /SC WEEKLY /D SUN /ST 21:10 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled weekly-summary"

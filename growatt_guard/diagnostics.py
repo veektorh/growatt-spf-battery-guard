@@ -287,7 +287,10 @@ def build_service_status(config: Any) -> list[DiagnosticItem]:
         schedule = None
     else:
         jobs = schedule.get("jobs", [])
-        items.append(DiagnosticItem("Schedule", "OK", f"{len(jobs)} job(s) in {schedule.get('timezone', 'unknown')}."))
+        schedule_detail = f"{len(jobs)} job(s) in {schedule.get('timezone', 'unknown')}"
+        if schedule.get("active_profile"):
+            schedule_detail += f" (profile {schedule['active_profile']})"
+        items.append(DiagnosticItem("Schedule", "OK", schedule_detail + "."))
         items.extend(DiagnosticItem(check.name, check.status, check.detail) for check in lint_schedule(schedule))
         for check in check_cron_schedule(schedule):
             items.append(DiagnosticItem(check.name, check.status, check.detail))

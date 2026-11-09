@@ -8,6 +8,8 @@ from typing import Any
 from growatt_guard.schedule import (
     MODE_CHANGING_COMMANDS,
     effective_schedule_jobs_on_date,
+    format_outage_windows,
+    outages_for_date,
     today_schedule_override,
     validate_schedule,
     validate_schedule_overrides,
@@ -159,10 +161,12 @@ def build_schedule_preview_payload(
     days: int,
     today: dt.date,
 ) -> dict[str, Any]:
+    windows = schedule.get("outage_windows") or []
     dates: list[dict[str, Any]] = []
     for day_offset in range(days):
         date = today + dt.timedelta(days=day_offset)
         override = today_schedule_override(overrides, date)
+        day_outages = [f"{w['start']}-{w['end']}" for w in outages_for_date(windows, date)]
         jobs: list[dict[str, Any]] = []
         for effective in effective_schedule_jobs_on_date(schedule, overrides, date):
             interval_label = _cron_interval_label(str(effective.original_job["cron"]))
@@ -178,18 +182,26 @@ def build_schedule_preview_payload(
                 "status": effective.status,
                 "count": len(effective.fires) if interval_label else 1,
                 "replacement": replacement,
+                "_sort": effective.fires[0],
             })
-        if jobs:
+        jobs.sort(key=lambda job: (job["_sort"], job["job_id"]))
+        for job in jobs:
+            del job["_sort"]
+        if jobs or day_outages:
             dates.append({
                 "date": date.isoformat(),
                 "weekday": date.strftime("%a"),
                 "skip_all": bool(override.get("skip_all", False)),
                 "note": str(override.get("note", "")).strip(),
+                "outages": day_outages,
                 "jobs": jobs,
             })
     return {
         "schema_version": 1,
         "timezone": schedule.get("timezone", ""),
+        "active_profile": schedule.get("active_profile"),
+        "profile_description": schedule.get("profile_description", ""),
+        "outage_windows": windows,
         "start_date": today.isoformat(),
         "days": days,
         "dates": dates,
@@ -212,6 +224,11 @@ def command_schedule_preview(
         return 0
 
     print(f"Schedule preview — {days} day(s) from {today} [{payload['timezone']}]")
+    if payload.get("active_profile"):
+        description = str(payload.get("profile_description") or "").strip()
+        suffix = f" — {description}" if description else ""
+        print(f"Profile: {payload['active_profile']}{suffix}")
+        print(f"Outages: {format_outage_windows(payload.get('outage_windows') or [])}")
     for day in payload["dates"]:
         date = dt.date.fromisoformat(str(day["date"]))
         header = f"\n{date.strftime('%a %Y-%m-%d')}"
@@ -220,6 +237,8 @@ def command_schedule_preview(
         if day["note"]:
             header += f"  — {day['note']}"
         print(header)
+        if day.get("outages"):
+            print(f"  outages: {', '.join(day['outages'])}")
         for job in day["jobs"]:
             count_suffix = f"  x{job['count']}/day" if job["count"] > 1 else ""
             if job["status"] == "skip":

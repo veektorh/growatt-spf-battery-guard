@@ -526,6 +526,25 @@ def command_serve_discord_bot(config: Config) -> int:
 
         await _guarded(config, interaction, action)
 
+    @tree.command(
+        name="growatt_profile",
+        description="Show or switch the active estate schedule profile.",
+        **command_scope,
+    )
+    @app_commands.describe(profile="Profile name; omit to show the active profile and available names")
+    async def growatt_profile(interaction: discord.Interaction, profile: str = None) -> None:
+        async def action() -> None:
+            if profile is None:
+                await run_and_send(interaction, "profiles", ["profiles"])
+                return
+            await run_and_send(
+                interaction,
+                "set-profile",
+                ["set-profile", profile, "--reason", "Discord control"],
+            )
+
+        await _guarded(config, interaction, action)
+
     @tree.command(name="growatt_sbu", description="Switch back to SBU priority.", **command_scope)
     async def growatt_sbu(interaction: discord.Interaction) -> None:
         await _guarded(config, interaction, lambda: run_and_send(interaction, "return-sbu", ["return-sbu"]))

@@ -1,5 +1,9 @@
 $ErrorActionPreference = "Stop"
 
+# These tasks mirror the estate-current profile. They pass --profile so they
+# no-op when another profile is active; multi-profile switching is installed by
+# install_cloud_cron.sh on the VPS.
+
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 function Register-GrowattTask {
@@ -47,42 +51,42 @@ Register-GrowattTask `
 Register-GrowattTask `
     -Name "Utility Check Morning" `
     -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "06:30") `
-    -Command "run-scheduled morning-preserve"
+    -Command "run-scheduled --profile estate-current morning-preserve"
 
 Register-GrowattTask `
     -Name "SBU Before Morning Outage" `
     -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "07:55") `
-    -Command "run-scheduled morning-return-sbu"
+    -Command "run-scheduled --profile estate-current morning-return-sbu"
 
 Register-GrowattTask `
     -Name "SBU Watchdog Morning" `
     -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "08:01") `
-    -Command "run-scheduled morning-watchdog"
+    -Command "run-scheduled --profile estate-current morning-watchdog"
 
 Register-GrowattTask `
     -Name "Utility Check Afternoon Early" `
     -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "13:30") `
-    -Command "run-scheduled afternoon-preserve-early"
+    -Command "run-scheduled --profile estate-current afternoon-preserve-early"
 
 Register-GrowattTask `
     -Name "Utility Check Afternoon Retry" `
     -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "14:00") `
-    -Command "run-scheduled afternoon-preserve-retry"
+    -Command "run-scheduled --profile estate-current afternoon-preserve-retry"
 
 Register-GrowattTask `
     -Name "Utility Check Afternoon Final" `
     -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "14:30") `
-    -Command "run-scheduled afternoon-preserve"
+    -Command "run-scheduled --profile estate-current afternoon-preserve"
 
 Register-GrowattTask `
     -Name "SBU Before Afternoon Outage" `
     -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "15:25") `
-    -Command "run-scheduled afternoon-return-sbu"
+    -Command "run-scheduled --profile estate-current afternoon-return-sbu"
 
 Register-GrowattTask `
     -Name "SBU Watchdog Afternoon" `
     -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "15:31") `
-    -Command "run-scheduled afternoon-watchdog"
+    -Command "run-scheduled --profile estate-current afternoon-watchdog"
 
 Register-GrowattTask `
     -Name "Daily Summary" `

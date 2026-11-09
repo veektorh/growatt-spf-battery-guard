@@ -160,6 +160,16 @@
       font-weight: 620;
       white-space: nowrap;
     }
+    .profile-card { margin: 12px 0 0; }
+    .layout-night .profile-card { margin: 16px 24px; background: #fff; border-color: #d7e0ec; color: #16233a; }
+    .layout-night .profile-card .muted { color: #5b6b82; }
+    .layout-night .profile-card .pill { background: #f4f7fb; border-color: #d7e0ec; color: #16233a; }
+    .layout-night .profile-card .profile-button:not(:disabled):hover { border-color: #2563eb; color: #2563eb; }
+    .profile-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .profile-actions form { margin: 0; }
+    .profile-button { cursor: pointer; font: inherit; }
+    .profile-button:disabled { opacity: 0.55; cursor: default; }
+    .profile-button:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
     .glance-grid {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
