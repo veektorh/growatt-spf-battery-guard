@@ -655,7 +655,7 @@ def command_serve_discord_bot(config: Config) -> int:
             else:
                 hint = f"{effective_minutes} min"
             await interaction.response.send_message(
-                f"Starting top-up for {hint}. Completion is persisted and monitored every 10 minutes; "
+                f"Starting top-up for {hint}. Completion is persisted and monitored every minute; "
                 "the Discord bot does not need to stay attached.",
             )
 

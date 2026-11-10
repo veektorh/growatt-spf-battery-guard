@@ -262,11 +262,11 @@ Requires `BATTERY_CAPACITY_WH`, `BATTERY_CHARGE_RATE_W`, `WEATHER_LAT`, and `WEA
 
 Auto-topup pause and start notifications include the computed topup target SOC so you can see the stop target, not just the duration.
 
-The bundled schedule uses 20-minute start checks and an all-day 10-minute completion safety net:
+The bundled schedule uses 20-minute start checks and an all-day one-minute completion safety net:
 
 ```text
 */20 18-23,0-5 * * *  auto-topup-check      # starts a topup if needed, exits immediately
-*/10 * * * *          topup-complete-check  # resumes automation once the topup window expires
+* * * * *             topup-complete-check  # resumes automation once the topup window expires
 ```
 
 `auto-topup-check` is non-blocking: it evaluates whether a topup is needed, starts one if so (pausing automation, switching to Utility, writing state), and exits in seconds. `topup-complete-check` detects when the window has elapsed, resumes automation, and calls `return-sbu`.
@@ -417,10 +417,14 @@ Available slash commands:
 
 `/growatt_topup minutes:60` (or `target_soc:80`) persists ownership, pauses
 scheduled mode-changing automation, switches to Utility, and exits immediately.
-The all-day `topup-complete-check` job monitors active holds every 10 minutes and
-is local-only when no hold exists. It resumes automation and returns to SBU when
-the time expires or the SOC target is reached, so Discord bot restarts do not
-orphan completion.
+The all-day `topup-complete-check` job runs every minute and is local-only when
+no hold exists, so a time-boxed top-up ends within a minute of its deadline
+instead of waiting for the next schedule tick. It resumes automation and returns
+to SBU when the time expires or the SOC target is reached, so Discord bot
+restarts do not orphan completion. When a top-up ends inside the profile's
+preserve window with SOC still under the preserve threshold, completion keeps
+the owned Utility hold until the scheduled `return-sbu` instead of forcing SBU
+and waiting for a preserve retry.
 Top-up completion and cancellation clear local top-up state only after resume
 succeeds, `return-sbu` exits successfully, and the canonical Utility ownership
 file has been cleared. Failed, blocked, paused, or unverified SBU cleanup keeps

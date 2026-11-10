@@ -759,3 +759,159 @@ class TopupCompleteFeedbackTests(unittest.TestCase):
         self.assertEqual(result, 0)
         resume.assert_called_once()
         finish.assert_called_once()
+
+
+class TopupCompletionDeferralTests(unittest.TestCase):
+    """Completion inside a preserve window must not fight the schedule."""
+
+    def _expired_time_state(self) -> dict:
+        now = dt.datetime.now(dt.timezone.utc)
+        return {
+            "started_at": (now - dt.timedelta(minutes=20)).isoformat(),
+            "paused_until": (now - dt.timedelta(minutes=1)).isoformat(),
+            "minutes": 15,
+            "reason": "Discord top-up for 15 minute(s)",
+        }
+
+    def _decision(self, threshold: float = 45.0):
+        from growatt_guard.weather import ThresholdDecision
+
+        return ThresholdDecision(threshold=threshold, reason="rainy/cloudy forecast")
+
+    def test_low_soc_completion_holds_utility_until_scheduled_return(self):
+        from growatt_guard.topup import command_topup_complete_check
+
+        next_return = dt.datetime(2026, 11, 10, 15, 25)
+        buf = StringIO()
+        with (
+            patch("growatt_guard.topup.read_topup_state", return_value=self._expired_time_state()),
+            patch("growatt_guard.topup.read_utility_hold_state", return_value=None),
+            patch("growatt_guard.topup.topup_is_active", return_value=False),
+            patch("growatt_guard.topup._read_topup_end_soc", return_value=31.0),
+            patch("growatt_guard.topup.choose_preserve_threshold", return_value=self._decision(45.0)),
+            patch("growatt_guard.topup.next_scheduled_return_sbu", return_value=next_return),
+            patch("growatt_guard.topup.clear_topup_state") as clear_topup,
+            patch("growatt_guard.topup.write_utility_hold_state") as write_hold,
+            patch("growatt_guard.topup.append_mode_audit") as audit,
+            patch("growatt_guard.topup.command_resume"),
+            patch("growatt_guard.topup.command_return_sbu") as return_sbu,
+            redirect_stdout(buf),
+        ):
+            rc = command_topup_complete_check(make_config())
+
+        self.assertEqual(rc, 0)
+        return_sbu.assert_not_called()
+        clear_topup.assert_called_once()
+        hold = write_hold.call_args.kwargs
+        self.assertEqual(hold["ownership"], "owned")
+        self.assertEqual(hold["completion_policy"], "time")
+        self.assertEqual(hold["start_soc"], 31.0)
+        self.assertEqual(
+            hold["max_expiry"],
+            dt.datetime(2026, 11, 10, 14, 25, tzinfo=dt.timezone.utc),
+            "15:25 Africa/Lagos must be stored as an aware UTC expiry",
+        )
+        self.assertGreater(hold["minutes"], 0)
+        self.assertIn("return-sbu", hold["reason"])
+        audit.assert_called_once()
+        self.assertEqual(audit.call_args.kwargs["action"], "topup-complete-deferred")
+        self.assertIn("Utility held until the scheduled return-sbu at 15:25", buf.getvalue())
+
+    def test_low_soc_completion_returns_sbu_when_no_return_remains(self):
+        from growatt_guard.topup import command_topup_complete_check
+
+        buf = StringIO()
+        with (
+            patch("growatt_guard.topup.read_topup_state", return_value=self._expired_time_state()),
+            patch("growatt_guard.topup.read_utility_hold_state", return_value=None),
+            patch("growatt_guard.topup.topup_is_active", return_value=False),
+            patch("growatt_guard.topup._read_topup_end_soc", return_value=31.0),
+            patch("growatt_guard.topup.choose_preserve_threshold", return_value=self._decision(45.0)),
+            patch("growatt_guard.topup.next_scheduled_return_sbu", return_value=None),
+            patch("growatt_guard.topup.write_utility_hold_state") as write_hold,
+            patch("growatt_guard.topup.command_resume"),
+            patch("growatt_guard.topup.command_return_sbu", return_value=0) as return_sbu,
+            patch("growatt_guard.topup.clear_topup_state"),
+            patch("growatt_guard.topup.clear_utility_hold_state"),
+            redirect_stdout(buf),
+        ):
+            rc = command_topup_complete_check(make_config())
+
+        self.assertEqual(rc, 0)
+        return_sbu.assert_called_once()
+        write_hold.assert_not_called()
+
+    def test_soc_above_threshold_returns_sbu_without_consulting_the_schedule(self):
+        from growatt_guard.topup import command_topup_complete_check
+
+        with (
+            patch("growatt_guard.topup.read_topup_state", return_value=self._expired_time_state()),
+            patch("growatt_guard.topup.read_utility_hold_state", return_value=None),
+            patch("growatt_guard.topup.topup_is_active", return_value=False),
+            patch("growatt_guard.topup._read_topup_end_soc", return_value=60.0),
+            patch("growatt_guard.topup.choose_preserve_threshold", return_value=self._decision(45.0)),
+            patch("growatt_guard.topup.next_scheduled_return_sbu") as next_return,
+            patch("growatt_guard.topup.command_resume"),
+            patch("growatt_guard.topup.command_return_sbu", return_value=0) as return_sbu,
+            patch("growatt_guard.topup.clear_topup_state"),
+            patch("growatt_guard.topup.clear_utility_hold_state"),
+            redirect_stdout(StringIO()),
+        ):
+            rc = command_topup_complete_check(make_config())
+
+        self.assertEqual(rc, 0)
+        next_return.assert_not_called()
+        return_sbu.assert_called_once()
+
+    def test_unknown_soc_returns_sbu(self):
+        from growatt_guard.topup import command_topup_complete_check
+
+        with (
+            patch("growatt_guard.topup.read_topup_state", return_value=self._expired_time_state()),
+            patch("growatt_guard.topup.read_utility_hold_state", return_value=None),
+            patch("growatt_guard.topup.topup_is_active", return_value=False),
+            patch("growatt_guard.topup._read_topup_end_soc", return_value=None),
+            patch("growatt_guard.topup.next_scheduled_return_sbu") as next_return,
+            patch("growatt_guard.topup.command_resume"),
+            patch("growatt_guard.topup.command_return_sbu", return_value=0) as return_sbu,
+            patch("growatt_guard.topup.clear_topup_state"),
+            patch("growatt_guard.topup.clear_utility_hold_state"),
+            redirect_stdout(StringIO()),
+        ):
+            rc = command_topup_complete_check(make_config())
+
+        self.assertEqual(rc, 0)
+        next_return.assert_not_called()
+        return_sbu.assert_called_once()
+
+
+class NextScheduledReturnSbuTests(unittest.TestCase):
+    SCHEDULE = {
+        "timezone": "Africa/Lagos",
+        "jobs": [
+            {"id": "preserve", "cron": "30 13 * * *", "command": "preserve-battery"},
+            {"id": "return", "cron": "25 15 * * *", "command": "return-sbu"},
+        ],
+    }
+
+    def _next(self, now: dt.datetime, overrides: dict | None = None):
+        from growatt_guard.topup import next_scheduled_return_sbu
+
+        return next_scheduled_return_sbu(self.SCHEDULE, overrides or {"dates": {}}, now)
+
+    def test_returns_todays_remaining_return_after_a_preserve_fire(self):
+        self.assertEqual(
+            self._next(dt.datetime(2026, 11, 10, 13, 40)),
+            dt.datetime(2026, 11, 10, 15, 25),
+        )
+
+    def test_none_before_the_first_preserve(self):
+        self.assertIsNone(self._next(dt.datetime(2026, 11, 10, 6, 0)))
+
+    def test_none_after_the_last_return(self):
+        self.assertIsNone(self._next(dt.datetime(2026, 11, 10, 16, 0)))
+
+    def test_skipped_return_override_disables_deferral(self):
+        overrides = {"dates": {"2026-11-10": {"skip": ["return"]}}}
+
+        self.assertIsNone(self._next(dt.datetime(2026, 11, 10, 13, 40), overrides))

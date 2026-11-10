@@ -66,9 +66,31 @@ class ScheduleTests(unittest.TestCase):
         schedule = validate_schedule()
         job = next(item for item in schedule["jobs"] if item["id"] == "topup-complete-check")
 
-        self.assertEqual(job["cron"], "*/10 * * * *")
+        self.assertEqual(job["cron"], "* * * * *")
         self.assertIn("topup-complete-check", CONDITIONAL_GROWATT_READ_COMMANDS)
         self.assertNotIn("topup-complete-check", GROWATT_READ_COMMANDS)
+
+    def test_conditional_poller_is_allowed_every_minute(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "topup-complete-check", "cron": "* * * * *", "command": "topup-complete-check"},
+            ],
+        }
+        details = [item.detail for item in lint_schedule(schedule) if item.status == "WARN"]
+
+        self.assertFalse(any("keep read loops at 5+ min" in detail for detail in details), details)
+
+    def test_unconditional_poller_every_minute_still_warns(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "battery-alert", "cron": "*/1 * * * *", "command": "battery-alert"},
+            ],
+        }
+        details = [item.detail for item in lint_schedule(schedule) if item.status == "WARN"]
+
+        self.assertTrue(any("keep read loops at 5+ min" in detail for detail in details), details)
 
     def test_current_schedule_protects_afternoon_and_evening_reserve(self):
         schedule = validate_schedule()

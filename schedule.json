@@ -230,7 +230,7 @@
     {
       "id": "topup-complete-check",
       "name": "Complete any active topup and return to SBU",
-      "cron": "*/10 * * * *",
+      "cron": "* * * * *",
       "command": "topup-complete-check"
     },
     {
