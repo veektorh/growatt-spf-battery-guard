@@ -915,3 +915,143 @@ class NextScheduledReturnSbuTests(unittest.TestCase):
         overrides = {"dates": {"2026-11-10": {"skip": ["return"]}}}
 
         self.assertIsNone(self._next(dt.datetime(2026, 11, 10, 13, 40), overrides))
+
+
+class PlanningChargeRateTests(unittest.TestCase):
+    """Top-ups are sized with the measured charge rate once it is trustworthy."""
+
+    def _rate(self, learned, samples, configured=1950.0):
+        from growatt_guard.topup import _planning_charge_rate_w
+
+        with patch("growatt_guard.topup.learned_charge_rate", return_value=(learned, samples)):
+            return _planning_charge_rate_w(make_config(battery_charge_rate_w=configured))
+
+    def test_uses_configured_rate_until_enough_topups_are_measured(self):
+        self.assertEqual(self._rate(None, 0), (1950.0, "configured"))
+        self.assertEqual(self._rate(1500.0, 4), (1950.0, "configured"))
+
+    def test_uses_learned_rate_when_it_is_slower_than_configured(self):
+        rate, source = self._rate(1513.0, 10)
+        self.assertEqual(rate, 1513.0)
+        self.assertEqual(source, "learned from 10 top-ups")
+
+    def test_never_plans_faster_than_configured(self):
+        self.assertEqual(self._rate(2400.0, 10), (1950.0, "configured"))
+
+    def test_learned_rate_is_floored_at_half_of_configured(self):
+        rate, _ = self._rate(400.0, 10)
+        self.assertEqual(rate, 975.0)
+
+    def test_unconfigured_rate_is_left_alone(self):
+        self.assertEqual(self._rate(1500.0, 10, configured=0.0), (0.0, "configured"))
+
+    def test_auto_topup_plans_longer_with_a_slower_learned_rate(self):
+        from growatt_guard import state as state_mod
+        from growatt_guard.topup import command_auto_topup_check
+
+        status = {
+            "datalogSn": "SN1", "deviceSn": "SN1",
+            "data": {"soc": 40.0, "pDischarge": 1500.0, "outputConfig": "0"},
+        }
+
+        def planned_minutes(learned, tmp: Path, tag: str) -> tuple[int, str]:
+            written: dict = {}
+            cfg = make_config(
+                auto_topup_enabled=True, battery_capacity_wh=30000.0,
+                battery_charge_rate_w=3000.0, battery_bms_cutoff_soc=25.0,
+                auto_topup_target_soc=35.0, dry_run=True,
+            )
+            with (
+                patch.object(state_mod, "TOPUP_STATE_FILE", tmp / f"t{tag}.json"),
+                patch.object(state_mod, "PAUSE_FILE", tmp / f"p{tag}.json"),
+                patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", tmp / f"dr{tag}.json"),
+                patch("growatt_guard.topup.read_pause_state", return_value=None),
+                patch("growatt_guard.topup.topup_is_active", return_value=False),
+                patch("growatt_guard.topup.hours_until_next_sunrise", return_value=5.0),
+                patch("growatt_guard.topup.load_context", return_value=(None, None, status)),
+                patch("growatt_guard.topup.set_mode", return_value="ok"),
+                patch("growatt_guard.topup.command_pause", return_value=0),
+                patch(
+                    "growatt_guard.topup.write_utility_hold_state",
+                    side_effect=lambda **kwargs: written.update(minutes=kwargs["minutes"]),
+                ),
+                patch("growatt_guard.topup.append_mode_audit") as audit,
+                patch("growatt_guard.topup.learned_charge_rate", return_value=learned),
+                redirect_stdout(StringIO()),
+            ):
+                command_auto_topup_check(cfg)
+            return written["minutes"], audit.call_args.kwargs["note"]
+
+        with TemporaryDirectory() as tmpdir:
+            configured_min, configured_note = planned_minutes((None, 0), Path(tmpdir), "a")
+            learned_min, learned_note = planned_minutes((2000.0, 10), Path(tmpdir), "b")
+
+        self.assertGreater(learned_min, configured_min)
+        self.assertIn("planned_charge_rate_w=3000", configured_note)
+        self.assertIn("planned_charge_rate_w=2000", learned_note)
+
+
+class TopupExpiryWithinResolutionTests(unittest.TestCase):
+    """SOC is reported in whole points, so 71% against a 71.98% target is a completion."""
+
+    def _run(self, end_soc: float, target_soc: float) -> tuple[str, str, list[str]]:
+        from growatt_guard.topup import _command_topup_complete_check_locked
+
+        now = dt.datetime.now(dt.timezone.utc)
+        hold = {
+            "ownership": "owned",
+            "completion_policy": "soc",
+            "target_soc": target_soc,
+            "max_expiry": (now - dt.timedelta(minutes=1)).isoformat(),
+            "start_soc": end_soc - 2,
+            "minutes": 27,
+            "start_load_w": 1448.0,
+            "started_at": (now - dt.timedelta(minutes=30)).isoformat(),
+            "reason": "Auto-topup: 27min needed for 11.2h until sunrise",
+        }
+        embeds: list[str] = []
+        buf = StringIO()
+        with (
+            patch("growatt_guard.topup.read_utility_hold_state", return_value=hold),
+            patch("growatt_guard.topup.read_topup_state", return_value=None),
+            patch("growatt_guard.topup._read_topup_end_soc", return_value=end_soc),
+            patch("growatt_guard.topup._topup_record_charge_rate", return_value=None),
+            patch("growatt_guard.topup.learned_charge_rate", return_value=(None, 0)),
+            patch("growatt_guard.topup.append_mode_audit") as audit,
+            patch("growatt_guard.topup.command_resume"),
+            patch("growatt_guard.topup._return_sbu_and_clear_topup", return_value=0) as return_sbu,
+            patch("growatt_guard.topup.send_discord_embed"),
+            patch("growatt_guard.topup.embed_topup_soc_complete", side_effect=lambda *a, **k: embeds.append("complete")),
+            patch("growatt_guard.topup.embed_topup_below_target", side_effect=lambda *a, **k: embeds.append("below")),
+            patch("growatt_guard.topup.embed_topup_failed_low", side_effect=lambda *a, **k: embeds.append("failed")),
+            redirect_stdout(buf),
+        ):
+            rc = _command_topup_complete_check_locked(
+                make_config(
+                    auto_topup_sunrise_floor_soc=35.0,
+                    discord_notify_success=True,
+                    discord_notify_failure=True,
+                    dry_run=False,
+                )
+            )
+        self.assertEqual(rc, 0)
+        return_sbu.assert_called_once()
+        return audit.call_args.kwargs["action"], buf.getvalue(), embeds
+
+    def test_reading_within_one_point_of_target_is_a_completion(self):
+        action, output, embeds = self._run(end_soc=71.0, target_soc=71.98)
+        self.assertEqual(action, "topup-target-reached")
+        self.assertIn("within one point", output)
+        self.assertEqual(embeds, ["complete"])
+
+    def test_reading_more_than_one_point_short_still_expires(self):
+        action, output, embeds = self._run(end_soc=79.0, target_soc=80.99)
+        self.assertEqual(action, "topup-expired")
+        self.assertIn("expired below target", output)
+        self.assertEqual(embeds, ["below"])
+
+    def test_reading_at_the_safety_floor_keeps_the_urgent_alert(self):
+        action, output, embeds = self._run(end_soc=35.0, target_soc=35.5)
+        self.assertEqual(action, "topup-expired")
+        self.assertIn("at or below 35% floor", output)
+        self.assertEqual(embeds, ["failed"])

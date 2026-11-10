@@ -213,6 +213,10 @@ Run this while on Utility (charging). The command reads SOC before and after the
 
 You can also let auto-topup measure it passively: each time `topup-complete-check` completes a topup it compares starting and ending SOC to back-calculate the implied rate and prints it. If the implied rate differs from `BATTERY_CHARGE_RATE_W` by 10% or more, the output suggests an updated value and a Discord embed is sent.
 
+Auto-topup also plans with that measured rate. Once at least five completed top-ups have been recorded and their average is slower than `BATTERY_CHARGE_RATE_W`, `auto-topup-check` sizes the next top-up with the average instead, so a top-up is not cut short by an optimistic rating. It never plans faster than `BATTERY_CHARGE_RATE_W` and never below half of it. The audit note records the rate used as `planned_charge_rate_w`.
+
+A top-up that reaches its time limit within one SOC point of its target is recorded as `topup-target-reached`, because targets are fractional while the inverter reports SOC in whole points.
+
 ### Charge Ceiling
 
 To stop `watchdog-sbu` from returning to SBU while the battery is still charging toward a useful level, set a target SOC:
