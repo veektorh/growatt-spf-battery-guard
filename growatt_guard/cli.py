@@ -23,6 +23,7 @@ from growatt_guard.paths import DATA_HOME
 from growatt_guard.pvoutput import command_pvoutput_upload
 from growatt_guard.pvoutput_backfill import command_pvoutput_backfill
 from growatt_guard.schedule import command_validate_schedule
+from growatt_guard.state import OUTAGE_MODES
 from growatt_guard.schedule_overrides import command_outage_profile, command_schedule_override
 from growatt_guard.schedule_profiles import command_profiles, command_set_profile
 from growatt_guard.schedule_views import command_schedule_calendar
@@ -216,9 +217,13 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("pause-status", help="Show whether automation is currently paused.")
     outage_parser = subparsers.add_parser(
         "set-outage-days",
-        help="Set which days the estate has power cuts: all, or weekdays only.",
+        help="Set which days the estate has power cuts: auto (follow the profile), all, or weekdays only.",
     )
-    outage_parser.add_argument("mode", choices=("all", "weekdays"), help="Outage day mode for mode-changing jobs.")
+    outage_parser.add_argument(
+        "mode",
+        choices=OUTAGE_MODES,
+        help="Outage day mode: auto follows the active profile's outage windows.",
+    )
     outage_parser.add_argument("--reason", default="", help="Optional reason stored in outage state and Discord alert.")
     subparsers.add_parser("outage-status", help="Show the current outage days mode.")
     profiles_parser = subparsers.add_parser(

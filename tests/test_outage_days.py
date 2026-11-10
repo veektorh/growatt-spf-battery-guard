@@ -262,6 +262,11 @@ class OutageDaysCommandTests(unittest.TestCase):
         self.assertEqual(args.mode, "weekdays")
         self.assertEqual(args.reason, "estate cuts")
 
+    def test_cli_accepts_auto_mode(self):
+        parser = build_parser()
+        args = parser.parse_args(["set-outage-days", "auto", "--reason", "follow profile"])
+        self.assertEqual(args.mode, "auto")
+
     def test_cli_parses_outage_status(self):
         parser = build_parser()
         args = parser.parse_args(["outage-status"])
