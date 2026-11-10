@@ -38,6 +38,7 @@ from growatt_guard.notifications import (
     send_discord_embed,
 )
 from growatt_guard.pause import command_pause, command_resume, run_with_command_lock
+from growatt_guard.topup_status import learned_charge_rate
 from growatt_guard.state import (
     append_charge_rate_reading,
     append_discharge_rate_reading,
@@ -63,6 +64,39 @@ _TOPUP_EXPIRY_BUFFER_MIN_MINUTES = 15.0
 _LIVE_LOAD_UPLIFT_TRIGGER_FACTOR = 1.15
 _LIVE_LOAD_UPLIFT_CAP_FACTOR = 1.0
 _LATE_SAFETY_MIN_HOURS_TO_SUNRISE = 1.0
+_LEARNED_CHARGE_RATE_MIN_SAMPLES = 5
+_LEARNED_CHARGE_RATE_FLOOR_FACTOR = 0.5
+_SOC_READING_RESOLUTION = 1.0
+
+
+def _planning_charge_rate_w(config: Config) -> tuple[float, str]:
+    """Charge rate used to size a top-up, with where it came from.
+
+    The configured rate is the charger's rating; what the battery actually gains
+    is often lower because the inverter is carrying the house load too. Sizing a
+    top-up with the rating makes it too short, so the shortfall reappears and a
+    second top-up starts. Plan with the measured average once there are enough
+    completed top-ups, but only ever to plan slower than configured, and never
+    below half of it so a few noisy samples cannot double every top-up.
+    """
+    configured = config.battery_charge_rate_w
+    if configured <= 0:
+        return configured, "configured"
+    learned, samples = learned_charge_rate()
+    if learned is None or samples < _LEARNED_CHARGE_RATE_MIN_SAMPLES or learned >= configured:
+        return configured, "configured"
+    return max(learned, configured * _LEARNED_CHARGE_RATE_FLOOR_FACTOR), f"learned from {samples} top-ups"
+
+
+def _target_reached_within_resolution(end_soc: float | None, target_soc: float | None) -> bool:
+    """True when the SOC reading cannot be told apart from the target.
+
+    Targets are fractional (for example 71.98%) but the inverter reports SOC in
+    whole points, so a reading of 71% may already be the target.
+    """
+    if end_soc is None or target_soc is None:
+        return False
+    return end_soc > target_soc - _SOC_READING_RESOLUTION
 
 
 def _planning_load_w(live_load_w: float, learned_load_w: float | None) -> float:
@@ -240,21 +274,27 @@ def command_auto_topup_check(config: Config) -> int:
         )
         return 0
 
+    charge_rate_w, charge_rate_source = _planning_charge_rate_w(config)
+    if charge_rate_source != "configured":
+        logging.info(
+            "Planning with charge rate %.0f W (%s); configured %.0f W",
+            charge_rate_w, charge_rate_source, config.battery_charge_rate_w,
+        )
     survival_topup_min_f = estimate_topup_for_sunrise(
         soc, load_w, config.battery_capacity_wh, config.battery_bms_cutoff_soc,
-        config.battery_charge_rate_w, hrs,
+        charge_rate_w, hrs,
     )
     margin_minutes = max(0.0, config.auto_topup_solar_skip_min_margin_minutes)
     margin_topup_min_f = estimate_topup_for_sunrise(
         soc, load_w, config.battery_capacity_wh, config.battery_bms_cutoff_soc,
-        config.battery_charge_rate_w, hrs + margin_minutes / 60.0,
+        charge_rate_w, hrs + margin_minutes / 60.0,
     ) if margin_minutes > 0 else survival_topup_min_f
     effective_target_soc = max(config.battery_bms_cutoff_soc, config.auto_topup_target_soc)
     if late_safety_window:
         effective_target_soc = max(effective_target_soc, safety_floor_soc)
     target_topup_min_f = estimate_topup_for_sunrise(
         soc, load_w, config.battery_capacity_wh, effective_target_soc,
-        config.battery_charge_rate_w, hrs,
+        charge_rate_w, hrs,
     )
     topup_candidates = [
         value for value in (target_topup_min_f, margin_topup_min_f)
@@ -398,7 +438,7 @@ def command_auto_topup_check(config: Config) -> int:
             f"{topup_min}min, {hrs:.1f}h to sunrise, "
             f"planned_min={topup_min}, target_soc={current_soc_target:g}, "
             f"planned_load_w={load_w:g}, "
-            f"planned_charge_rate_w={config.battery_charge_rate_w:g}, "
+            f"planned_charge_rate_w={charge_rate_w:g}, "
             f"plan_kind={'late-safety' if late_safety_window else 'reserve'}"
         ),
     )
@@ -665,6 +705,11 @@ def _command_topup_complete_check_locked(config: Config) -> int:
         start_soc = _optional_float(start_soc_raw)
         end_soc = _read_topup_end_soc(config)
         actual_min = _elapsed_minutes(started_at_str)
+        # Read before this top-up's own sample is recorded, so the note shows the
+        # rate the planner sized it with. Adopted holds were not sized by the planner.
+        planned_charge_rate_w = (
+            config.battery_charge_rate_w if ownership == "adopted" else _planning_charge_rate_w(config)[0]
+        )
 
         # Check if SOC target reached (early completion).
         if target_soc is not None and end_soc is not None and end_soc >= target_soc:
@@ -685,7 +730,7 @@ def _command_topup_complete_check_locked(config: Config) -> int:
                     ownership=ownership,
                     planned_min=planned_min,
                     planned_load_w=planned_load_w,
-                    planned_charge_rate_w=config.battery_charge_rate_w,
+                    planned_charge_rate_w=planned_charge_rate_w,
                     plan_kind=plan_kind,
                 ),
             )
@@ -707,15 +752,28 @@ def _command_topup_complete_check_locked(config: Config) -> int:
             if max_expiry is not None and utc_now() >= max_expiry:
                 # Expiry reached — determine outcome based on final SOC.
                 floor_soc = config.auto_topup_sunrise_floor_soc
-                logging.warning(
-                    "Topup max expiry reached: end_soc=%s target=%s", end_soc, target_soc
+                # A reading within one point of a fractional target is the target as
+                # far as the inverter can report it, so it is a completion, not a miss.
+                reached_at_expiry = (
+                    _target_reached_within_resolution(end_soc, target_soc)
+                    and end_soc is not None
+                    and end_soc > floor_soc
                 )
+                if reached_at_expiry:
+                    logging.info(
+                        "Topup ended at its time limit within one point of target: end_soc=%s target=%s",
+                        end_soc, target_soc,
+                    )
+                else:
+                    logging.warning(
+                        "Topup max expiry reached: end_soc=%s target=%s", end_soc, target_soc
+                    )
                 implied_rate_w = _topup_record_charge_rate(config, start_soc, end_soc, actual_min)
                 append_mode_audit(
                     config,
                     "topup-complete-check",
                     soc=end_soc,
-                    action="topup-expired",
+                    action="topup-target-reached" if reached_at_expiry else "topup-expired",
                     result="ok",
                     note=_topup_completion_note(
                         start_soc=start_soc,
@@ -726,12 +784,21 @@ def _command_topup_complete_check_locked(config: Config) -> int:
                         ownership=ownership,
                         planned_min=planned_min,
                         planned_load_w=planned_load_w,
-                        planned_charge_rate_w=config.battery_charge_rate_w,
+                        planned_charge_rate_w=planned_charge_rate_w,
                         plan_kind=plan_kind,
                     ),
                 )
                 command_resume(config)
-                if end_soc is not None and end_soc <= floor_soc:
+                if reached_at_expiry and end_soc is not None and target_soc is not None:
+                    if config.discord_notify_success and not config.dry_run:
+                        send_discord_embed(config, embed_topup_soc_complete(
+                            start_soc or end_soc, end_soc, target_soc, actual_min, ownership=ownership,
+                        ))
+                    print(
+                        f"Topup complete: {end_soc:.0f}% is within one point of the "
+                        f"{target_soc:.1f}% target; returning to SBU."
+                    )
+                elif end_soc is not None and end_soc <= floor_soc:
                     # At or below safety floor — urgent alert.
                     if config.discord_notify_failure and not config.dry_run:
                         send_discord_embed(config, embed_topup_failed_low(
