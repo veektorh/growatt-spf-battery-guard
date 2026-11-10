@@ -201,7 +201,7 @@ class DiscordControlTests(unittest.TestCase):
         )
 
         self.assertNotIn("await asyncio.sleep(effective_minutes * 60)", source)
-        self.assertIn("Completion is persisted and monitored every 10 minutes", source)
+        self.assertIn("Completion is persisted and monitored every minute", source)
 
     def test_build_dashboard_embed_parses_public_fixture_summary(self):
         status = json.loads(

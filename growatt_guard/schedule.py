@@ -882,7 +882,10 @@ def lint_schedule(schedule: dict[str, Any]) -> list[HealthCheckItem]:
         interval = _cron_interval_minutes(cron)
         if command in GROWATT_READ_COMMANDS | CONDITIONAL_GROWATT_READ_COMMANDS:
             read_jobs_by_cron.setdefault(cron, []).append(job_id)
-            if interval is not None and interval < 5:
+            # Conditional readers (topup-complete-check) exit before touching Growatt
+            # unless a hold is active, and a hold deadline has to be honoured within a
+            # minute; only unconditional readers carry a standing API cost.
+            if command in GROWATT_READ_COMMANDS and interval is not None and interval < 5:
                 items.append(
                     HealthCheckItem(
                         "Schedule lint",

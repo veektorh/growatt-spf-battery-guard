@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from growatt_guard.audit import append_mode_audit, find_overdue_unclosed_topup
 from growatt_guard.config import Config
@@ -19,6 +21,11 @@ from growatt_guard.growatt_api import (
     set_mode,
 )
 from growatt_guard.modes import command_return_sbu, ensure_device_reporting
+from growatt_guard.schedule import (
+    effective_schedule_jobs_on_date,
+    validate_schedule,
+    validate_schedule_overrides,
+)
 from growatt_guard.load_learning import select_overnight_load
 from growatt_guard.notifications import (
     embed_auto_topup_started,
@@ -49,7 +56,7 @@ from growatt_guard.state import (
     write_topup_skip_notification_state,
     write_utility_hold_state,
 )
-from growatt_guard.weather import hours_until_next_sunrise
+from growatt_guard.weather import choose_preserve_threshold, hours_until_next_sunrise
 
 _TOPUP_EXPIRY_BUFFER_FACTOR = 1.2
 _TOPUP_EXPIRY_BUFFER_MIN_MINUTES = 15.0
@@ -501,12 +508,108 @@ def _return_sbu_and_clear_topup(config: Config) -> int:
     return result
 
 
+def _schedule_timezone(schedule: dict[str, Any]) -> dt.tzinfo:
+    name = str(schedule.get("timezone") or "").strip()
+    if name:
+        try:
+            return ZoneInfo(name)
+        except (ZoneInfoNotFoundError, ValueError):
+            logging.warning("Schedule timezone %r is invalid; using host local time.", name)
+    return dt.datetime.now().astimezone().tzinfo or dt.timezone.utc
+
+
+def next_scheduled_return_sbu(
+    schedule: dict[str, Any],
+    overrides: dict[str, Any],
+    now: dt.datetime | None = None,
+) -> dt.datetime | None:
+    """Earliest scheduled `return-sbu` left today, once a preserve has already fired.
+
+    Returns a naive datetime in the schedule timezone, or None when the profile
+    is not inside its preserve window. That window is the only period where the
+    schedule itself wants Utility while SOC is low; outside it — evenings,
+    overnight, and before the first preserve — completion keeps its documented
+    "return to SBU" behaviour instead of holding grid power.
+    """
+    local_now = now if now is not None else dt.datetime.now(_schedule_timezone(schedule)).replace(tzinfo=None)
+    preserve_fired = False
+    returns: list[dt.datetime] = []
+    for job in effective_schedule_jobs_on_date(schedule, overrides, local_now.date()):
+        if job.status == "skip":
+            continue
+        command = job.effective_command
+        if command == "preserve-battery":
+            if any(fire <= local_now for fire in job.fires):
+                preserve_fired = True
+        elif command == "return-sbu":
+            returns.extend(fire for fire in job.fires if fire > local_now)
+    if not preserve_fired or not returns:
+        return None
+    return min(returns)
+
+
+def _defer_completion_to_scheduled_return(config: Config, soc: float | None) -> dt.datetime | None:
+    """Hold Utility for the scheduled return when a top-up ends under threshold.
+
+    A user-initiated top-up still returns to SBU at its deadline, but when the
+    profile's preserve window is running and SOC is under the preserve
+    threshold, forcing SBU only to wait for a retry fights the schedule. Keep
+    the same owned Utility hold alive until the scheduled `return-sbu`, which
+    then owns the switch back.
+    """
+    if soc is None:
+        return None
+    try:
+        threshold_decision = choose_preserve_threshold(config)
+    except Exception as exc:  # noqa: BLE001 - completion must still return to SBU
+        logging.warning("topup-complete-check: could not resolve preserve threshold: %s", exc)
+        return None
+    if soc >= threshold_decision.threshold:
+        return None
+    try:
+        schedule = validate_schedule()
+        next_return = next_scheduled_return_sbu(schedule, validate_schedule_overrides(schedule))
+    except Exception as exc:  # noqa: BLE001 - completion must still return to SBU
+        logging.warning("topup-complete-check: could not read the schedule: %s", exc)
+        return None
+    if next_return is None:
+        return None
+
+    schedule_tz = _schedule_timezone(schedule)
+    expiry = next_return.replace(tzinfo=schedule_tz).astimezone(dt.timezone.utc)
+    minutes = max(1, int((expiry - utc_now()).total_seconds() // 60))
+    note = (
+        f"SOC {soc:g}% below preserve threshold {threshold_decision.threshold:g}% "
+        f"({threshold_decision.reason}); Utility held until scheduled return-sbu {next_return:%H:%M}"
+    )
+    clear_topup_state()
+    write_utility_hold_state(
+        ownership="owned",
+        target_soc=None,
+        max_expiry=expiry,
+        start_soc=soc,
+        completion_policy="time",
+        minutes=minutes,
+        reason=f"Top-up complete: {note}",
+    )
+    append_mode_audit(
+        config,
+        "topup-complete-check",
+        soc=soc,
+        action="topup-complete-deferred",
+        result="ok",
+        note=note,
+    )
+    logging.info("topup-complete-check: %s", note)
+    return next_return
+
+
 def command_topup_complete_check(config: Config) -> int:
     """Complete an active top-up without blocking unrelated scheduled mode jobs.
 
-    This command runs every ten minutes. Avoid taking the global mode-command
-    lock for the usual no-op path so fixed-time preserve/return jobs cannot lose
-    a lock race to an idle completion check.
+    This command runs every minute so a time-boxed top-up ends within a minute
+    of its deadline; the no-op path reads no Growatt data and takes no
+    mode-command lock, so a busy schedule cannot delay a completion by a tick.
     """
     hold_state = read_utility_hold_state()
     topup_state = read_topup_state()
@@ -714,6 +817,14 @@ def _command_topup_complete_check_locked(config: Config) -> int:
             print(f"Topup complete: {start_soc_legacy:.0f}% → {end_soc_legacy:.0f}% (no SOC gain detected).")
     else:
         print("Topup complete.")
+
+    deferred_until = _defer_completion_to_scheduled_return(config, end_soc_legacy)
+    if deferred_until is not None:
+        print(
+            f"Topup complete at {end_soc_legacy:g}%; Utility held until the scheduled "
+            f"return-sbu at {deferred_until:%H:%M}."
+        )
+        return 0
 
     return _return_sbu_and_clear_topup(config)
 
