@@ -43,6 +43,12 @@
           "command": "watchdog-sbu"
         },
         {
+          "id": "afternoon-preserve-noon",
+          "name": "Catch a battery that has not recovered by noon",
+          "cron": "30 12 * * *",
+          "command": "preserve-battery"
+        },
+        {
           "id": "afternoon-preserve-early",
           "name": "Begin preserving battery well before the afternoon outage",
           "cron": "30 13 * * *",

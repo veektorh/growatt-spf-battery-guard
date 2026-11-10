@@ -96,10 +96,29 @@ class ScheduleTests(unittest.TestCase):
         schedule = validate_schedule()
         jobs = {item["id"]: item for item in schedule["jobs"]}
 
+        self.assertEqual(jobs["afternoon-preserve-noon"]["cron"], "30 12 * * *")
+        self.assertEqual(jobs["afternoon-preserve-noon"]["command"], "preserve-battery")
         self.assertEqual(jobs["afternoon-preserve-early"]["cron"], "30 13 * * *")
         self.assertEqual(jobs["afternoon-preserve-retry"]["cron"], "0 14 * * *")
         self.assertEqual(jobs["afternoon-preserve"]["cron"], "30 14 * * *")
         self.assertEqual(jobs["auto-topup-check"]["cron"], "*/20 18-23,0-5 * * *")
+
+    def test_noon_preserve_closes_the_gap_after_the_morning_return(self):
+        schedule = validate_schedule()
+        minutes = sorted(
+            int(job["cron"].split()[1]) * 60 + int(job["cron"].split()[0])
+            for job in schedule["jobs"]
+            if job.get("command") == "preserve-battery"
+            and job["cron"].split()[2:] == ["*", "*", "*"]
+        )
+
+        morning_return = 7 * 60 + 55
+        afternoon_preserve = 13 * 60 + 30
+        self.assertIn(12 * 60 + 30, minutes)
+        self.assertTrue(
+            any(morning_return < minute < afternoon_preserve for minute in minutes),
+            "no preserve job between the 07:55 return and the 13:30 check",
+        )
 
     def test_validate_schedule_rejects_unknown_command(self):
         with TemporaryDirectory() as tmpdir:

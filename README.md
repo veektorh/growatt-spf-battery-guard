@@ -466,7 +466,7 @@ against the active profile.
 
 | Key | Label | Weekday cuts | Weekend cuts | Afternoon mode jobs |
 |---|---|---|---|---|
-| `estate-current` | 19h weekday / 24h weekend | 08:00-10:30, 15:30-18:00 | none | preserve 13:30/14:00/14:30, return 15:25, watchdog 15:31 |
+| `estate-current` | 19h weekday / 24h weekend | 08:00-10:30, 15:30-18:00 | none | preserve 12:30/13:30/14:00/14:30, return 15:25, watchdog 15:31 |
 | `estate-16h` | 16h weekday / 18h weekend | 08:00-12:00, 14:00-18:00 | 08:00-11:00, 15:00-18:00 | weekday preserve 12:05/12:35/13:15, return 13:55, watchdog 14:01; weekend preserve 11:05/12:35/14:15, return 14:55, watchdog 15:01 |
 
 Both profiles share the 06:30/06:40 preserve, 07:55 return, and 08:01 watchdog
@@ -516,6 +516,7 @@ The automation should therefore:
 06:40 weekdays    retry preserve-battery if the first Utility switch failed
 07:55 weekdays    return to SBU before the 08:00 outage
 08:01 weekdays    verify SBU and retry once if needed
+12:30 weekdays    catch a battery that has not recovered by noon
 13:30 weekdays    begin conditional afternoon battery preservation
 14:00 weekdays    retry if SOC became low after the first check
 14:30 weekdays    final preserve check before the afternoon outage
@@ -601,6 +602,7 @@ schtasks /Create /F /TN "Growatt Utility Check Morning" /SC WEEKLY /D MON,TUE,WE
 schtasks /Create /F /TN "Growatt Utility Check Morning Retry" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 06:40 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current morning-preserve-retry"
 schtasks /Create /F /TN "Growatt SBU Before Morning Outage" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 07:55 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current morning-return-sbu"
 schtasks /Create /F /TN "Growatt SBU Watchdog Morning" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:01 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current morning-watchdog"
+schtasks /Create /F /TN "Growatt Utility Check Noon" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 12:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current afternoon-preserve-noon"
 schtasks /Create /F /TN "Growatt Utility Check Afternoon Early" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 13:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current afternoon-preserve-early"
 schtasks /Create /F /TN "Growatt Utility Check Afternoon Retry" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:00 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current afternoon-preserve-retry"
 schtasks /Create /F /TN "Growatt Utility Check Afternoon Final" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current afternoon-preserve"
