@@ -189,6 +189,13 @@ closures and add fixtures for any new trustworthy classification signal.
 - Add regression fixtures whenever a production report exposes a new data-shape
   or interpretation bug.
 
+Current concrete steps toward this goal are in Next Up: N1 (review the first
+nights on the learned charge rate), N2 (plan with an evening load and an
+overnight load), and N3 (one sunrise target through the night). The learned
+charge rate went live on 2026-11-10 at the owner's direction, ahead of the
+three-comparable-outcome gate; N1 collects those outcomes after the fact, and
+N3 stays behind the gate.
+
 ### P2. Notification Quiet Hours And Digest
 
 Goal: keep critical Discord alerts prominent without losing routine evidence.
@@ -219,11 +226,20 @@ Goal: make every Discord-triggered inverter write attributable and reviewable.
 Goal: improve investigation and phone use without turning the public dashboard
 into a control surface.
 
+Shipped on 2026-11-10: the dashboard is one layout with four tabs (Now, Energy,
+Automation, System). The Now tab is the focused first viewport: live solar,
+load, grid import, and battery; SOC and runtime; tonight's top-up need; power,
+SOC, and 7-day supply charts; and alert rows for bypass, an active hold, stale
+data, and skipped automation that render only when they apply. Today's schedule
+is a compact table on the Automation tab. The follow-up clean-up is N6 in Next
+Up.
+
+- Preserve that first viewport: new detail belongs on the Energy, Automation,
+  or System tab unless it answers what the Now tab is for.
 - Add download/export for local metric history.
-- Make ambiguous metric source paths easier to inspect from their cards.
-- Keep the first viewport focused on SOC, mode, PV/load/grid, runtime, freshness,
-  tonight risk, and active hold state.
-- Add compact schedule and safe copy-command panels.
+- Make ambiguous metric source paths easier to inspect next to the numbers they
+  explain; they are a single drawer on the System tab today.
+- Add safe copy-command panels.
 - Extend reconciliation only when reliable new energy counters are available.
 - Keep live write controls out until authentication, CSRF protection, and audit
   behavior are designed.
