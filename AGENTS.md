@@ -6,6 +6,13 @@ This file is for coding agents working on this repository. Read it before editin
 
 This project automates battery-preservation mode switching for a Growatt SPF inverter through the Growatt/ShinePhone cloud API. It is safety-sensitive because some commands can change inverter output-source mode.
 
+## Picking Up Work
+
+- Open tasks live in the `Next Up` section at the top of `ROADMAP.md`. Read it at the start of a session; if the user has not named a task, offer the first one whose status is ready.
+- Each task states its evidence, steps, and what done means, so it can be picked up without the conversation that created it. Statuses marked read-only need no approval to investigate; anything that changes inverter mode timing still needs the owner's go-ahead before merging.
+- When you finish a task, remove it from `Next Up` in the same pull request. When you find or defer something, add it there in the same format rather than leaving it in chat.
+- Keep entries public-safe, like every other file here.
+
 ## Development Workflow
 
 - Do all implementation, tests, commits, and branch work in the local checkout at `/home/victor/work/personal/automation`.

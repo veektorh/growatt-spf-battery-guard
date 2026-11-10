@@ -1,10 +1,117 @@
 # Growatt Guard Roadmap
 
-Last reviewed: 2026-08-13
+Last reviewed: 2026-11-10
 
 This is the working backlog for Growatt Guard. Priorities favor inverter safety,
 low Growatt API pressure, trustworthy decisions, and clear operations before
 convenience or larger product ideas.
+
+## Next Up
+
+This is the handoff queue: concrete tasks any agent can pick up without the
+conversation that produced them. `AGENTS.md` explains how to use it. Each task
+carries its evidence, the steps, and what "done" means. Remove a task when it
+is finished and record anything it uncovered as a new task. Keep entries
+public-safe: no IDs, serials, domains, or credentials.
+
+### N1. Check the first nights on the learned charge rate
+
+- Status: ready from the morning of 2026-11-11. Read-only.
+- Why: since 2026-11-10 `auto-topup-check` sizes top-ups with the learned
+  charge rate (about 1500 W against 1950 W configured) and a top-up that ends
+  within one SOC point of target is recorded as `topup-target-reached`. Neither
+  has been observed in production yet.
+- Steps, on the VPS runtime checkout:
+  - In `logs/mode_decisions.csv`, read the night's `auto-topup-started` and
+    `topup-complete-check` rows. The start note should show
+    `planned_charge_rate_w` near the learned rate, not 1950.
+  - In `logs/growatt_power_guard.log`, confirm the line
+    `Planning with charge rate ... (learned from N top-ups)`.
+  - Count top-ups per night and compare with the baseline below.
+- Baseline: 7 of the 14 nights before the change had more than one auto top-up
+  (one had four). Evening top-ups gained about 1200 W; late-night ones about
+  1800 W.
+- Done when: three nights are reviewed and the result is written here as either
+  "fewer repeat top-ups" or a follow-up task with the numbers.
+
+### N2. Plan the night with an evening load and an overnight load
+
+- Status: needs a short design before code. Changes inverter mode timing.
+- Why: the planner uses one flat learned load (about 1450 W). On 2026-11-09
+  every live reading was higher: about 2400 to 2700 W at 19:00 to 20:30, about
+  1800 W at 21:00 to 22:30, and 1500 to 1650 W after midnight. The shortfall
+  therefore regrows by about two minutes per 20-minute check, and a new top-up
+  starts each time it crosses `AUTO_TOPUP_MIN_MINUTES`.
+- Steps: decide how discharge history is stored per time band (it is one
+  nightly aggregate today, see `append_discharge_rate_reading` and
+  `select_overnight_load`), then make `command_auto_topup_check` project the
+  drain as evening hours times evening load plus overnight hours times
+  overnight load.
+- Done when: a replay of the 2026-11-09 night in a test plans one evening
+  top-up instead of two, and N1-style checks confirm it in production.
+
+### N3. Use one sunrise target through the night
+
+- Status: blocked on N1 evidence (see the three-comparable-outcome gate in P1).
+- Why: with `AUTO_TOPUP_TARGET_SOC` unset the reserve plan aims to reach
+  sunrise at the BMS cutoff (20%). Inside the last four hours the late-safety
+  plan raises that to `AUTO_TOPUP_SUNRISE_FLOOR_SOC` (35%), which starts a 60 to
+  80 minute top-up at about 02:40. At 06:30 the morning preserve then wants its
+  threshold (45% on a rainy day) for the 08:00 outage and only reached 43% on
+  2026-11-10.
+- Options: set `AUTO_TOPUP_TARGET_SOC=35` (config only; moves charging earlier
+  into the evening, when the measured charge rate is lower), or derive the
+  target from the next morning's preserve threshold on outage days.
+- Done when: one option is chosen with the owner, trialled, and reviewed.
+
+### N4. Recheck the rainy-day PV forecast factor
+
+- Status: ready. Read-only analysis first.
+- Why: the learned rainy factor is 84%, but recent rainy days came in far lower
+  (for example 13.4 kWh actual against 31.8 forecast, and 20.6 against 27.9).
+  The forecast feeds the "tomorrow can run leaner" recommendation and the sunny
+  top-up skip.
+- Steps: in `growatt_guard/forecast_calibration.py`, compare the all-history
+  ratio with a recent-window ratio (last 7 to 14 completed rainy days) and
+  report both before changing the factor.
+- Done when: the comparison is documented and either the weighting changes with
+  tests or the task is closed with the reason.
+
+### N5. Confirm the preserve-window deferral in production
+
+- Status: waiting for a natural occurrence. Read-only.
+- Why: PR #54 keeps the Utility hold when a time-boxed top-up ends inside a
+  preserve window with SOC under the threshold. No such top-up has ended in
+  production since it deployed on 2026-11-10.
+- Done when: an audit row with action `topup-complete-deferred` is seen and the
+  following scheduled `return-sbu` returned to SBU as planned.
+
+### N6. Finish the dashboard clean-up
+
+- Status: ready. No inverter writes.
+- Why: the four-tab dashboard shipped on 2026-11-10 but `build_dashboard_html`
+  is still one function of about 950 lines that reads the audit log and state
+  files itself, so `dashboard.json` lacks automation history, recent decisions,
+  upcoming overrides, and runtime.
+- Steps, each a separate small PR:
+  - Move those reads into `dashboard_viewmodel.py` so the HTML renders only
+    from the payload.
+  - Unify the two top-up estimates: the "Topup to Sunrise" row can show a dash
+    while the Top-up Tonight tile shows minutes.
+  - Fix the grid label: "Solar covering entire load" appears whenever grid
+    import is under 20 W, including at night on battery.
+  - With live data, look once at the Automation tab history chart and decisions
+    table, and at an alert row on the Now tab when one applies.
+
+### N7. Small operational hygiene
+
+- Stray dry-run audit rows: pairs of `return-sbu` and `watchdog-sbu` rows with
+  `dry_run=true` and SOC 70 appear in the production `mode_decisions.csv`, one
+  pair at a deploy time. Find what writes them and keep it out of the
+  production audit log.
+- Logs print the plant ID and device serial at INFO. Mask them.
+- The Discord bot logs "voice will NOT be supported" warnings on every start.
+- GitHub has announced that `ubuntu-latest` moves to Ubuntu 26; pin or test.
 
 ## Current Baseline
 
