@@ -101,19 +101,19 @@ from growatt_guard.dashboard_viewmodel import (
     dashboard_freshness,
 )
 from growatt_guard.dashboard_render_components import (
-    _glance_card,
     _inline_badge,
+    _kv_rows,
+    _live_cell,
+    _meter,
+    _pvoutput_status,
+    _render_alerts,
+    _render_balance_bar,
+    _render_health_rows,
+    _render_insight_rows,
+    _render_recommendations,
+    _render_timeline_rows,
     _status_badge_class,
-    _metric_card,
-    _pvoutput_card_html,
-    _render_activity_items,
-    _render_daily_mix,
-    _render_energy_outlook,
-    _render_insight_cards,
-    _render_night_view,
-    _render_status_rows,
-    _render_timeline_items,
-    _stat_block,
+    _tile,
 )
 from growatt_guard.weather import choose_preserve_threshold, get_pv_forecast, hours_until_next_sunrise
 from growatt_guard.paths import DATA_HOME
@@ -361,10 +361,8 @@ def build_dashboard_html(
     schedule_timeline = build_dashboard_schedule_timeline(schedule, today_override, now=now)
     upcoming_overrides = _upcoming_override_rows(overrides, now.date())
     chart_data_json = json.dumps(build_chart_data(now=now))
-    pvoutput_card = _pvoutput_card_html(read_pvoutput_state(), now)
     pv_power_display = _fmt_w(live_metrics.get("pv_w"))
     grid_power_display = _fmt_w(live_metrics.get("grid_w"))
-    grid_source = str(live_metrics.get("grid_source") or "")
     load_power_display = _fmt_w(live_metrics.get("load_w"))
     battery_flow_display = _fmt_w(abs(live_metrics["battery_net_w"])) if live_metrics.get("battery_net_w") is not None else "--"
     battery_flow_dir = (
@@ -377,7 +375,6 @@ def build_dashboard_html(
     discharge_today_display = _fmt_kwh(live_metrics.get("discharge_today_kwh"))
     load_today_display = _fmt_kwh(live_metrics.get("load_today_kwh"))
     grid_today_display = _fmt_kwh(live_metrics.get("grid_today_kwh"))
-    grid_detail = f"source: {grid_source}" if grid_source else "not reported by API"
     pv_total_text = str(live_metrics.get("pv_total") or "").strip()
     if dashboard_data is not None:
         tonight_risk = dashboard_data["planner"]["tonight_risk"]
@@ -423,25 +420,24 @@ def build_dashboard_html(
         floor_soc=tonight_floor_soc,
         comfortable_soc=tonight_comfortable_soc,
     )
-    tonight_safe_html = ""
+    tonight_safe_alert: tuple[str, str, str] | None = None
     if tonight_safe.get("show"):
         _ts_level = tonight_safe.get("level", "watch")
         _ts_badge = "badge-fail" if _ts_level == "danger" else ("badge-ok" if _ts_level == "ok" else "badge-warn")
-        _ts_headline = esc(str(tonight_safe.get("headline", "")))
-        _ts_subtext = esc(str(tonight_safe.get("subtext", "")))
-        _ts_reason = esc(str(tonight_safe.get("reason", "")))
-        tonight_safe_html = f"""
-      <div class="planner-card primary">
-        <div class="label">Tonight Safe</div>
-        <div class="value"><span class="badge {_ts_badge}">{_ts_headline}</span></div>
-        {f'<div class="muted small">{_ts_subtext}</div>' if _ts_subtext else ''}
-        {f'<div class="muted small">{_ts_reason}</div>' if _ts_reason else ''}
-      </div>"""
+        tonight_safe_alert = (
+            _ts_badge,
+            str(tonight_safe.get("headline", "")) or "Tonight",
+            " ".join(
+                part
+                for part in (str(tonight_safe.get("subtext", "")), str(tonight_safe.get("reason", "")))
+                if part
+            ),
+        )
 
     # Utility hold status (shown when owned/adopted hold is active).
     from growatt_guard.state import read_utility_hold_state as _read_hold
     _hold_state = utility_hold_state if utility_hold_state is not None else _read_hold()
-    utility_hold_html = ""
+    utility_hold_detail = ""
     if _hold_state and _hold_state.get("ownership") in ("owned", "adopted"):
         _own = str(_hold_state.get("ownership", "owned")).capitalize()
         _target = _hold_state.get("target_soc")
@@ -457,12 +453,7 @@ def build_dashboard_html(
             except Exception:  # noqa: BLE001
                 pass
         _target_str = f"{_target:.0f}%" if isinstance(_target, (int, float)) else "?"
-        utility_hold_html = f"""
-      <div class="planner-card">
-        <div class="label">Utility Hold</div>
-        <div class="value"><span class="badge badge-warn">{esc(_own)}</span></div>
-        <div class="muted small">Returning to SBU at {esc(_target_str)}{esc(_eta_str)}</div>
-      </div>"""
+        utility_hold_detail = f"{_own} Utility hold · returning to SBU at {_target_str}{_eta_str}"
 
     soc_value = soc_result[0] if soc_result else None
     soc_gauge_value = max(0.0, min(100.0, float(soc_value))) if isinstance(soc_value, (int, float)) else 0.0
@@ -488,20 +479,10 @@ def build_dashboard_html(
 
     pv_cover = _ratio(live_metrics.get("pv_w"), live_metrics.get("load_w"))
     pv_cover_display = f"{pv_cover:.0f}%" if pv_cover is not None else "--"
-    solar_share = _ratio(live_metrics.get("pv_today_kwh"), live_metrics.get("load_today_kwh"))
-    solar_share_display = f"{solar_share:.0f}%" if solar_share is not None else "--"
-    solar_share_width = min(100.0, solar_share) if solar_share is not None else 0.0
-    grid_reliance = _ratio(live_metrics.get("grid_today_kwh"), live_metrics.get("load_today_kwh"))
-    grid_reliance_display = f"{grid_reliance:.0f}%" if grid_reliance is not None else "--"
-    grid_reliance_width = min(100.0, grid_reliance) if grid_reliance is not None else 0.0
-    battery_charge_share = _ratio(live_metrics.get("charge_today_kwh"), live_metrics.get("load_today_kwh"))
-    battery_charge_share_display = f"{battery_charge_share:.0f}%" if battery_charge_share is not None else "--"
-    battery_charge_share_width = min(100.0, battery_charge_share) if battery_charge_share is not None else 0.0
     mode_badge_class = "badge-warn" if "utility" in mode.lower() else ("badge-ok" if "sbu" in mode.lower() else "badge-warn")
     bypass_badge_class = "badge-fail" if bypass_detected else "badge-ok"
     bypass_badge_label = "Detected" if bypass_detected else "Clear"
     bypass_status_detail = bypass_reason or "No grid bypass detected"
-    grid_now_detail = "estimated from load + charge - PV" if grid_source == "estimated" else (grid_detail or "reported by Growatt")
     _grid_w = live_metrics.get("grid_w") or 0
     if _grid_w < 20:
         grid_status_text = "Solar covering entire load"
@@ -521,7 +502,6 @@ def build_dashboard_html(
     if dashboard_data is None:
         metric_sources = extract_dashboard_metric_sources(status)
         data_quality = build_dashboard_data_quality(live_metrics, metric_sources)
-        daily_mix = build_dashboard_daily_mix(live_metrics)
         daily_insights = build_dashboard_daily_insights(live_metrics, metric_history, now=now)
         energy_outlook = build_dashboard_energy_outlook(
             live_metrics,
@@ -536,7 +516,6 @@ def build_dashboard_html(
     else:
         metric_sources = dashboard_data["sources"]
         data_quality = dashboard_data["quality"]["data"]
-        daily_mix = dashboard_data["insights"]["daily_mix"]
         daily_insights = dashboard_data["insights"]["daily"]
         energy_outlook = dashboard_data["planner"]["outlook"]
     threshold_display = _fmt_g(getattr(threshold_decision, "threshold", None), "%")
@@ -559,18 +538,6 @@ def build_dashboard_html(
     else:
         home_status = dashboard_data["assistant"]["status"]
         recommendations = dashboard_data["assistant"]["recommendations"]
-    recommendations_html = "\n".join(
-        (
-            f'<div class="rec-item rec-{esc(str(r.get("level", "good")))}">'
-            f'<span class="rec-icon">{esc(str(r.get("icon", "OK")))}</span>'
-            '<span>'
-            f'<strong>{esc(str(r.get("title", "Recommendation")))}</strong>'
-            f'{esc(str(r.get("text", "")))}'
-            f'<em>{esc(str(r.get("meta", "")))}</em>'
-            '</span></div>'
-        )
-        for r in recommendations
-    )
 
     _tmr_value = energy_outlook.get("tomorrow_kwh")
     _tmr_str = _fmt_kwh(_tmr_value)
@@ -637,6 +604,13 @@ def build_dashboard_html(
     else:
         _forecast_source = "Set PANEL_KWP plus WEATHER_LAT/WEATHER_LON to enable PV kWh forecasts."
         _forecast_short_str = "Needs forecast setup"
+    active_topup_detail = (
+        f"{topup_status.get('ownership', 'unknown')} ownership; "
+        f"elapsed {topup_status.get('elapsed_minutes', '--')} min; "
+        f"projected {topup_status.get('projected_completion', topup_status.get('max_expiry', '--'))}. "
+        + (" ".join(topup_status.get("warnings", [])) or "Completion monitoring healthy.")
+        if topup_status.get("active") else "No persisted Utility hold."
+    )
     energy_outlook_view = {
         "confidence": str(energy_outlook.get("confidence", "Learning")),
         "cards": [
@@ -658,17 +632,10 @@ def build_dashboard_html(
                     f"{topup_status.get('current_soc', '--')}% → {topup_status.get('target_soc', 'time')}"
                     if topup_status.get("active") else "None"
                 ),
-                (
-                    f"{topup_status.get('ownership', 'unknown')} ownership; "
-                    f"elapsed {topup_status.get('elapsed_minutes', '--')} min; "
-                    f"projected {topup_status.get('projected_completion', topup_status.get('max_expiry', '--'))}. "
-                    + (" ".join(topup_status.get("warnings", [])) or "Completion monitoring healthy.")
-                    if topup_status.get("active") else "No persisted Utility hold."
-                ),
+                active_topup_detail,
             ),
         ],
     }
-    pv_forecast_html = _render_energy_outlook(energy_outlook_view)
     quality_badge_class = _status_badge_class(str(data_quality.get("level", "unknown")))
     quality_title = str(data_quality.get("title", "Unknown"))
     quality_score = data_quality.get("score")
@@ -683,163 +650,18 @@ def build_dashboard_html(
         if isinstance(quality_score, (int, float))
         else quality_title
     )
-    home_badge_class = _status_badge_class(str(home_status.get("level", "unknown")))
-    home_badge_label = str(home_status.get("now_label") or "Learning")
-    home_tonight_level = str(home_status.get("tonight_level") or tonight_risk.get("level") or "unknown")
-    home_tonight_title = str(home_status.get("tonight_title") or tonight_title)
-    home_tonight_badge_class = _status_badge_class(home_tonight_level)
-    sunrise_basis_display = str(energy_outlook.get("sunrise_basis") or "Waiting for load history")
-    sunrise_reserve_detail_display = sunrise_basis_display
-    if isinstance(tonight_projection, (int, float)) and tonight_projection <= 1:
-        sunrise_reserve_detail_display = "Stress estimate"
     reserve_target_display = _fmt_pct(energy_outlook.get("reserve_target_soc"))
-    topup_needed_display = tonight_topup_display
     battery_charge_rate_display = _fmt_w(battery_charge_rate_w) if battery_charge_rate_w > 0 else "--"
-    usable_kwh = None
-    if isinstance(soc_value, (int, float)) and battery_capacity_wh > 0:
-        usable_kwh = max(0.0, (float(soc_value) - battery_bms_cutoff_soc) / 100.0 * battery_capacity_wh / 1000.0)
-    usable_kwh_display = _fmt_kwh(usable_kwh)
-    battery_capacity_display = _fmt_kwh(battery_capacity_wh / 1000.0) if battery_capacity_wh > 0 else "--"
     reserve_floor_display = _fmt_pct(battery_bms_cutoff_soc)
     battery_power_label = battery_flow_dir.capitalize()
-    battery_throughput = None
-    if isinstance(live_metrics.get("charge_today_kwh"), (int, float)) and isinstance(live_metrics.get("discharge_today_kwh"), (int, float)):
-        battery_throughput = float(live_metrics["charge_today_kwh"]) + float(live_metrics["discharge_today_kwh"])
-    battery_throughput_display = _fmt_kwh(battery_throughput)
-    utility_badge_class = bypass_badge_class if bypass_detected else mode_badge_class
-    utility_badge_label = "Bypass" if bypass_detected else ("Utility" if "utility" in mode.lower() else "SBU")
-    glance_cards = "\n".join(
-        [
-            _glance_card(
-                "glance-battery",
-                "Battery",
-                soc,
-                soc_health,
-                soc_health_class,
-                [
-                    ("Usable", usable_kwh_display),
-                    ("Flow", f"{battery_power_label} {battery_flow_display}"),
-                    ("Runtime", est_runtime),
-                ],
-                battery_context,
-            ),
-            _glance_card(
-                "glance-solar",
-                "Solar",
-                pv_power_display,
-                "Active" if (live_metrics.get("pv_w") or 0) >= 20 else "Low",
-                "badge-ok" if (live_metrics.get("pv_w") or 0) >= 20 else "badge-warn",
-                [
-                    ("Today", pv_today_display),
-                    ("Live load cover", pv_cover_display),
-                    ("Tomorrow", _tmr_str),
-                ],
-                _forecast_short_str,
-            ),
-            _glance_card(
-                "glance-utility",
-                "Utility",
-                grid_power_display,
-                utility_badge_label,
-                utility_badge_class,
-                [
-                    ("Today", grid_today_display),
-                    ("Bypass", bypass_badge_label),
-                    ("Mode", mode),
-                ],
-                grid_status_text,
-            ),
-            _glance_card(
-                "glance-risk",
-                "Tonight Risk",
-                tonight_title,
-                home_tonight_title,
-                home_tonight_badge_class,
-                [
-                    ("Sunrise", tonight_projection_display),
-                    ("Top-up", topup_needed_display),
-                    ("Target", reserve_target_display),
-                ],
-                tonight_detail,
-            ),
-        ]
-    )
-    flow_solar_class = "active" if (live_metrics.get("pv_w") or 0) > 0 else ""
-    flow_load_class = "active" if (live_metrics.get("load_w") or 0) > 0 else ""
-
-    def _mix_number(key: str) -> float | None:
-        value = daily_mix.get(key)
-        return float(value) if isinstance(value, (int, float)) else None
-
-    def _mix_width(key: str) -> str:
-        value = _mix_number(key)
-        return f"{max(0.0, min(100.0, value)):.0f}" if value is not None else "0"
-
-    def _mix_pct_display(key: str) -> str:
-        return _fmt_pct(_mix_number(key))
-
-    supply_total_display = _fmt_kwh(_mix_number("supply_total_kwh"))
-    demand_total_display = _fmt_kwh(_mix_number("demand_total_kwh"))
-    battery_activity_display = _fmt_kwh(_mix_number("battery_activity_total_kwh"))
-    battery_net_value = _mix_number("battery_net_kwh")
-    battery_net_display = _fmt_kwh(abs(battery_net_value)) if battery_net_value is not None else "--"
-    battery_net_title = str(daily_mix.get("battery_net_title", "Battery net unknown"))
-    daily_mix_view = {
-        "quality_badge_class": quality_badge_class,
-        "supply_total_display": supply_total_display,
-        "demand_total_display": demand_total_display,
-        "battery_activity_display": battery_activity_display,
-        "battery_net_title": battery_net_title,
-        "battery_net_display": battery_net_display,
-        "pv_supply_width": _mix_width("pv_supply_pct"),
-        "grid_supply_width": _mix_width("grid_supply_pct"),
-        "load_demand_width": _mix_width("load_demand_pct"),
-        "charge_demand_width": _mix_width("charge_demand_pct"),
-        "charge_battery_width": _mix_width("charge_battery_pct"),
-        "discharge_battery_width": _mix_width("discharge_battery_pct"),
-        "pv_supply_label": f"{pv_today_display} - {_mix_pct_display('pv_supply_pct')}",
-        "grid_supply_label": f"{grid_today_display} - {_mix_pct_display('grid_supply_pct')}",
-        "load_demand_label": f"{load_today_display} - {_mix_pct_display('load_demand_pct')}",
-        "charge_demand_label": f"{charge_today_display} - {_mix_pct_display('charge_demand_pct')}",
-        "discharge_battery_label": f"{discharge_today_display} - {_mix_pct_display('discharge_battery_pct')}",
-    }
-    daily_mix_html = _render_daily_mix(daily_mix_view)
     next_action_relative = str(next_action.get("relative") or "none")
     next_action_title = str(next_action.get("title") or "No upcoming jobs")
     next_action_detail = str(next_action.get("detail") or "No scheduled jobs found.")
-    insight_cards = _render_insight_cards(daily_insights.get("items", []))
 
-    energy_cards = "\n".join(
-        [
-            _metric_card("PV Today", pv_today_display, f"Solar share of load: {solar_share_display}", "pv", solar_share_width),
-            _metric_card("Grid Import Today", grid_today_display, f"Grid reliance vs load: {grid_reliance_display}", "grid", grid_reliance_width),
-            _metric_card("Load Today", load_today_display, "Total house consumption", "load", 100),
-            _metric_card("Battery Charge Today", charge_today_display, f"Stored energy vs load: {battery_charge_share_display}", "battery", battery_charge_share_width),
-            _metric_card("Battery Discharge Today", discharge_today_display, "Battery output to inverter", "battery", 100),
-        ]
-    )
-    if pv_total_text:
-        energy_cards += "\n" + _metric_card("PV Lifetime", pv_total_text, "Total production reported by Growatt")
+    def _json_for_script(payload: Any) -> str:
+        return json.dumps(payload).replace("</", "<\\/")
 
-    next_rows = "\n".join(
-        "<tr>"
-        f"<td>{esc(run_at.strftime('%Y-%m-%d %H:%M'))}</td>"
-        f"<td>{esc(job.get('id', ''))}</td>"
-        f"<td>{esc(job.get('name', ''))}</td>"
-        f"<td>{esc(' '.join(schedule_job_tokens(job)))}</td>"
-        "</tr>"
-        for run_at, job in next_runs
-    )
-    action_rows = "\n".join(
-        "<tr>"
-        f"<td>{esc(row.get('timestamp', ''))}</td>"
-        f"<td>{esc(row.get('command', ''))}</td>"
-        f"<td>{esc(row.get('action', ''))}</td>"
-        f"<td>{esc(row.get('soc', ''))}</td>"
-        f"<td>{esc(row.get('previous_mode', ''))}</td>"
-        "</tr>"
-        for row in last_actions
-    )
+    # ---- Now tab: attention rows, shown only when they apply -------------
     emergency_badge_class = "badge-fail" if alert == "active" else "badge-ok"
     cloud_badge_class = "badge-warn" if cloud_streak else "badge-ok"
     guard_badge_class = "badge-fail" if sbu_guard["state"] == "misconfigured" else (
@@ -848,36 +670,234 @@ def build_dashboard_html(
     topup_badge_class = "badge-fail" if topup_status.get("warnings") else (
         "badge-warn" if topup_status.get("active") else "badge-ok"
     )
-    system_status_rows = _render_status_rows(
+    dashboard_health_ok = alert == "clear" and cloud_streak == 0 and sbu_guard["state"] != "misconfigured"
+    alerts: list[tuple[str, str, str]] = []
+    if today_override.get("skip_all"):
+        alerts.append((
+            "badge-warn",
+            "Automation skipped",
+            "All automation jobs are skipped today" + (f" — {override_note}" if override_note != "none" else ""),
+        ))
+    if bypass_detected:
+        alerts.append(("badge-fail", "Grid bypass", bypass_status_detail))
+    if alert == "active":
+        alerts.append(("badge-fail", "Emergency battery alert", "Battery SOC is at or below the emergency threshold."))
+    if sbu_guard["state"] == "misconfigured":
+        alerts.append(("badge-fail", "SBU return guard", str(sbu_guard["detail"])))
+    if pause_state:
+        alerts.append(("badge-warn", "Automation paused", pause))
+    if cloud_streak:
+        alerts.append(("badge-warn", "Growatt cloud", f"{cloud_streak} consecutive failed Growatt reads."))
+    if utility_hold_detail or topup_status.get("active"):
+        alerts.append((topup_badge_class, "Top-up running", utility_hold_detail or active_topup_detail))
+    if tonight_safe_alert is not None:
+        alerts.append(tonight_safe_alert)
+    alerts_html = _render_alerts(alerts)
+
+    tonight_needs_topup = isinstance(tonight_topup, (int, float)) and tonight_topup > 0
+    attention_html = (
+        (_inline_badge("Top-up needed tonight", tonight_badge_class) if tonight_needs_topup else "")
+        + _inline_badge("Systems OK" if dashboard_health_ok else "Needs attention", "badge-ok" if dashboard_health_ok else "badge-warn")
+    )
+
+    # ---- Now tab: live band and answer tiles ------------------------------
+    live_band_html = "\n".join(
         [
-            ("Inverter Mode", mode, mode_badge_class),
-            ("Grid Bypass", bypass_badge_label, bypass_badge_class),
-            ("Dashboard", "OK", "badge-ok"),
-            ("Data Quality", quality_display, quality_badge_class),
-            ("Emergency Alert", alert, emergency_badge_class),
-            ("Cloud Streak", str(cloud_streak), cloud_badge_class),
-            ("SBU Guard", f"{sbu_guard['minimum_soc']:g}% {sbu_guard['state']}", guard_badge_class),
-            ("Top-up", "Active" if topup_status.get("active") else "Clear", topup_badge_class),
+            _live_cell("solar", "Solar Now", pv_power_display, f"Live load cover {pv_cover_display}"),
+            _live_cell("load", "Load Now", load_power_display, f"{load_pct} of inverter capacity"),
+            _live_cell("grid", "Grid Import Now", grid_power_display, f"{grid_status_text} · Bypass: {bypass_badge_label}"),
+            _live_cell(
+                "battery",
+                "Battery Now",
+                battery_flow_display,
+                battery_power_label + (f" · {soc_note}" if soc_note else ""),
+            ),
         ]
     )
-    activity_items = _render_activity_items(last_actions)
-    timeline_items = _render_timeline_items(schedule_timeline)
-    today_job_rows_html = "\n".join(
-        "<tr>"
-        f"<td>{esc(t)}</td>"
-        f"<td>{esc(jid)}</td>"
-        f"<td>{esc(cmd)}</td>"
-        f'<td class="status-{"skip" if st == "SKIP" else ("replace" if st.startswith("→") else "ok")}">{esc(st)}</td>'
-        "</tr>"
-        for t, jid, cmd, st in today_jobs
+
+    def _num(value: Any) -> float | None:
+        return float(value) if isinstance(value, (int, float)) else None
+
+    pv_insight = next(
+        (
+            item
+            for item in daily_insights.get("items", [])
+            if isinstance(item, dict) and item.get("key") == "pv_today_kwh"
+        ),
+        None,
     )
+    pv_today_value = _num(live_metrics.get("pv_today_kwh"))
+    pv_baseline = _num(pv_insight.get("baseline")) if pv_insight else None
+    solar_meter_html = ""
+    if pv_today_value is not None and pv_baseline is not None and pv_baseline > 0:
+        _solar_scale = max(pv_today_value, pv_baseline) * 1.15
+        solar_meter_html = _meter(
+            pv_today_value / _solar_scale * 100,
+            "solar",
+            pv_baseline / _solar_scale * 100,
+            f"usual by now {_fmt_kwh(pv_baseline)}",
+        )
+    if pv_insight:
+        solar_badge = (str(pv_insight.get("title", "Learning")), _status_badge_class(str(pv_insight.get("level", "unknown"))))
+    else:
+        solar_badge = ("Active", "badge-ok") if (live_metrics.get("pv_w") or 0) >= 20 else ("Low", "badge-neutral")
+    solar_tile = _tile(
+        "tile-solar",
+        "Solar Today",
+        pv_today_display,
+        "generated so far",
+        solar_badge[0],
+        solar_badge[1],
+        solar_meter_html,
+        [
+            ("Today Remaining", _rem_str),
+            ("Tomorrow PV", _tmr_str),
+            ("Forecast", _forecast_short_str),
+        ],
+    )
+    battery_tile = _tile(
+        "tile-battery",
+        "Battery",
+        soc,
+        est_runtime if est_runtime != "—" else battery_power_label,
+        soc_health,
+        soc_health_class,
+        _meter(
+            soc_gauge_value if soc_result else None,
+            "battery",
+            battery_bms_cutoff_soc,
+            f"floor {reserve_floor_display}",
+        ),
+        [
+            ("Charged / discharged today", f"{charge_today_display} / {discharge_today_display}"),
+            ("Battery Voltage", vbat),
+            ("Battery Temperature", battery_temp),
+        ],
+        note=runtime_note,
+    )
+    reserve_target_value = _num(energy_outlook.get("reserve_target_soc"))
+    topup_tile = _tile(
+        "tile-topup",
+        "Top-up Tonight",
+        tonight_topup_display,
+        "of grid charging needed" if tonight_needs_topup else "projected from tonight's load",
+        tonight_title,
+        tonight_badge_class,
+        _meter(
+            _num(tonight_projection),
+            "ok" if tonight_badge_class == "badge-ok" else ("warn" if tonight_badge_class == "badge-warn" else "fail"),
+            reserve_target_value,
+            f"target {reserve_target_display} at sunrise",
+        ),
+        [
+            ("Without a top-up", f"{_sunset_str} at sunset → {tonight_projection_display} at sunrise"),
+            ("Topup to Sunrise", topup_sunrise_display),
+            ("Sunrise In", sunrise_display),
+        ],
+    )
+
+    # ---- Energy tab ----------------------------------------------------------
+    balance_html = _render_balance_bar(
+        "Where energy came from",
+        [
+            ("solar", "PV Today", _num(live_metrics.get("pv_today_kwh"))),
+            ("grid", "Grid Import Today", _num(live_metrics.get("grid_today_kwh"))),
+            ("neutral", "Battery Discharge Today", _num(live_metrics.get("discharge_today_kwh"))),
+        ],
+    ) + _render_balance_bar(
+        "Where energy went",
+        [
+            ("load", "Load Today", _num(live_metrics.get("load_today_kwh"))),
+            ("battery", "Battery Charge Today", _num(live_metrics.get("charge_today_kwh"))),
+        ],
+    )
+    insight_rows_html = _render_insight_rows(daily_insights.get("items", []))
+    outlook_rows = list(energy_outlook_view["cards"]) + [
+        ("Tonight Risk Basis", tonight_title, tonight_detail),
+        ("Preserve Threshold", threshold_display, threshold_reason),
+    ]
+    if pv_total_text:
+        outlook_rows.append(("PV Lifetime", pv_total_text, "Total production reported by Growatt."))
+    outlook_rows_html = "\n".join(
+        f'<tr><td class="health-label">{esc(label)}</td><td class="v">{esc(value)}</td><td class="muted">{esc(detail)}</td></tr>'
+        for label, value, detail in outlook_rows
+    )
+    forecast_recent = _calibration.get("recent") if isinstance(_calibration, dict) else None
+    forecast_history_json = _json_for_script(forecast_recent if isinstance(forecast_recent, list) else [])
+
+    # ---- Automation tab ------------------------------------------------------
+    recommendations_html = _render_recommendations(recommendations)
+    timed_jobs = sorted(
+        (item for item in schedule_timeline if not item.get("recurring")),
+        key=lambda item: str(item.get("time", "")),
+    )
+    monitor_jobs = [item for item in schedule_timeline if item.get("recurring")]
+    # The strip on the Now tab names the next timed job; recurring monitors fire too often to be useful there.
+    next_timed_job = next((item for item in timed_jobs if item.get("state") in {"next", "upcoming"}), None)
+    if next_timed_job is not None:
+        next_job_when = str(next_timed_job.get("time", "--"))
+        next_job_name = str(next_timed_job.get("name", ""))
+    else:
+        next_job_when, next_job_name = next_action_relative, next_action_title
+    timed_rows_html = _render_timeline_rows(timed_jobs) or (
+        '<tr><td colspan="3" class="muted">No timed jobs scheduled today.</td></tr>'
+    )
+    monitor_rows_html = _render_timeline_rows(monitor_jobs) or (
+        '<tr><td colspan="3" class="muted">No background monitors scheduled today.</td></tr>'
+    )
+    action_rows = "\n".join(
+        "<tr>"
+        f'<td class="t">{esc(str(row.get("timestamp", "")).replace("T", " "))}</td>'
+        f"<td><code>{esc(row.get('command', ''))}</code></td>"
+        f"<td>{esc(row.get('action', ''))}</td>"
+        f'<td class="r">{esc(row.get("soc", ""))}</td>'
+        f'<td class="r">{esc(row.get("previous_mode", ""))}</td>'
+        "</tr>"
+        for row in last_actions
+    ) or '<tr><td colspan="5" class="muted">No recent mode decisions recorded.</td></tr>'
     upcoming_override_rows_html = "\n".join(
         "<tr>"
-        + f"<td>{esc(d)}</td>"
+        + f'<td class="t">{esc(d)}</td>'
         + "<td>{}</td>".format(esc(n) if n else '<span class="muted">—</span>')
         + f"<td>{esc(a)}</td>"
         + "</tr>"
         for d, n, a in upcoming_overrides
+    )
+    upcoming_overrides_html = (
+        '<div class="table-wrap"><table><thead><tr><th>Date</th><th>Note</th><th>Actions</th></tr></thead>'
+        f"<tbody>{upcoming_override_rows_html}</tbody></table></div>"
+        if upcoming_overrides
+        else '<p class="muted">No overrides are scheduled. An override for today also shows as a banner on the Now tab.</p>'
+    )
+    guard_rows_html = _kv_rows(
+        [
+            ("Preserve Threshold", threshold_display),
+            ("SBU Return Guard", f"{sbu_guard['minimum_soc']:g}% {sbu_guard['state']}"),
+            ("Configured charge rate", battery_charge_rate_display),
+            ("Pause State", pause),
+            ("Today Override", override_note),
+            ("Skipped today", skipped or "none"),
+        ]
+    )
+
+    # ---- System tab ----------------------------------------------------------
+    pvoutput_badge, pvoutput_badge_class, pvoutput_detail = _pvoutput_status(read_pvoutput_state(), now)
+    health_rows_html = _render_health_rows(
+        [
+            ("Inverter Mode", bat_status, mode, mode_badge_class),
+            ("Grid Bypass", bypass_status_detail, bypass_badge_label, bypass_badge_class),
+            ("Data Quality", quality_detail, quality_display, quality_badge_class),
+            ("Emergency Alert", "Battery SOC emergency threshold.", alert, emergency_badge_class),
+            ("Cloud Streak", "Consecutive failed Growatt cloud reads.", str(cloud_streak), cloud_badge_class),
+            ("SBU Guard", str(sbu_guard["detail"]), str(sbu_guard["state"]), guard_badge_class),
+            (
+                "Top-up",
+                " ".join(topup_status.get("warnings", [])) or "Completion monitoring healthy.",
+                "Active" if topup_status.get("active") else "Clear",
+                topup_badge_class,
+            ),
+            ("PVOutput", pvoutput_detail, pvoutput_badge, pvoutput_badge_class),
+        ]
     )
     source_rows_html = "\n".join(
         "<tr>"
@@ -894,99 +914,9 @@ def build_dashboard_html(
             ("Battery charge today", metric_sources.get("charge_today_kwh", "")),
         ]
     )
-
-    skip_all_banner = (
-        '<div class="banner-warn">⚠ All automation jobs are skipped today'
-        + (f" — {esc(override_note)}" if override_note != "none" else "")
-        + "</div>"
-        if today_override.get("skip_all")
-        else ""
-    )
-    upcoming_override_section = (
-        f'<details class="detail-panel"><summary><span>Upcoming Overrides</span>'
-        f'<span class="summary-meta">{len(upcoming_overrides)} active</span></summary>'
-        f'<div class="table-wrap"><table><thead><tr><th>Date</th><th>Note</th><th>Actions</th></tr></thead><tbody>{upcoming_override_rows_html}</tbody></table></div></details>'
-        if upcoming_overrides
-        else ""
-    )
-    dashboard_health_ok = alert == "clear" and cloud_streak == 0 and sbu_guard["state"] != "misconfigured"
-    night_view_html = _render_night_view(
-        {
-            "bat_status": bat_status,
-            "battery_context": battery_context,
-            "battery_flow_display": battery_flow_display,
-            "battery_power_label": battery_power_label,
-            "battery_temp": battery_temp,
-            "battery_throughput_display": battery_throughput_display,
-            "charge_today_display": charge_today_display,
-            "charge_battery_pct": daily_mix.get("charge_battery_pct"),
-            "daily_history": history_payload.get("daily", {}),
-            "demand_total_display": demand_total_display,
-            "discharge_today_display": discharge_today_display,
-            "discharge_battery_pct": daily_mix.get("discharge_battery_pct"),
-            "est_runtime": est_runtime,
-            "expected_grid_kwh": _grid_forecast_str,
-            "forecast_short": _forecast_short_str,
-            "generated_date": generated_at.strftime("%a %d %b"),
-            "generated_time": generated_at.strftime("%H:%M"),
-            "greeting": str(home_status.get("greeting", "Hello")),
-            "grid_now_detail": grid_now_detail,
-            "grid_power_display": grid_power_display,
-            "grid_supply_pct": daily_mix.get("grid_supply_pct"),
-            "grid_status_text": grid_status_text,
-            "grid_today_display": grid_today_display,
-            "headline": str(home_status.get("headline", "Home energy is stable")),
-            "health_badge_class": "badge-ok" if dashboard_health_ok else "badge-warn",
-            "health_display": "Health OK" if dashboard_health_ok else "Health needs attention",
-            "load_demand_display": _mix_pct_display("load_demand_pct"),
-            "load_demand_pct": daily_mix.get("load_demand_pct"),
-            "load_power_display": load_power_display,
-            "load_pct": load_pct,
-            "load_today_display": load_today_display,
-            "mode": mode,
-            "mode_badge_class": mode_badge_class,
-            "next_action_detail": next_action_detail,
-            "next_action_relative": next_action_relative,
-            "next_action_title": next_action_title,
-            "night_topup_class": "badge-fail" if tonight_badge_class == "badge-fail" else tonight_badge_class,
-            "bypass_label": bypass_badge_label,
-            "battery_activity_display": battery_activity_display,
-            "battery_net_display": battery_net_display,
-            "recommendations": recommendations,
-            "schedule_timeline": schedule_timeline,
-            "supply_total_display": supply_total_display,
-            "sunrise_display": sunrise_display,
-            "today_jobs": today_jobs,
-            "today_remaining_kwh": energy_outlook.get("today_remaining_kwh"),
-            "tonight_projection_value": tonight_projection,
-            "reserve_target_value": energy_outlook.get("reserve_target_soc"),
-            "pv_supply_display": _mix_pct_display("pv_supply_pct"),
-            "pv_supply_pct": daily_mix.get("pv_supply_pct"),
-            "pv_cover_display": pv_cover_display,
-            "pv_lifetime": pv_total_text or "--",
-            "pv_power_display": pv_power_display,
-            "pv_today_kwh": live_metrics.get("pv_today_kwh"),
-            "pv_today_display": pv_today_display,
-            "pv_w": live_metrics.get("pv_w") or 0,
-            "quality_badge_class": quality_badge_class,
-            "quality_display": quality_display,
-            "reserve_floor_display": reserve_floor_display,
-            "reserve_target_display": reserve_target_display,
-            "soc": soc,
-            "soc_gauge_value": soc_gauge_value,
-            "soc_health": soc_health,
-            "soc_health_class": soc_health_class,
-            "tomorrow_pv": _tmr_str,
-            "tomorrow_pv_kwh": _tmr_value,
-            "tonight_detail": tonight_detail,
-            "tonight_projection_display": tonight_projection_display,
-            "tonight_title": tonight_title,
-            "topup_needed_display": topup_needed_display,
-            "usable_kwh_display": usable_kwh_display,
-            "vbat": vbat,
-            "weather_detail": _weather_reason_str or _weather_str,
-            "weather_short": _weather_short_str,
-        }
+    insight_badge = _inline_badge(
+        str(daily_insights.get("title", "Learning")),
+        _status_badge_class(str(daily_insights.get("status", "unknown"))),
     )
 
     return f"""<!doctype html>
@@ -1007,390 +937,222 @@ def build_dashboard_html(
   <title>Growatt Dashboard</title>
   <style>{DASHBOARD_CSS}</style>
 </head>
-<body>
-  <div class="app-shell">
-  <aside class="sidebar" aria-label="Dashboard sections">
-    <div class="sidebar-brand">
-      <div class="brand-mark" aria-hidden="true"></div>
-      <div>
-        <div class="sidebar-title">Solar Inverter</div>
-        <div class="muted">Growatt Dashboard</div>
-      </div>
-    </div>
-    <nav class="sidebar-nav">
-      <a class="active" href="#overview">Overview</a>
-      <a href="#flow">Power Flow</a>
-      <a href="#insights">Energy Insights</a>
-      <a href="#daily">Daily Energy</a>
-      <a href="#planner">Tonight Planner</a>
-      <a href="#forecast">Outlook</a>
-      <a href="#recommendations">Recommendations</a>
-      <a href="#automation">Automation</a>
-      <a href="#trends">Trends</a>
-      <a href="#operations">Operations</a>
+<body data-generated-at="{esc(generated_at_iso)}">
+  <div class="app">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span>Solar Inverter <span class="muted">· Growatt</span></div>
+    <nav class="tabs" aria-label="Dashboard views">
+      <a href="#now" data-tab="now">Now</a>
+      <a href="#energy" data-tab="energy">Energy</a>
+      <a href="#automation" data-tab="automation">Automation</a>
+      <a href="#system" data-tab="system">System</a>
     </nav>
-    <div class="sidebar-status">
-      <div>
-        <div class="label">System Status</div>
-        <div class="value"><span class="badge {esc(soc_health_class)}">{esc(soc_health)}</span></div>
-      </div>
-      <div>
-        <div class="label">Last Updated</div>
-        <div class="muted" data-refresh-age>Generated just now</div>
-      </div>
+    <div class="top-actions">
+      {attention_html}
+      <span class="pill">Mode: {esc(mode)}</span>
+      {f'<span class="pill" title="App SOC matches Growatt; {esc(soc_note)} differs">{esc(soc_note)}</span>' if soc_note else ""}
+      <span class="muted small" data-refresh-age="short">Updated {esc(generated_at.strftime('%H:%M'))}</span>
+      <button class="theme-toggle" id="theme-toggle-btn" type="button" onclick="toggleDashTheme()">Light</button>
     </div>
-  </aside>
+  </header>
   <main>
-    <header class="topbar" id="overview">
-      <div>
-        <div class="hero-kicker">{esc(str(home_status.get("greeting", "Hello")))}</div>
+
+    <section class="tab-panel" id="tab-now" data-tab-panel="now" aria-label="Now">
+      <div class="lead">
         <h1>{esc(str(home_status.get("headline", "Home energy is stable")))}</h1>
-        <div class="muted">Generated {esc(generated_at.strftime('%Y-%m-%d %H:%M:%S %Z'))}</div>
+        <p class="muted">{esc(generated_at.strftime('%a %d %b'))} · {esc(_weather_str)}</p>
       </div>
-      <div class="top-actions">
-        <span class="pill">Mode: {esc(mode)}</span>
-        <span class="pill"{f' title="App SOC matches Growatt; {soc_note} differs"' if soc_note else ""}>SOC: {esc(soc)}</span>
-        {f'<span class="pill">{esc(soc_note)}</span>' if soc_note else ""}
-        <span class="pill">Refresh: 5min</span>
-        <button class="theme-toggle" id="layout-toggle-btn" onclick="toggleDashLayout()">New design</button>
-        <button class="theme-toggle" id="theme-toggle-btn" onclick="toggleDashTheme()">Light</button>
+      <div class="alerts">
+        <div class="alert alert-warn" data-stale-alert hidden>
+          <span class="badge badge-warn">Data is stale</span>
+          <span data-refresh-age>The dashboard has not refreshed recently.</span>
+        </div>
+        {alerts_html}
       </div>
-    </header>
-    {skip_all_banner}
-    <section class="card profile-card" id="estate-profile" aria-label="Estate schedule profile">
-      <div class="mix-header">
-        <div>
-          <div class="label">Estate Profile</div>
-          <div class="muted small" id="profile-description">{esc(profile_description)}</div>
-        </div>
-        <span class="pill" id="profile-label">{esc(profile_label)}</span>
+      <div class="live-band" aria-label="Live power right now">
+        {live_band_html}
       </div>
-      <div class="muted small" id="profile-outages">Outages: {esc(profile_outages)}</div>
-      <div id="profile-buttons" class="profile-actions">{profile_buttons_html}</div>
-    </section>
-    <dialog id="profile-confirm" class="profile-dialog" aria-labelledby="profile-confirm-title">
-      <form method="post" action="/profile" id="profile-confirm-form">
-        <input type="hidden" name="name" id="profile-confirm-name">
-        <div class="label" id="profile-confirm-title">Switch estate profile</div>
-        <div class="muted small" id="profile-confirm-desc"></div>
-        <div class="profile-detail">
-          <strong>Outages</strong>
-          <div class="muted small" id="profile-confirm-outages"></div>
-        </div>
-        <div class="profile-detail">
-          <strong>Preserve / mode jobs</strong>
-          <ul class="profile-job-list" id="profile-confirm-jobs"></ul>
-        </div>
-        <div class="profile-actions">
-          <button type="button" class="pill profile-button" id="profile-confirm-cancel">Cancel</button>
-          <button type="submit" class="pill profile-button profile-confirm">Confirm switch</button>
-        </div>
-      </form>
-    </dialog>
-    <div class="dashboard-view dashboard-night">
-      {night_view_html}
-    </div>
-    <div class="dashboard-view dashboard-current">
-
-    <section class="glance-grid" aria-label="Key details at a glance">
-      {glance_cards}
-    </section>
-
-    <details class="detail-panel reserve-details" aria-label="Reserve details and supporting signals">
-        <summary>
-          <span>
-            <span class="label">Reserve Details</span>
-            <span class="summary-copy">Supporting values behind the first-glance battery and tonight risk cards.</span>
-          </span>
-          <span class="reserve-badges">
-            <span class="badge {esc(soc_health_class)}">Battery: {esc(soc_health)}</span>
-            <span class="badge badge-neutral">Floor: {esc(reserve_floor_display)}</span>
-            <span class="badge badge-neutral">Charge: {esc(battery_charge_rate_display)}</span>
-          </span>
-        </summary>
-        <div class="reserve-body">
-        <div class="battery-stats">
-          <div><span>Charge rate</span><strong>{esc(battery_charge_rate_display)}</strong><em>Configured grid charge</em></div>
-          <div><span>Voltage</span><strong>{esc(vbat)}</strong><em>Battery bus reading</em></div>
-          <div><span>Battery temp</span><strong>{esc(battery_temp)}</strong><em>BMS reported</em></div>
-          <div><span>Day throughput</span><strong>{esc(battery_throughput_display)}</strong><em>Charge plus discharge today</em></div>
-          <div><span>Expected grid top-up</span><strong>{esc(_grid_forecast_str)}</strong><em>Duration {esc(_topup_duration_str)}</em></div>
-          <div><span>Estimate basis</span><strong>{esc(sunrise_reserve_detail_display)}</strong><em>Projection input for tonight risk</em></div>
-          <div><span>Weather context</span><strong>{esc(_weather_short_str)}</strong><em>{esc(_weather_reason_str)}</em></div>
-        </div>
-        </div>
-    </details>
-
-    <section class="flow-stage" id="flow" aria-label="Live energy flow">
-        <div class="flow-head">
-          <div>
-            <h2>Live energy flow</h2>
-            <div class="muted">{esc(bat_status)} &middot; Load: {esc(load_power_display)} at {esc(load_pct)} &middot; Battery {esc(battery_power_label.lower())}</div>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <a href="#insights" class="badge {esc(_status_badge_class(str(daily_insights.get("status", "unknown"))))}" style="text-decoration:none">Today: {esc(str(daily_insights.get("title", "Learning")))}</a>
-            <span class="badge {esc(tonight_badge_class)}">Tonight: {esc(tonight_title)}</span>
-            <span class="badge {esc(bypass_badge_class)}" title="{esc(bypass_status_detail)}">Bypass: {esc(bypass_badge_label)}</span>
-            <span class="badge badge-neutral" title="{esc(next_action_detail)}">Next: {esc(next_action_relative)} · {esc(next_action_title)}</span>
-          </div>
-        </div>
-        <div class="flow-map flow-chain" aria-label="Live energy flow chain">
-          <div class="flow-main-row">
-            <div class="flow-tile solar">
-              <div>
-                <div class="flow-label">Solar Now</div>
-                <div class="flow-value">{esc(pv_power_display)}</div>
-              </div>
-              <div class="flow-detail">{esc(pv_today_display)} generated today</div>
-            </div>
-            <div class="connector pv {esc(flow_solar_class)}" aria-hidden="true"></div>
-            <div class="flow-tile inverter">
-              <div>
-                <div class="flow-label">Inverter</div>
-                <div class="flow-value">{esc(mode)}</div>
-              </div>
-              <div class="flow-detail">{esc(bat_status)}{esc(' · ' + bypass_status_detail if bypass_detected else '')}</div>
-            </div>
-            <div class="connector load {esc(flow_load_class)}" aria-hidden="true"></div>
-            <div class="flow-tile load">
-              <div>
-                <div class="flow-label">Load Now</div>
-                <div class="flow-value">{esc(load_power_display)}</div>
-              </div>
-              <div class="flow-detail">{esc(load_today_display)} consumed today</div>
+      <div class="tiles" aria-label="Key details at a glance">
+        {solar_tile}
+        {battery_tile}
+        {topup_tile}
+      </div>
+      <div class="charts">
+        <article class="panel">
+          <div class="eyebrow">
+            <h2>Power, Last 24 Hours</h2>
+            <div class="legend">
+              <span><i class="line seg-solar"></i>Solar</span>
+              <span><i class="line seg-load"></i>Load</span>
+              <span><i class="line seg-grid"></i>Grid</span>
             </div>
           </div>
-          <div class="flow-support-row">
-            <div class="flow-tile flow-chip battery">
-              <div>
-                <div class="flow-label">Battery Flow</div>
-                <div class="flow-value">{esc(battery_flow_display)}</div>
-              </div>
-              <div class="flow-detail">{esc(battery_power_label)} - {esc(battery_context)}</div>
-            </div>
-            <div class="flow-tile flow-chip grid-source">
-              <div>
-                <div class="flow-label">Grid Import Now</div>
-                <div class="flow-value">{esc(grid_power_display)}</div>
-              </div>
-              <div class="flow-detail">{esc(grid_status_text)}</div>
+          <div class="chart" id="power-trend-chart"></div>
+        </article>
+        <article class="panel">
+          <div class="eyebrow"><h2>Battery SOC, Last 24 Hours</h2></div>
+          <div class="chart" id="soc-trend-chart" data-reference="{esc(f'{reserve_target_value:g}' if reserve_target_value is not None else '')}"></div>
+        </article>
+        <article class="panel">
+          <div class="eyebrow">
+            <h2>7-Day Supply Mix</h2>
+            <div class="legend">
+              <span><i class="seg-solar"></i>Solar</span>
+              <span><i class="seg-grid"></i>Grid</span>
+              <span><i class="line seg-ink"></i>Load</span>
             </div>
           </div>
-        </div>
-    </section>
-
-    <section class="chart-grid today-charts" aria-label="Today trends">
-      <div class="card chart-card">
-        <div class="label">Power Today</div>
-        <canvas id="power-trend-chart"></canvas>
-        <div class="legend">
-          <span style="--c:#F5A82A">PV</span>
-          <span style="--c:#EF6F6F">Load</span>
-          <span style="--c:#5B8DEF">Grid</span>
-        </div>
+          <div class="chart" id="supply-energy-chart"></div>
+        </article>
       </div>
-      <div class="card chart-card compact">
-        <div class="label">Battery SOC Today</div>
-        <canvas id="soc-trend-chart"></canvas>
-        <div class="legend"><span style="--c:#35C4A0">SOC</span></div>
+      <div class="strip">
+        <div title="{esc(next_action_detail)}"><span>Next Automation</span> <b>{esc(next_job_when)}</b> {esc(next_job_name)}</div>
+        <div><span>Outages</span> <b>{esc(profile_outages)}</b></div>
+        <div><span>Profile</span> <b>{esc(profile_label)}</b></div>
       </div>
     </section>
 
-    <div class="section-head" id="insights">
-      <div>
-        <h2>Energy Insights</h2>
-        <div class="muted">Same-time comparison against recent local history, without extra Growatt calls.</div>
+    <section class="tab-panel" id="tab-energy" data-tab-panel="energy" aria-label="Energy">
+      <div class="two">
+        <article class="panel">
+          <div class="eyebrow"><h2>Today's Balance</h2>{_inline_badge('Data ' + quality_display, quality_badge_class)}</div>
+          {balance_html}
+        </article>
+        <article class="panel">
+          <div class="eyebrow"><h2>Energy Insights</h2>{insight_badge}</div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Measure</th><th class="r">Today</th><th class="r">Usual</th><th class="r">Status</th></tr></thead>
+            <tbody>{insight_rows_html}</tbody>
+          </table></div>
+          <p class="muted small">Same-time comparison against recent local history, without extra Growatt calls.</p>
+        </article>
       </div>
-      <span class="badge {esc(_status_badge_class(str(daily_insights.get("status", "unknown"))))}">{esc(str(daily_insights.get("title", "Learning")))}</span>
-    </div>
-    <section class="grid insight-grid">
-      {insight_cards}
-    </section>
-
-    <div class="section-head" id="daily">
-      <div>
-        <h2>Daily Energy</h2>
-        <div class="muted">Production, consumption, grid import, and battery movement for today.</div>
+      <div class="two">
+        <article class="panel">
+          <div class="eyebrow">
+            <h2>7-Day Battery Energy</h2>
+            <div class="legend"><span><i class="seg-battery"></i>Charge</span><span><i class="seg-neutral"></i>Discharge</span></div>
+          </div>
+          <div class="chart" id="battery-energy-chart"></div>
+        </article>
+        <article class="panel">
+          <div class="eyebrow">
+            <h2>Solar Forecast Against Actual</h2>
+            <div class="legend"><span><i class="seg-neutral"></i>Forecast</span><span><i class="seg-solar"></i>Actual</span></div>
+          </div>
+          <div class="chart" id="forecast-accuracy-chart"></div>
+        </article>
       </div>
-    </div>
-    {daily_mix_html}
-    <section class="grid daily-grid">
-      {energy_cards}
-    </section>
-
-    <h2 id="trends">Energy Trends</h2>
-    <section class="chart-grid">
-      <div class="card chart-card compact">
-        <div class="label">7-Day Battery Energy</div>
-        <canvas id="battery-energy-chart"></canvas>
-        <div class="legend">
-          <span style="--c:#35C4A0">Charge</span>
-          <span style="--c:#6A7A99">Discharge</span>
-        </div>
-      </div>
-      <div class="card chart-card compact">
-        <div class="label">7-Day Supply Mix</div>
-        <canvas id="supply-energy-chart"></canvas>
-        <div class="legend">
-          <span style="--c:#F5A82A">PV</span>
-          <span style="--c:#5B8DEF">Grid</span>
-          <span style="--c:#EF6F6F">Load</span>
-        </div>
-      </div>
-    </section>
-
-    <h2 id="planner">Tonight Planner</h2>
-    <section class="planner-grid">
-      {tonight_safe_html}
-      {utility_hold_html}
-      <div class="planner-card primary">
-        <div class="label">Tonight Risk Basis</div>
-        <div class="value"><span class="badge {esc(tonight_badge_class)}">{esc(tonight_title)}</span></div>
-        <div class="muted small">{esc(tonight_detail)}</div>
-      </div>
-      <div class="planner-card">
-        <div class="label">Sunrise In</div>
-        <div class="value">{esc(sunrise_display)}</div>
-        <div class="muted small">includes configured location</div>
-      </div>
-      <div class="planner-card">
-        <div class="label">Topup to Sunrise</div>
-        <div class="value">{esc(topup_sunrise_display)}</div>
-        <div class="muted small">recommended grid charge window</div>
-      </div>
-      <div class="planner-card">
-        <div class="label">Preserve Threshold</div>
-        <div class="value">{esc(threshold_display)}</div>
-        <div class="muted small">{esc(threshold_reason)}</div>
-      </div>
-    </section>
-
-    {pv_forecast_html}
-
-    <div class="section-head" id="recommendations">
-      <div>
-        <h2>Recommendations</h2>
-        <div class="muted">Ranked assistant suggestions with reason and expected impact.</div>
-      </div>
-    </div>
-    <section class="card rec-section" aria-label="Recommendations">
-      {recommendations_html}
-    </section>
-
-    <div class="section-head" id="automation">
-      <div>
-        <h2>System & Automation</h2>
-        <div class="muted">Operational state, dashboard freshness, alerts, and integration health.</div>
-      </div>
-    </div>
-    <section class="grid ops-grid">
-      <div class="card">
-        <div class="label">Dashboard Health</div>
-        <div class="value">
-          <span class="badge badge-ok" data-refresh-badge data-generated-at="{esc(generated_at_iso)}" data-stale-minutes="{esc(stale_minutes_text)}">OK</span>
-        </div>
-        <div class="muted small" data-refresh-age>Generated just now; stale after {esc(stale_minutes_text)} minutes.</div>
-      </div>
-      <div class="card">
-        <div class="label">Next Automation</div>
-        <div class="value">{esc(next_action_relative)}</div>
-        <div class="muted small">{esc(next_action_title)} - {esc(next_action_detail)}</div>
-      </div>
-      <div class="card">
-        <div class="label">Data Quality</div>
-        <div class="value"><span class="badge {esc(quality_badge_class)}">{esc(quality_display)}</span></div>
-        <div class="muted small">{esc(quality_detail)}</div>
-      </div>
-      <div class="card">
-        <div class="label">Projected Sunrise SOC</div>
-        <div class="value">{esc(tonight_projection_display)}</div>
-        <div class="muted small">Topup estimate: {esc(tonight_topup_display)}</div>
-      </div>
-      <div class="card"><div class="label">Battery Voltage</div><div class="value">{esc(vbat)}</div></div>
-      <div class="card"><div class="label">Battery Temperature</div><div class="value">{esc(battery_temp)}</div><div class="muted small">BMS reported cell temperature</div></div>
-      <div class="card"><div class="label">Current Load Runtime</div><div class="value">{esc(est_runtime)}</div><div class="muted small">{esc(runtime_note)}</div></div>
-      <div class="card"><div class="label">Pause State</div><div class="value">{esc(pause)}</div><div class="muted small">{esc(profile_line)}</div></div>
-      <div class="card"><div class="label">Emergency Alert</div><div class="value">{esc(alert)}</div></div>
-      <div class="card"><div class="label">Cloud Streak</div><div class="value">{esc(cloud_streak)}</div></div>
-      <div class="card"><div class="label">Today Override</div><div class="value">{esc(override_note)}</div></div>
-      {pvoutput_card}
-    </section>
-    <section class="card timeline-card" aria-label="Today automation timeline">
-      <div class="mix-header">
-        <div>
-          <div class="label">Today Automation</div>
-          <div class="muted small">Current and upcoming jobs from the local schedule.</div>
-        </div>
-        <span class="pill">{len(schedule_timeline)} jobs</span>
-      </div>
-      <ol class="timeline-list">
-        {timeline_items}
-      </ol>
-    </section>
-    <section class="status-activity-grid" aria-label="System status and recent activity">
-      <article class="card">
-        <div class="label">System Status</div>
-        <div class="muted small">Current operating signals and automation health.</div>
-        <div class="status-list">
-          {system_status_rows}
-        </div>
-      </article>
-      <article class="card">
-        <div class="label">Recent Activity</div>
-        <div class="muted small">Latest mode decisions from the local audit trail.</div>
-        <ul class="activity-list">
-          {activity_items}
-        </ul>
+      <article class="panel">
+        <div class="eyebrow"><h2>Energy Outlook</h2>{_inline_badge('Confidence: ' + str(energy_outlook_view['confidence']), 'badge-neutral')}</div>
+        <div class="table-wrap"><table><tbody>{outlook_rows_html}</tbody></table></div>
       </article>
     </section>
-    <details class="detail-panel source-drawer">
-      <summary><span>Metric source paths</span><span class="summary-meta">debug</span></summary>
-      <div class="table-wrap"><table><thead><tr><th>Metric</th><th>Source</th></tr></thead><tbody>{source_rows_html}</tbody></table></div>
-    </details>
 
-    <h2 id="automation-history">Automation History</h2>
-    <section class="chart-grid">
-      <div class="card chart-card compact">
-        <div class="label">7-Day History</div>
-        <canvas id="history-chart"></canvas>
-        <div class="legend">
-          <span style="--c:#3AC87A">Preserve</span>
-          <span style="--c:#F5A82A">Utility</span>
-          <span style="--c:#5B8DEF">Watchdog</span>
+    <section class="tab-panel" id="tab-automation" data-tab-panel="automation" aria-label="Automation">
+      <div class="two">
+        <article class="panel profile-card" id="estate-profile" aria-label="Estate schedule profile">
+          <div class="eyebrow"><h2>Estate Profile</h2><span class="pill" id="profile-label">{esc(profile_label)}</span></div>
+          <p id="profile-description">{esc(profile_description)}</p>
+          <p class="muted small" id="profile-outages">Outages: {esc(profile_outages)}</p>
+          <p class="muted small">{esc(profile_line)}</p>
+          <div id="profile-buttons" class="profile-actions">{profile_buttons_html}</div>
+        </article>
+        <article class="panel">
+          <div class="eyebrow"><h2>Recommendations</h2></div>
+          <div class="recs">{recommendations_html}</div>
+        </article>
+      </div>
+      <dialog id="profile-confirm" class="profile-dialog" aria-labelledby="profile-confirm-title">
+        <form method="post" action="/profile" id="profile-confirm-form">
+          <input type="hidden" name="name" id="profile-confirm-name">
+          <div class="label" id="profile-confirm-title">Switch estate profile</div>
+          <div class="muted small" id="profile-confirm-desc"></div>
+          <div class="profile-detail">
+            <strong>Outages</strong>
+            <div class="muted small" id="profile-confirm-outages"></div>
+          </div>
+          <div class="profile-detail">
+            <strong>Preserve / mode jobs</strong>
+            <ul class="profile-job-list" id="profile-confirm-jobs"></ul>
+          </div>
+          <div class="profile-actions">
+            <button type="button" class="pill profile-button" id="profile-confirm-cancel">Cancel</button>
+            <button type="submit" class="pill profile-button profile-confirm">Confirm switch</button>
+          </div>
+        </form>
+      </dialog>
+      <div class="two">
+        <article class="panel">
+          <div class="eyebrow">
+            <h2>Automation History</h2>
+            <div class="legend">
+              <span><i class="seg-battery"></i>Preserve</span>
+              <span><i class="seg-grid"></i>Utility</span>
+              <span><i class="seg-solar"></i>Watchdog</span>
+            </div>
+          </div>
+          <div class="chart" id="history-chart"></div>
+        </article>
+        <article class="panel">
+          <div class="eyebrow"><h2>Upcoming Overrides</h2><span class="muted small">{len(upcoming_overrides)} active</span></div>
+          {upcoming_overrides_html}
+        </article>
+      </div>
+      <article class="panel">
+        <div class="eyebrow"><h2>Recent Mode Decisions</h2><span class="muted small">Latest mode decisions from the local audit trail.</span></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Time</th><th>Command</th><th>Action</th><th class="r">SOC</th><th class="r">Previous Mode</th></tr></thead>
+          <tbody>{action_rows}</tbody>
+        </table></div>
+      </article>
+      <div class="two">
+        <article class="panel">
+          <div class="eyebrow"><h2>Today&#8217;s Schedule</h2><span class="muted small">{len(timed_jobs)} jobs · {esc(now.strftime('%A, %Y-%m-%d'))}</span></div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Time</th><th>Job</th><th class="r">Status</th></tr></thead>
+            <tbody>{timed_rows_html}</tbody>
+          </table></div>
+        </article>
+        <div class="stack">
+          <article class="panel">
+            <div class="eyebrow"><h2>Background Monitors</h2><span class="muted small">{len(monitor_jobs)} recurring</span></div>
+            <div class="table-wrap"><table><tbody>{monitor_rows_html}</tbody></table></div>
+          </article>
+          <article class="panel">
+            <div class="eyebrow"><h2>Thresholds and Guards</h2></div>
+            <dl class="kv">{guard_rows_html}</dl>
+            <p class="muted small">{esc(threshold_reason)}</p>
+          </article>
         </div>
       </div>
     </section>
+
+    <section class="tab-panel" id="tab-system" data-tab-panel="system" aria-label="System">
+      <article class="panel">
+        <div class="eyebrow">
+          <h2>System Status</h2>
+          {_inline_badge("All systems OK" if dashboard_health_ok else "Needs attention", "badge-ok" if dashboard_health_ok else "badge-warn")}
+        </div>
+        <div class="table-wrap"><table><tbody>
+          <tr>
+            <td class="health-label">Dashboard Health</td>
+            <td data-refresh-age>Generated just now; stale after {esc(stale_minutes_text)} minutes.</td>
+            <td class="r"><span class="badge badge-ok" data-refresh-badge data-generated-at="{esc(generated_at_iso)}" data-stale-minutes="{esc(stale_minutes_text)}">OK</span></td>
+          </tr>
+          {health_rows_html}
+        </tbody></table></div>
+        <p class="muted small">Generated {esc(generated_at.strftime('%Y-%m-%d %H:%M:%S %Z'))} · page refreshes every 5 minutes.</p>
+      </article>
+      <details class="panel source-drawer">
+        <summary>Metric source paths</summary>
+        <div class="table-wrap"><table><thead><tr><th>Metric</th><th>Source</th></tr></thead><tbody>{source_rows_html}</tbody></table></div>
+      </details>
+    </section>
+
     <script id="chart-data" type="application/json">{chart_data_json}</script>
     <script id="metric-history-data" type="application/json">{metric_history_json}</script>
-    <div class="section-head" id="operations">
-      <div>
-        <h2>Operations Details</h2>
-        <div class="muted">Schedules, upcoming runs, audit rows, and low-level notes when you need to inspect them.</div>
-      </div>
-    </div>
-    <section class="details-stack">
-      <details class="detail-panel" open>
-        <summary><span>Today&#8217;s Schedule - {esc(now.strftime('%A, %Y-%m-%d'))}</span><span class="summary-meta">{len(today_jobs)} jobs</span></summary>
-        <div class="table-wrap"><table><thead><tr><th>Time</th><th>Job ID</th><th>Command</th><th>Status</th></tr></thead><tbody>{today_job_rows_html}</tbody></table></div>
-      </details>
-      {upcoming_override_section}
-      <details class="detail-panel">
-        <summary><span>Next Scheduled Jobs</span><span class="summary-meta">{len(next_runs)} queued</span></summary>
-        <div class="table-wrap"><table><thead><tr><th>Time</th><th>ID</th><th>Name</th><th>Command</th></tr></thead><tbody>{next_rows}</tbody></table></div>
-      </details>
-      <details class="detail-panel">
-        <summary><span>Recent Mode Decisions</span><span class="summary-meta">{len(last_actions)} rows</span></summary>
-        <div class="table-wrap"><table><thead><tr><th>Time</th><th>Command</th><th>Action</th><th>SOC</th><th>Previous Mode</th></tr></thead><tbody>{action_rows}</tbody></table></div>
-      </details>
-      <details class="detail-panel">
-        <summary><span>Automation Notes</span><span class="summary-meta">context</span></summary>
-        <div class="card">
-          <div>Threshold: {esc(threshold_reason)}</div>
-          <div>Skipped today: {esc(skipped or 'none')}</div>
-        </div>
-      </details>
-    </section>
-    </div>
+    <script id="forecast-history-data" type="application/json">{forecast_history_json}</script>
   </main>
   </div>
   <script>{DASHBOARD_JS}</script>
