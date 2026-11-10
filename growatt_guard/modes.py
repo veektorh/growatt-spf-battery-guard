@@ -691,8 +691,9 @@ def command_return_sbu(
 ) -> int:
     if ensure_not_paused(config, "return-sbu"):
         return 0
-    if ensure_outage_day(config, "return-sbu"):
-        return 0
+    # Not outage-gated: returning to SBU is safe on any day and is the only
+    # thing that closes a Utility hold (including a top-up that ends on a
+    # non-outage day).
 
     api, device, status = load_context(config)
     if ensure_device_reporting(config, "return-sbu", status):
@@ -766,8 +767,8 @@ def command_return_sbu(
 def command_watchdog_sbu(config: Config) -> int:
     if ensure_not_paused(config, "watchdog-sbu"):
         return 0
-    if ensure_outage_day(config, "watchdog-sbu"):
-        return 0
+    # Not outage-gated: verifying SBU cannot import grid and catches a stuck
+    # Utility on days the preserve jobs are skipped.
 
     api, device, status = load_context(config)
     if ensure_device_reporting(config, "watchdog-sbu", status):

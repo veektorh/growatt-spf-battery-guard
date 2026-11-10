@@ -69,10 +69,18 @@ def command_set_profile(config: Any, name: str, reason: str = "") -> int:
         f"{body['description']}\n"
         f"Outages: {format_outage_windows(body['outages'])}"
     )
-    if _has_weekend_outage(body["outages"]) and outage_mode() != "all":
+    mode = outage_mode()
+    if mode == "auto":
+        message += "\nOutage-day gate: following the profile's outage windows."
+    elif _has_weekend_outage(body["outages"]) and mode != "all":
         message += (
-            "\nWarning: outage-days mode is `weekdays`, so weekend mode jobs will be skipped. "
-            "Run `set-outage-days all` for this profile."
+            f"\nWarning: outage-days mode is `{mode}`, so weekend preserve jobs will be skipped. "
+            "Run `set-outage-days auto` to follow the profile, or `set-outage-days all` to run every day."
+        )
+    elif not _has_weekend_outage(body["outages"]) and mode == "all":
+        message += (
+            "\nNote: outage-days mode is `all`, so preserve jobs still run on weekends even though "
+            "this profile declares no weekend cuts. Run `set-outage-days auto` to follow the profile."
         )
     if reason:
         message += f"\nReason: {reason}"

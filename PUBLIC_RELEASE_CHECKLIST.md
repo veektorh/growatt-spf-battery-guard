@@ -86,7 +86,6 @@ PUBLIC_RELEASE_CHECKLIST.md
 schedule.json
 schedule_overrides.example.json
 install_cloud_cron.sh
-install_growatt_schedule.ps1
 update_server.sh
 install_dashboard_service.sh
 install_app_health_monitor_service.sh

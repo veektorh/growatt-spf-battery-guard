@@ -57,9 +57,10 @@ class OutageDaysStateTests(unittest.TestCase):
                 self.assertIsNone(read_outage_days_state())
                 self.assertEqual(outage_mode(), "all")
 
-    def test_message_covers_both_modes(self):
-        self.assertEqual(outage_days_message({"mode": "all"}), "mode-changing jobs run every day")
-        self.assertIn("weekdays", outage_days_message({"mode": "weekdays"}))
+    def test_message_covers_every_mode(self):
+        self.assertEqual(outage_days_message({"mode": "all"}), "preserve jobs run every day")
+        self.assertIn("weekday", outage_days_message({"mode": "weekdays"}))
+        self.assertIn("profile", outage_days_message({"mode": "auto"}))
         self.assertIn("every day", outage_days_message(None))
 
 
@@ -88,6 +89,140 @@ class OutageDayGateTests(unittest.TestCase):
         config = make_config(discord_notify_skip=False)
         with patch("growatt_guard.outage_days.today_is_outage_day", return_value=True), redirect_stdout(StringIO()):
             self.assertFalse(ensure_outage_day(config, "preserve-battery"))
+
+
+class OutageGateResolutionTests(unittest.TestCase):
+    """Hourly-gate resolution: profile windows in `auto`, manual modes otherwise."""
+
+    CURRENT = {
+        "active_profile": "estate-current",
+        "outage_windows": [{"days": "weekdays", "start": "08:00", "end": "10:30"}],
+    }
+    SIXTEEN_H = {
+        "active_profile": "estate-16h",
+        "outage_windows": [
+            {"days": "weekdays", "start": "08:00", "end": "12:00"},
+            {"days": "weekends", "start": "08:00", "end": "11:00"},
+        ],
+    }
+    NO_PROFILE = {"active_profile": None, "outage_windows": []}
+
+    def test_auto_follows_estate_current_weekday_windows(self):
+        from growatt_guard.outage_days import today_is_outage_day
+
+        self.assertTrue(
+            today_is_outage_day("auto", dt.datetime(2026, 11, 10), schedule=self.CURRENT),
+            "Tuesday must be an outage day",
+        )
+        self.assertFalse(
+            today_is_outage_day("auto", dt.datetime(2026, 11, 7), schedule=self.CURRENT),
+            "Saturday has no cuts in estate-current",
+        )
+
+    def test_auto_follows_estate_16h_weekend_windows(self):
+        from growatt_guard.outage_days import today_is_outage_day
+
+        self.assertTrue(today_is_outage_day("auto", dt.datetime(2026, 11, 7), schedule=self.SIXTEEN_H))
+        self.assertTrue(today_is_outage_day("auto", dt.datetime(2026, 11, 10), schedule=self.SIXTEEN_H))
+
+    def test_auto_without_a_profile_behaves_like_all(self):
+        from growatt_guard.outage_days import today_is_outage_day
+
+        self.assertTrue(today_is_outage_day("auto", dt.datetime(2026, 11, 7), schedule=self.NO_PROFILE))
+
+    def test_manual_weekdays_overrides_profile_windows(self):
+        from growatt_guard.outage_days import today_is_outage_day
+
+        self.assertFalse(today_is_outage_day("weekdays", dt.datetime(2026, 11, 7), schedule=self.SIXTEEN_H))
+
+    def test_auto_reads_the_shipped_schedule(self):
+        from growatt_guard.outage_days import today_is_outage_day
+
+        self.assertTrue(today_is_outage_day("auto", dt.datetime(2026, 11, 10)))
+        self.assertFalse(today_is_outage_day("auto", dt.datetime(2026, 11, 7)))
+
+    def test_gate_source_names_the_authority(self):
+        from growatt_guard.outage_days import outage_gate_source
+
+        self.assertEqual(outage_gate_source("auto", schedule=self.CURRENT), "profile:estate-current")
+        self.assertEqual(outage_gate_source("auto", schedule=self.NO_PROFILE), "fallback:all")
+        self.assertEqual(outage_gate_source("all"), "manual:all")
+        self.assertEqual(outage_gate_source("weekdays"), "manual:weekdays")
+
+    def test_mode_label_reports_today(self):
+        from growatt_guard.outage_days import outage_mode_label
+
+        weekday = outage_mode_label("auto", dt.datetime(2026, 11, 10), schedule=self.CURRENT)
+        weekend = outage_mode_label("auto", dt.datetime(2026, 11, 7), schedule=self.CURRENT)
+        self.assertIn("today: outage day", weekday)
+        self.assertIn("today: no outage", weekend)
+        self.assertIn("profile:estate-current", weekday)
+
+    def test_status_command_lists_the_gate_and_upcoming_days(self):
+        config = make_config()
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.state.STATE_DIR", Path(tmpdir)), patch(
+            "growatt_guard.state.OUTAGE_DAYS_FILE", Path(tmpdir) / "outage_days.json"
+        ), redirect_stdout(StringIO()) as output:
+            return_code = command_outage_status(config)
+
+        text = output.getvalue()
+        self.assertEqual(return_code, 0)
+        self.assertIn("Outage days mode: all", text)
+        self.assertIn("only preserve-battery is skipped", text)
+        self.assertIn("Next 7 day(s)", text)
+
+
+class OutageGateScopeTests(unittest.TestCase):
+    """Preserve may be skipped on a non-outage day; SBU returns must never be."""
+
+    STATUS = {
+        "device": {"capacity": "70 %"},
+        "storage_params": {"storageBean": {"outputConfig": "0"}},
+    }
+
+    def _run(self, command_name: str):
+        from growatt_guard import modes
+        from growatt_power_guard import DeviceRef
+
+        config = make_config(discord_notify_skip=False)
+        with (
+            patch("growatt_guard.modes.ensure_not_paused", return_value=False),
+            patch("growatt_guard.modes.ensure_device_reporting", return_value=False),
+            patch(
+                "growatt_guard.modes.load_context",
+                return_value=(None, DeviceRef("p", "s", "storage", {}), self.STATUS),
+            ),
+            patch("growatt_guard.modes.ensure_outage_day", return_value=False) as gate,
+            redirect_stdout(StringIO()),
+        ):
+            result = getattr(modes, command_name)(config)
+        return result, gate
+
+    def test_return_sbu_never_consults_the_outage_gate(self):
+        result, gate = self._run("command_return_sbu")
+
+        self.assertEqual(result, 0)
+        gate.assert_not_called()
+
+    def test_watchdog_sbu_never_consults_the_outage_gate(self):
+        result, gate = self._run("command_watchdog_sbu")
+
+        self.assertEqual(result, 0)
+        gate.assert_not_called()
+
+    def test_preserve_battery_is_outage_gated(self):
+        from growatt_guard import modes
+
+        config = make_config(discord_notify_skip=False)
+        with (
+            patch("growatt_guard.modes.ensure_not_paused", return_value=False),
+            patch("growatt_guard.modes.ensure_outage_day", return_value=True) as gate,
+            redirect_stdout(StringIO()),
+        ):
+            result = modes.command_preserve_battery(config)
+
+        self.assertEqual(result, 0)
+        gate.assert_called_once()
 
 
 class OutageDaysCommandTests(unittest.TestCase):

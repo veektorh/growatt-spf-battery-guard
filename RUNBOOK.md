@@ -15,13 +15,14 @@
 15:31 daily       verify SBU and retry once if needed
 ```
 
-Mode-changing jobs run daily in cron but skip themselves on non-outage days when
-`set-outage-days weekdays` is active. When the estate changes weekend cuts, flip
-the mode instead of editing `schedule.json`:
+Mode jobs run daily in cron. `preserve-battery` skips itself on days the active
+profile declares no cuts; `return-sbu` and `watchdog-sbu` always run. With
+`set-outage-days auto` (recommended) the gate follows the profile's outage
+windows, so switching profiles needs no outage-day change:
 
 ```bash
-.venv/bin/python growatt_power_guard.py set-outage-days weekdays  # or all
-.venv/bin/python growatt_power_guard.py outage-status
+.venv/bin/python growatt_power_guard.py set-outage-days auto
+.venv/bin/python growatt_power_guard.py outage-status      # mode, source, next 7 days
 ```
 
 ```text
@@ -63,7 +64,7 @@ cd ~/automation
 .venv/bin/python growatt_power_guard.py pause --hours 6 --reason "maintenance"
 .venv/bin/python growatt_power_guard.py pause-status
 .venv/bin/python growatt_power_guard.py resume
-.venv/bin/python growatt_power_guard.py set-outage-days weekdays
+.venv/bin/python growatt_power_guard.py set-outage-days auto
 .venv/bin/python growatt_power_guard.py outage-status
 .venv/bin/python growatt_power_guard.py clear-login-cooldown
 .venv/bin/python growatt_power_guard.py schedule-preview
@@ -118,8 +119,9 @@ proxy. Cron installs every profile's variants as
 After editing profile outage windows or job times, run `validate-schedule` and
 reinstall cron.
 
-`estate-16h` has weekend cuts, so `set-outage-days all` must stay active. If the
-mode is `weekdays`, `set-profile` warns that weekend mode jobs will be skipped.
+`estate-16h` has weekend cuts and `estate-current` does not, so run
+`set-outage-days auto` and let the active profile decide. `set-profile` warns
+when a manual `all`/`weekdays` mode contradicts the profile you just switched to.
 
 ### Adding or changing an estate schedule
 
@@ -164,26 +166,32 @@ When the estate publishes a new rationing notice:
    `crontab -l | grep -c growatt-power-guard` must equal the installer's line
    count.
 7. **Switch only when the estate actually changes.** Use `set-profile` or the
-   dashboard confirmation sheet. Keep `set-outage-days all` active if the
-   profile has weekend cuts. If the notice changes again, switch back — every
-   profile's cron variants are already installed, so no reinstall is needed.
+   dashboard confirmation sheet. With `set-outage-days auto` the outage-day gate
+   follows the new profile automatically. If the notice changes again, switch
+   back — every profile's cron variants are already installed, so no reinstall is
+   needed.
 
 For a one-off change (holiday, maintenance, a single cancelled cut), use
 `schedule-override` date overrides instead of editing a profile.
 
 ## Outage Days
 
-The estate occasionally cancels or reinstates weekend power cuts. Mode-changing
-jobs (`preserve-battery`, `return-sbu`, `watchdog-sbu`) run daily in cron but skip
-weekends while outage days mode is `weekdays`. Flip it with one command (no
-`schedule.json` edit or cron reinstall needed):
+The estate occasionally cancels or reinstates weekend power cuts. Only
+`preserve-battery` is outage-gated: it imports grid, so it must not run on a day
+with no scheduled cut. `return-sbu` and `watchdog-sbu` always run — they never
+import grid, and they are what closes a Utility hold (including an evening
+top-up that ends on a non-outage day).
 
 ```bash
 cd ~/automation
-.venv/bin/python growatt_power_guard.py set-outage-days weekdays   # Mon-Fri only
-.venv/bin/python growatt_power_guard.py set-outage-days all        # cuts every day
-.venv/bin/python growatt_power_guard.py outage-status
+.venv/bin/python growatt_power_guard.py set-outage-days auto       # follow the active profile (recommended)
+.venv/bin/python growatt_power_guard.py set-outage-days all        # preserve every day (manual override)
+.venv/bin/python growatt_power_guard.py set-outage-days weekdays   # Mon-Fri only (manual override)
+.venv/bin/python growatt_power_guard.py outage-status              # mode, authority, next 7 days
 ```
+
+`outage-status` names the authority in force (`profile:<name>` for `auto`,
+`manual:<mode>` for an override), so a stale override cannot hide.
 
 The mode also appears in `service-status`, `health-check`, the dashboard, and
 `ops-review`. Discord: `/growatt_outage_days` with no mode shows the current mode; pick all-days / weekdays-only to change it.

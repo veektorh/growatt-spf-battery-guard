@@ -14,6 +14,7 @@ from typing import Any
 
 from growatt_guard.audit import build_chart_data, read_mode_audit_rows
 from growatt_guard.exceptions import GrowattGuardError
+from growatt_guard.outage_days import outage_mode_label
 from growatt_guard.notifications import notify_failure, send_discord_message
 from growatt_guard.operational_status import build_sbu_guard_status
 from growatt_guard.dashboard_assets import DASHBOARD_CSS, DASHBOARD_JS
@@ -73,7 +74,6 @@ from growatt_guard.dashboard_planning import (
 )
 from growatt_guard.state import (
     clear_dashboard_stale_alert_state,
-    outage_mode,
     pause_message,
     read_battery_alert_state,
     read_dashboard_stale_alert_state,
@@ -306,7 +306,7 @@ def build_dashboard_html(
                         topup_sunrise_display = format_duration_minutes(topup_min)
     pause_state = read_pause_state()
     pause = pause_message(pause_state) if pause_state else "active"
-    outage = outage_mode()
+    outage = outage_mode_label(schedule=schedule)
     profile = str(schedule.get("active_profile") or "").strip()
     profile_label = str(schedule.get("profile_label") or profile or "single schedule")
     profile_description = str(schedule.get("profile_description") or "").strip()

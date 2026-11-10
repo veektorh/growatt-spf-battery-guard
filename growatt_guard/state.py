@@ -67,7 +67,7 @@ def configure_state_dir(path: str | os.PathLike[str]) -> Path:
 
 STATE_DIR = configure_state_dir(_default_state_dir())
 COMMAND_LOCK_STALE_SECONDS = 45 * 60
-OUTAGE_MODES = ("all", "weekdays")
+OUTAGE_MODES = ("auto", "all", "weekdays")
 SESSION_REFRESH_LOCK_STALE_SECONDS = 2 * 60
 STATE_SCHEMA_VERSION = 1
 _STATE_METADATA_KEYS = ("_schema_version", "_updated_at")
@@ -268,9 +268,11 @@ def outage_mode() -> str:
 
 def outage_days_message(state: dict[str, Any] | None) -> str:
     mode = str(state.get("mode", "all")) if state else "all"
+    if mode == "auto":
+        return "preserve jobs follow the active profile's outage windows"
     if mode == "weekdays":
-        return "mode-changing jobs run weekdays only (Mon-Fri)"
-    return "mode-changing jobs run every day"
+        return "preserve jobs run weekdays only (Mon-Fri)"
+    return "preserve jobs run every day"
 
 
 def write_outage_days_state(mode: str, reason: str = "") -> dict[str, Any]:
