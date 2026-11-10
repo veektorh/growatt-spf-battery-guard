@@ -7,6 +7,7 @@
 06:30 daily       preserve-battery if SOC is below 50%
 07:55 daily       return to SBU before the 08:00 outage
 08:01 daily       verify SBU and retry once if needed
+12:30 daily       catch a battery that has not recovered by noon
 13:30 daily       begin conditional afternoon battery preservation
 14:00 daily       retry if SOC became low after the first check
 14:30 daily       final preserve check before the afternoon outage
@@ -289,14 +290,15 @@ Expected jobs:
 
 ```text
 10 6 * * *
-30 6 * * 1-5
-55 7 * * 1-5
-1 8 * * 1-5
-30 13 * * 1-5
-0 14 * * 1-5
-30 14 * * 1-5
-25 15 * * 1-5
-31 15 * * 1-5
+30 6 * * *
+55 7 * * *
+1 8 * * *
+30 12 * * *
+30 13 * * *
+0 14 * * *
+30 14 * * *
+25 15 * * *
+31 15 * * *
 0 21 * * *
 */30 * * * *
 */20 18-23,0-5 * * *

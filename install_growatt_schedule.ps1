@@ -64,6 +64,11 @@ Register-GrowattTask `
     -Command "run-scheduled --profile estate-current morning-watchdog"
 
 Register-GrowattTask `
+    -Name "Utility Check Noon" `
+    -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "12:30") `
+    -Command "run-scheduled --profile estate-current afternoon-preserve-noon"
+
+Register-GrowattTask `
     -Name "Utility Check Afternoon Early" `
     -ScheduleArgs @("/SC", "WEEKLY", "/D", "MON,TUE,WED,THU,FRI", "/ST", "13:30") `
     -Command "run-scheduled --profile estate-current afternoon-preserve-early"
