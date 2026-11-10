@@ -515,7 +515,11 @@ def command_serve_discord_bot(config: Config) -> int:
     @tree.command(name="growatt_outage_days", description="Set which days the estate has power cuts.", **command_scope)
     @app_commands.describe(mode="Omit to view the current mode", reason="Optional reason")
     @app_commands.choices(
-        mode=[app_commands.Choice(name="all days", value="all"), app_commands.Choice(name="weekdays only", value="weekdays")]
+        mode=[
+            app_commands.Choice(name="follow profile (auto)", value="auto"),
+            app_commands.Choice(name="all days", value="all"),
+            app_commands.Choice(name="weekdays only", value="weekdays"),
+        ]
     )
     async def growatt_outage_days(interaction: discord.Interaction, mode: str = None, reason: str = "Discord control") -> None:
         async def action() -> None:
