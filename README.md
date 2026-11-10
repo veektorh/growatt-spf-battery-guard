@@ -26,19 +26,19 @@ The script starts in `DRY_RUN=true` mode. In dry-run it logs in and prepares the
 
 ## Setup
 
-```powershell
-cd C:\path\to\automation
-python -m pip install -r requirements.txt
-Copy-Item .env.example .env
-notepad .env
+```bash
+cd ~/automation
+python3 -m pip install -r requirements.txt
+cp .env.example .env
+${EDITOR:-nano} .env
 ```
 
 Optional: install the package in editable mode to get the `growatt-guard`
 console script. The existing `growatt_power_guard.py` entry point remains the
 compatibility path used by the cron/service examples.
 
-```powershell
-python -m pip install -e .
+```bash
+python3 -m pip install -e .
 growatt-guard validate-schedule
 ```
 
@@ -62,9 +62,9 @@ DRY_RUN=true
 
 Then test reading data:
 
-```powershell
-python .\growatt_power_guard.py status
-python .\growatt_power_guard.py probe
+```bash
+.venv/bin/python growatt_power_guard.py status
+.venv/bin/python growatt_power_guard.py probe
 ```
 
 `probe` writes a redacted JSON file under `logs/`. Use this once so we can confirm the exact SPF setting command for your account/firmware before turning `DRY_RUN=false`.
@@ -492,9 +492,12 @@ refreshes from `/api/profile` without waiting for the next observability
 refresh. Keep the dashboard behind the basic-auth proxy: the toggle is a write
 endpoint, and `serve-dashboard` binds to `127.0.0.1` by default.
 
-`estate-16h` includes weekend cuts, so keep `set-outage-days all` active. If
-outage days mode is `weekdays`, `set-profile` warns that weekend mode jobs will
-be skipped.
+The outage-day gate follows the active profile: `set-outage-days auto` skips
+`preserve-battery` on days the profile declares no cuts (so `estate-current`
+keeps its weekends on SBU, while `estate-16h` still preserves through weekend
+cuts). `return-sbu` and `watchdog-sbu` are never gated — they cannot import grid
+and are what closes a Utility hold. `set-outage-days all` / `weekdays` remain
+manual overrides for ad-hoc cuts; `outage-status` names the authority in force.
 
 For the full checklist when the estate publishes a new schedule, see
 [RUNBOOK.md](RUNBOOK.md#adding-or-changing-an-estate-schedule).
@@ -542,82 +545,44 @@ cd ~/automation
 ./install_cloud_cron.sh
 ```
 
-`set-outage-days` remains the coarse weekend gate for legacy schedules and for
-profiles without weekend cuts; it does not replace profile outage windows.
+`set-outage-days` is the manual override for ad-hoc cuts and for legacy
+schedules without profiles; `auto` is the profile-driven mode.
 
 ## Run manually
 
-```powershell
-python .\growatt_power_guard.py preserve-battery
-python .\growatt_power_guard.py force-utility --reason "manual top-up"
-python .\growatt_power_guard.py return-sbu
-python .\growatt_power_guard.py watchdog-sbu
-python .\growatt_power_guard.py daily-summary
-python .\growatt_power_guard.py weekly-summary
-python .\growatt_power_guard.py monthly-summary
-python .\growatt_power_guard.py rotate-logs
-python .\growatt_power_guard.py weather-threshold
-python .\growatt_power_guard.py validate-schedule
-python .\growatt_power_guard.py health-check
-python .\growatt_power_guard.py health-check --notify
-python .\growatt_power_guard.py ops-review --days 7
-python .\growatt_power_guard.py battery-alert
-python .\growatt_power_guard.py runtime-alert
-python .\growatt_power_guard.py auto-topup-check
-python .\growatt_power_guard.py topup-complete-check
-python .\growatt_power_guard.py estimate-charge-rate --wait-seconds 900
-python .\growatt_power_guard.py dashboard
-python .\growatt_power_guard.py dashboard-refresh --once
-python .\growatt_power_guard.py observability-refresh
-python .\growatt_power_guard.py dashboard-stale-alert
-python .\growatt_power_guard.py serve-dashboard
-python .\growatt_power_guard.py serve-discord-bot
-python .\growatt_power_guard.py pause --hours 6 --reason "maintenance"
-python .\growatt_power_guard.py pause-status
-python .\growatt_power_guard.py resume
-python .\growatt_power_guard.py schedule-preview
-python .\growatt_power_guard.py schedule-preview --days 14
-python .\growatt_power_guard.py profiles
-python .\growatt_power_guard.py set-profile estate-16h --reason "estate notice"
-python .\growatt_power_guard.py run-scheduled --profile estate-current morning-preserve --dry-plan
-```
-
-## Schedule on Windows
-
-These commands create the current estate schedule:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install_growatt_schedule.ps1
-```
-
-The PowerShell installer mirrors the `estate-current` profile and passes
-`--profile estate-current`, so its tasks no-op when another profile is active.
-Use the Linux cron installer on the VPS for multi-profile switching.
-
-Or create them manually:
-
-```powershell
-schtasks /Create /F /TN "Growatt Morning Health Report" /SC DAILY /ST 06:10 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled morning-health"
-schtasks /Create /F /TN "Growatt Utility Check Morning" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 06:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current morning-preserve"
-schtasks /Create /F /TN "Growatt Utility Check Morning Retry" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 06:40 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current morning-preserve-retry"
-schtasks /Create /F /TN "Growatt SBU Before Morning Outage" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 07:55 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current morning-return-sbu"
-schtasks /Create /F /TN "Growatt SBU Watchdog Morning" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 08:01 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current morning-watchdog"
-schtasks /Create /F /TN "Growatt Utility Check Noon" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 12:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current afternoon-preserve-noon"
-schtasks /Create /F /TN "Growatt Utility Check Afternoon Early" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 13:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current afternoon-preserve-early"
-schtasks /Create /F /TN "Growatt Utility Check Afternoon Retry" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:00 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current afternoon-preserve-retry"
-schtasks /Create /F /TN "Growatt Utility Check Afternoon Final" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 14:30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current afternoon-preserve"
-schtasks /Create /F /TN "Growatt SBU Before Afternoon Outage" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:25 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current afternoon-return-sbu"
-schtasks /Create /F /TN "Growatt SBU Watchdog Afternoon" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 15:31 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled --profile estate-current afternoon-watchdog"
-schtasks /Create /F /TN "Growatt Daily Summary" /SC DAILY /ST 21:00 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled daily-summary"
-schtasks /Create /F /TN "Growatt Emergency Battery Alert" /SC MINUTE /MO 30 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled battery-alert"
-schtasks /Create /F /TN "Growatt Weekly Summary" /SC WEEKLY /D SUN /ST 21:10 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled weekly-summary"
-schtasks /Create /F /TN "Growatt Log Rotation" /SC DAILY /ST 00:10 /TR "cmd /c cd /d C:\path\to\automation && python growatt_power_guard.py run-scheduled rotate-logs"
-```
-
-Logs are written to:
-
-```text
-C:\path\to\automation\logs\growatt_power_guard.log
+```bash
+.venv/bin/python growatt_power_guard.py preserve-battery
+.venv/bin/python growatt_power_guard.py force-utility --reason "manual top-up"
+.venv/bin/python growatt_power_guard.py return-sbu
+.venv/bin/python growatt_power_guard.py watchdog-sbu
+.venv/bin/python growatt_power_guard.py daily-summary
+.venv/bin/python growatt_power_guard.py weekly-summary
+.venv/bin/python growatt_power_guard.py monthly-summary
+.venv/bin/python growatt_power_guard.py rotate-logs
+.venv/bin/python growatt_power_guard.py weather-threshold
+.venv/bin/python growatt_power_guard.py validate-schedule
+.venv/bin/python growatt_power_guard.py health-check
+.venv/bin/python growatt_power_guard.py health-check --notify
+.venv/bin/python growatt_power_guard.py ops-review --days 7
+.venv/bin/python growatt_power_guard.py battery-alert
+.venv/bin/python growatt_power_guard.py runtime-alert
+.venv/bin/python growatt_power_guard.py auto-topup-check
+.venv/bin/python growatt_power_guard.py topup-complete-check
+.venv/bin/python growatt_power_guard.py estimate-charge-rate --wait-seconds 900
+.venv/bin/python growatt_power_guard.py dashboard
+.venv/bin/python growatt_power_guard.py dashboard-refresh --once
+.venv/bin/python growatt_power_guard.py observability-refresh
+.venv/bin/python growatt_power_guard.py dashboard-stale-alert
+.venv/bin/python growatt_power_guard.py serve-dashboard
+.venv/bin/python growatt_power_guard.py serve-discord-bot
+.venv/bin/python growatt_power_guard.py pause --hours 6 --reason "maintenance"
+.venv/bin/python growatt_power_guard.py pause-status
+.venv/bin/python growatt_power_guard.py resume
+.venv/bin/python growatt_power_guard.py schedule-preview
+.venv/bin/python growatt_power_guard.py schedule-preview --days 14
+.venv/bin/python growatt_power_guard.py profiles
+.venv/bin/python growatt_power_guard.py set-profile estate-16h --reason "estate notice"
+.venv/bin/python growatt_power_guard.py run-scheduled --profile estate-current morning-preserve --dry-plan
 ```
 
 ## Run On A Cloud VPS
@@ -1251,7 +1216,6 @@ RUNBOOK.md
 .env.example
 schedule.json
 install_cloud_cron.sh
-install_growatt_schedule.ps1
 update_server.sh
 install_dashboard_service.sh
 install_app_health_monitor_service.sh

@@ -24,6 +24,7 @@ from growatt_guard.state import (
     outage_mode, pause_message, read_battery_alert_state, read_growatt_cloud_failure_state,
     read_pause_state, utc_now,
 )
+from growatt_guard.outage_days import outage_gate_source, today_is_outage_day
 from growatt_guard.schedule import (
     cron_matches, next_scheduled_runs, schedule_job_id, schedule_job_tokens,
     today_schedule_override,
@@ -171,6 +172,8 @@ def build_dashboard_data_payload(
             # (ISO string) is already present and JSON-serializable.
             "pause_state": {k: v for k, v in pause_state.items() if k != "paused_until_dt"} if pause_state else None,
             "outage_days": outage_mode(),
+            "outage_days_source": outage_gate_source(),
+            "outage_day_today": today_is_outage_day(),
             "emergency_alert": "active" if alert_state and alert_state.get("active") else "clear",
             "cloud_failure_streak": int(cloud_state.get("count", 0)) if cloud_state else 0,
             "sbu_return_guard": sbu_guard,

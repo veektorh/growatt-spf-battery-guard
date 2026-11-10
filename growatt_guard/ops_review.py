@@ -24,6 +24,7 @@ from growatt_guard.preservation import (
     PreservationScorecard,
     build_preservation_scorecard,
 )
+from growatt_guard.outage_days import outage_gate_source, today_is_outage_day
 from growatt_guard.state import (
     read_battery_alert_state,
     read_bypass_alert_state,
@@ -251,6 +252,8 @@ def _state_summary(now: dt.datetime | None = None) -> dict[str, Any]:
     return {
         "pause": "paused" if pause else "active",
         "outage_days": outage_mode(),
+        "outage_days_source": outage_gate_source(),
+        "outage_day_today": today_is_outage_day(),
         "topup_active": topup_is_active(now=now_utc),
         "command_lock_stale": bool(lock and command_lock_is_stale()),
         "topup": topup,
