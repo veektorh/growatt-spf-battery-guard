@@ -31,6 +31,35 @@ public-safe: no IDs, serials, domains, or credentials.
 - Baseline: 7 of the 14 nights before the change had more than one auto top-up
   (one had four). Evening top-ups gained about 1200 W; late-night ones about
   1800 W.
+- Progress, 2026-11-11 (1 of 3 nights reviewed, night of 2026-11-10):
+  - Learned rate is in use. The log shows `Planning with charge rate 1513 W
+    (learned from 10 top-ups); configured 1950 W`, and the three starts audited
+    `planned_charge_rate_w` of 1512.7, 1556.5 and 1545.3 instead of 1950.
+  - The near-target rule is not exercised yet. Both completions ended at or
+    above target (61 against 60.64, 50 against 49.46), which the old check
+    accepted too. The new rule only changes an expiry, and the one expiry ended
+    6 points short (58 against 63.97). Keep watching for an expiry that lands
+    within one point below target.
+  - Repeat top-ups did not fall yet. The night had three starts (18:00 for
+    210 min, 21:40 for 31 min, 02:40 for 52 min) against three on 2026-11-09,
+    and planned Utility time rose from 127 to 293 minutes.
+  - The first repeat is a window problem, not a rate problem: the 18:00
+    reserve plan wanted about 274 minutes but was clamped to 210, while the
+    recorded 63.97% completion target is unreachable in 210 minutes at any
+    plausible rate (53.7% at the planned 1512.7 W, 58.8% even at the configured
+    1950 W, 58% at the realized 1877 W). Fixed by sizing the scheduled window
+    from the horizon: `DISCORD_TOPUP_MAX_MINUTES` now caps only a manual
+    `/growatt_topup`, `AUTO_TOPUP_MAX_MINUTES` (default `0`) bounds the
+    schedule, and a bound that binds records the SOC the window can reach.
+  - Count only `auto-topup-started` rows. A morning preserve Utility hold also
+    closes through `topup-complete-check` and appears as a `topup-target-reached`
+    row (07:36 today, `ownership=owned`, target 45%); it is not a top-up start.
+  - Baseline correction: "7 of 14 nights with more than one top-up" reproduces
+    only for 2026-10-21 to 2026-11-03. The 14 nights ending 2026-11-09 have 4,
+    and the two nights before the change had 3 each. Judge the new nights
+    against the 2026-11-09 window.
+- Remaining: two more nights, then write the verdict and close this task. The
+  window fix should remove the 21:40 repeat that followed the 18:00 plan.
 - Done when: three nights are reviewed and the result is written here as either
   "fewer repeat top-ups" or a follow-up task with the numbers.
 

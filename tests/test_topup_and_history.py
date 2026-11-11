@@ -991,6 +991,104 @@ class PlanningChargeRateTests(unittest.TestCase):
         self.assertIn("planned_charge_rate_w=2000", learned_note)
 
 
+class TopupWindowBoundTests(unittest.TestCase):
+    """The scheduled window follows the horizon; an operator bound must stay reachable.
+
+    Replays the night of 2026-11-10: SOC 36%, 1455 W load, 12.6h to sunrise, and the
+    learned 1512.7 W charge rate against 1950 W configured.
+    """
+
+    NIGHT = {
+        "soc": 36.0,
+        "load_w": 1455.09,
+        "capacity_wh": 30_000.0,
+        "charge_rate_w": 1950.0,
+        "learned_rate_w": 1512.7,
+        "cutoff_soc": 20.0,
+        "hours": 12.6,
+    }
+
+    def _plan(self, tmp: Path, tag: str, **config_overrides) -> dict:
+        from growatt_guard import state as state_mod
+        from growatt_guard.topup import command_auto_topup_check
+
+        status = {
+            "datalogSn": "SN1",
+            "deviceSn": "SN1",
+            "data": {
+                "soc": self.NIGHT["soc"],
+                "pDischarge": self.NIGHT["load_w"],
+                "outputConfig": "0",
+            },
+        }
+        written: dict = {}
+        cfg = make_config(
+            auto_topup_enabled=True,
+            auto_topup_solar_skip_min_margin_minutes=0.0,
+            battery_capacity_wh=self.NIGHT["capacity_wh"],
+            battery_charge_rate_w=self.NIGHT["charge_rate_w"],
+            battery_bms_cutoff_soc=self.NIGHT["cutoff_soc"],
+            **config_overrides,
+        )
+        with (
+            patch.object(state_mod, "TOPUP_STATE_FILE", tmp / f"t{tag}.json"),
+            patch.object(state_mod, "PAUSE_FILE", tmp / f"p{tag}.json"),
+            patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", tmp / f"dr{tag}.json"),
+            patch("growatt_guard.topup.read_pause_state", return_value=None),
+            patch("growatt_guard.topup.topup_is_active", return_value=False),
+            patch("growatt_guard.topup.hours_until_next_sunrise", return_value=self.NIGHT["hours"]),
+            patch("growatt_guard.topup.load_context", return_value=(None, None, status)),
+            patch("growatt_guard.topup.set_mode", return_value="ok"),
+            patch("growatt_guard.topup.command_pause", return_value=0),
+            patch(
+                "growatt_guard.topup.write_utility_hold_state",
+                side_effect=lambda **kwargs: written.update(
+                    minutes=kwargs["minutes"], target_soc=kwargs["target_soc"]
+                ),
+            ),
+            patch("growatt_guard.topup.append_mode_audit") as audit,
+            patch(
+                "growatt_guard.topup.learned_charge_rate",
+                return_value=(self.NIGHT["learned_rate_w"], 10),
+            ),
+            redirect_stdout(StringIO()),
+        ):
+            command_auto_topup_check(cfg)
+        written["note"] = audit.call_args.kwargs["note"]
+        return written
+
+    def _reachable_soc(self, minutes: float) -> float:
+        return (
+            self.NIGHT["soc"]
+            + self.NIGHT["learned_rate_w"] * (minutes / 60.0) / self.NIGHT["capacity_wh"] * 100.0
+        )
+
+    def test_plans_the_whole_survival_window_instead_of_the_discord_cap(self):
+        with TemporaryDirectory() as tmpdir:
+            plan = self._plan(Path(tmpdir), "a", discord_topup_max_minutes=210)
+
+        # The horizon needs about 274 minutes; the old 210 clamp left it 6 points short.
+        self.assertAlmostEqual(plan["minutes"], 274, delta=2)
+        self.assertIn("planned_charge_rate_w=1512.7", plan["note"])
+        self.assertAlmostEqual(plan["target_soc"], 59.0, delta=0.3)
+        self.assertLessEqual(plan["target_soc"], self._reachable_soc(plan["minutes"]))
+
+    def test_discord_topup_cap_does_not_bound_the_scheduled_plan(self):
+        with TemporaryDirectory() as tmpdir:
+            plan = self._plan(Path(tmpdir), "b", discord_topup_max_minutes=30)
+
+        self.assertAlmostEqual(plan["minutes"], 274, delta=2)
+
+    def test_operator_bound_records_the_target_the_window_can_reach(self):
+        with TemporaryDirectory() as tmpdir:
+            plan = self._plan(Path(tmpdir), "c", auto_topup_max_minutes=210)
+
+        self.assertEqual(plan["minutes"], 210)
+        # 210 minutes at 1512.7 W gains about 17.7 points, not the 28 the horizon wants.
+        self.assertAlmostEqual(plan["target_soc"], self._reachable_soc(210), delta=0.05)
+        self.assertLess(plan["target_soc"], 59.0)
+
+
 class TopupExpiryWithinResolutionTests(unittest.TestCase):
     """SOC is reported in whole points, so 71% against a 71.98% target is a completion."""
 

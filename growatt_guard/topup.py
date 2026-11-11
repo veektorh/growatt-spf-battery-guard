@@ -159,6 +159,27 @@ def _topup_completion_target_soc(
 
 
 
+def _reachable_target_soc(
+    target_soc: float,
+    start_soc: float,
+    charge_rate_w: float,
+    capacity_wh: float,
+    topup_minutes: float,
+) -> float:
+    """Lower a completion target to what the planned window can actually deliver.
+
+    _topup_completion_target_soc answers "what SOC must this window end at to
+    preserve the reserve". With the window sized from the same horizon the two
+    agree exactly; once an operator bound shortens the window they do not, and a
+    target nothing can reach turns every top-up into a short expiry. Record the
+    reachable target and let the next check plan the remainder.
+    """
+    if charge_rate_w <= 0 or capacity_wh <= 0 or topup_minutes <= 0:
+        return target_soc
+    reachable = start_soc + charge_rate_w * (topup_minutes / 60.0) / capacity_wh * 100.0
+    return min(target_soc, reachable)
+
+
 def _sunrise_hours(config: Config) -> float | None:
     try:
         return hours_until_next_sunrise(config)
@@ -330,7 +351,12 @@ def command_auto_topup_check(config: Config) -> int:
             note=f"calculated {calculated_text} < minimum {config.auto_topup_min_minutes:g}min",
         )
         return 0
-    topup_min = min(topup_min, config.discord_topup_max_minutes)
+    # The Discord cap belongs to a manual /growatt_topup request, which a human
+    # is watching. A scheduled top-up is sized by the sunrise horizon maths: the
+    # survival requirement is bounded by the hours to sunrise, so clamping it
+    # here only made every long plan expire short and start a second window.
+    if config.auto_topup_max_minutes > 0:
+        topup_min = min(topup_min, max(1, round(config.auto_topup_max_minutes)))
 
     if config.auto_topup_solar_skip_kwh_m2 > 0 and not late_safety_window:
         from growatt_guard.weather import get_tomorrow_solar_kwh_m2
@@ -408,6 +434,14 @@ def command_auto_topup_check(config: Config) -> int:
             topup_min,
         )
         current_soc_target = max(current_soc_target, margin_target)
+
+    current_soc_target = _reachable_target_soc(
+        current_soc_target,
+        soc,
+        charge_rate_w,
+        config.battery_capacity_wh,
+        topup_min,
+    )
 
     reason += f" (topup target {current_soc_target:.0f}% SOC)"
     _persist_auto_topup_intent(

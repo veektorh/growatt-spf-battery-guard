@@ -508,6 +508,53 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Topup to Sunrise", html)
         self.assertIn("skip (&lt;20min)", html)
 
+    def test_dashboard_topup_estimate_uses_the_schedule_window_bound(self):
+        status = {
+            "storage_params": {
+                "storageBean": {"outputConfig": "0"},
+                "storageDetailBean": {
+                    "bmsSoc": 20,
+                    "pDischarge": 2000,
+                    "pCharge": 0,
+                },
+            }
+        }
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+
+        def render(**overrides) -> str:
+            with patch(
+                "growatt_guard.dashboard.read_discharge_rate_history",
+                return_value=[{"rate_w": 2000}, {"rate_w": 2000}],
+            ), patch("growatt_guard.dashboard_viewmodel.read_pause_state", return_value=None), patch(
+                "growatt_guard.dashboard_viewmodel.read_battery_alert_state", return_value=None
+            ), patch(
+                "growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value={}
+            ), patch(
+                "growatt_guard.dashboard.read_mode_audit_rows", return_value=[]
+            ), patch(
+                "growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None
+            ), patch(
+                "growatt_guard.dashboard.build_chart_data",
+                return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
+            ):
+                return build_dashboard_html(
+                    status,
+                    schedule,
+                    {"dates": {}},
+                    ThresholdDecision(50, "fixed threshold"),
+                    battery_capacity_wh=30000,
+                    battery_bms_cutoff_soc=25,
+                    hours_to_sunrise=10,
+                    battery_charge_rate_w=1000,
+                    auto_topup_solar_skip_min_margin_minutes=60,
+                    **overrides,
+                )
+
+        # 2000 W load, 1000 W charge, no usable SOC and 11h horizon wants 7h 20m;
+        # the manual /growatt_topup limit must not shorten the scheduled estimate.
+        self.assertIn("7h 20m", render())
+        self.assertIn("3h 00m", render(auto_topup_max_minutes=180))
+
     def test_dashboard_recent_activity_hides_dry_run_rows(self):
         status = {"device": {"capacity": "90%"}, "storage_params": {"storageBean": {"outputConfig": "0"}}}
         schedule = {"timezone": "Africa/Lagos", "jobs": []}
