@@ -17,6 +17,7 @@ from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.schedule import (
     build_profiles_payload,
     check_cron_schedule,
+    cron_matches,
     format_cron_summary,
     format_outage_windows,
     load_schedule_document,
@@ -471,6 +472,43 @@ class DashboardProfileToggleTests(unittest.TestCase):
         self.assertIn('data-profile="reduced"', html)
         self.assertIn('id="profile-confirm"', html)
         self.assertIn('id="profile-confirm-form"', html)
+
+
+class ShippedScheduleTests(unittest.TestCase):
+    """The shipped estate-current profile must cover every declared cut and no more."""
+
+    SATURDAY = dt.date(2026, 11, 14)
+
+    def _current_profile(self) -> dict:
+        return load_schedule_document()["profiles"]["estate-current"]
+
+    def test_morning_jobs_cover_the_weekend_cut(self):
+        jobs = {job["id"]: job for job in self._current_profile()["jobs"]}
+        for job_id, at in (
+            ("morning-preserve", dt.time(6, 30)),
+            ("morning-preserve-retry", dt.time(6, 40)),
+            ("morning-return-sbu", dt.time(7, 55)),
+            ("morning-watchdog", dt.time(8, 1)),
+        ):
+            when = dt.datetime.combine(self.SATURDAY, at)
+            self.assertTrue(
+                cron_matches(str(jobs[job_id]["cron"]), when),
+                f"{job_id} must also run for the weekend 08:00-10:30 cut",
+            )
+
+    def test_no_job_runs_on_a_weekend_afternoon(self):
+        profile = self._current_profile()
+        weekend_windows = outages_for_date(profile["outages"], self.SATURDAY)
+        self.assertTrue(weekend_windows, "estate-current must declare the weekend 08:00-10:30 cut")
+        weekend_end = max(window["end"] for window in weekend_windows)
+        self.assertEqual(weekend_end, "10:30")
+        for job in profile["jobs"]:
+            for hour in range(int(weekend_end[:2]) + 1, 24):
+                when = dt.datetime.combine(self.SATURDAY, dt.time(hour, 0))
+                self.assertFalse(
+                    cron_matches(str(job["cron"]), when),
+                    f"{job['id']} is scheduled on a weekend afternoon with no cut to cover",
+                )
 
 
 if __name__ == "__main__":

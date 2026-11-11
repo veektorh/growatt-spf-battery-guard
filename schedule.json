@@ -3,8 +3,8 @@
   "active_profile": "estate-current",
   "profiles": {
     "estate-current": {
-      "label": "19h weekday / 24h weekend",
-      "description": "Current estate cuts: weekdays 08:00-10:30 and 15:30-18:00; no weekend cuts.",
+      "label": "19h weekday / 21.5h weekend",
+      "description": "Current estate cuts: weekdays 08:00-10:30 and 15:30-18:00; weekends (Saturday and Sunday) 08:00-10:30.",
       "outages": [
         {
           "days": "weekdays",
@@ -15,6 +15,11 @@
           "days": "weekdays",
           "start": "15:30",
           "end": "18:00"
+        },
+        {
+          "days": "weekends",
+          "start": "08:00",
+          "end": "10:30"
         }
       ],
       "jobs": [
@@ -45,37 +50,37 @@
         {
           "id": "afternoon-preserve-noon",
           "name": "Catch a battery that has not recovered by noon",
-          "cron": "30 12 * * *",
+          "cron": "30 12 * * 1-5",
           "command": "preserve-battery"
         },
         {
           "id": "afternoon-preserve-early",
           "name": "Begin preserving battery well before the afternoon outage",
-          "cron": "30 13 * * *",
+          "cron": "30 13 * * 1-5",
           "command": "preserve-battery"
         },
         {
           "id": "afternoon-preserve-retry",
           "name": "Retry afternoon preserve if battery became low",
-          "cron": "0 14 * * *",
+          "cron": "0 14 * * 1-5",
           "command": "preserve-battery"
         },
         {
           "id": "afternoon-preserve",
           "name": "Final preserve check before afternoon outage",
-          "cron": "30 14 * * *",
+          "cron": "30 14 * * 1-5",
           "command": "preserve-battery"
         },
         {
           "id": "afternoon-return-sbu",
           "name": "Return to SBU before afternoon outage",
-          "cron": "25 15 * * *",
+          "cron": "25 15 * * 1-5",
           "command": "return-sbu"
         },
         {
           "id": "afternoon-watchdog",
           "name": "Verify SBU after afternoon outage starts",
-          "cron": "31 15 * * *",
+          "cron": "31 15 * * 1-5",
           "command": "watchdog-sbu"
         }
       ]

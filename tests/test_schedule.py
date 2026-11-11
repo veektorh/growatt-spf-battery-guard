@@ -96,11 +96,11 @@ class ScheduleTests(unittest.TestCase):
         schedule = validate_schedule()
         jobs = {item["id"]: item for item in schedule["jobs"]}
 
-        self.assertEqual(jobs["afternoon-preserve-noon"]["cron"], "30 12 * * *")
+        self.assertEqual(jobs["afternoon-preserve-noon"]["cron"], "30 12 * * 1-5")
         self.assertEqual(jobs["afternoon-preserve-noon"]["command"], "preserve-battery")
-        self.assertEqual(jobs["afternoon-preserve-early"]["cron"], "30 13 * * *")
-        self.assertEqual(jobs["afternoon-preserve-retry"]["cron"], "0 14 * * *")
-        self.assertEqual(jobs["afternoon-preserve"]["cron"], "30 14 * * *")
+        self.assertEqual(jobs["afternoon-preserve-early"]["cron"], "30 13 * * 1-5")
+        self.assertEqual(jobs["afternoon-preserve-retry"]["cron"], "0 14 * * 1-5")
+        self.assertEqual(jobs["afternoon-preserve"]["cron"], "30 14 * * 1-5")
         self.assertEqual(jobs["auto-topup-check"]["cron"], "*/20 18-23,0-5 * * *")
 
     def test_noon_preserve_closes_the_gap_after_the_morning_return(self):
@@ -109,7 +109,7 @@ class ScheduleTests(unittest.TestCase):
             int(job["cron"].split()[1]) * 60 + int(job["cron"].split()[0])
             for job in schedule["jobs"]
             if job.get("command") == "preserve-battery"
-            and job["cron"].split()[2:] == ["*", "*", "*"]
+            and job["cron"].split()[2:] in (["*", "*", "*"], ["*", "*", "1-5"])
         )
 
         morning_return = 7 * 60 + 55

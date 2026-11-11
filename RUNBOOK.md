@@ -119,9 +119,11 @@ proxy. Cron installs every profile's variants as
 After editing profile outage windows or job times, run `validate-schedule` and
 reinstall cron.
 
-`estate-16h` has weekend cuts and `estate-current` does not, so run
-`set-outage-days auto` and let the active profile decide. `set-profile` warns
-when a manual `all`/`weekdays` mode contradicts the profile you just switched to.
+Both profiles have weekend cuts, so run `set-outage-days auto` and let the
+active profile decide. `estate-current` has a weekend morning cut only: its
+afternoon jobs carry `* * 1-5` because the outage-day gate is per day, not per
+window. `set-profile` warns when a manual `all`/`weekdays` mode contradicts the
+profile you just switched to.
 
 ### Adding or changing an estate schedule
 
@@ -147,6 +149,10 @@ When the estate publishes a new rationing notice:
      period to charge.
    - Use `* * 1-5` for weekday jobs and `* * 0,6` for weekend jobs. Job ids may
      repeat across profiles, but must not collide with a shared job id.
+   - If a day type has fewer cut windows than the other, scope its extra jobs by
+     day of week: the outage-day gate answers "does this day have any cut", so a
+     weekday-only afternoon job left on `* * *` would import grid on a
+     weekend-morning-only profile.
 4. **Check the limits before switching.** `AUTO_TOPUP_SUNRISE_FLOOR_SOC` must
    sit above `EMERGENCY_SOC` (live: 35 vs 30), otherwise the overnight plan aims
    at the alarm line. Confirm `BATTERY_CAPACITY_WH`, `BATTERY_BMS_CUTOFF_SOC`,

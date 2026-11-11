@@ -94,7 +94,7 @@ class OutageDayGateTests(unittest.TestCase):
 class OutageGateResolutionTests(unittest.TestCase):
     """Hourly-gate resolution: profile windows in `auto`, manual modes otherwise."""
 
-    CURRENT = {
+    WEEKDAY_ONLY = {
         "active_profile": "estate-current",
         "outage_windows": [{"days": "weekdays", "start": "08:00", "end": "10:30"}],
     }
@@ -107,16 +107,16 @@ class OutageGateResolutionTests(unittest.TestCase):
     }
     NO_PROFILE = {"active_profile": None, "outage_windows": []}
 
-    def test_auto_follows_estate_current_weekday_windows(self):
+    def test_auto_follows_a_weekday_only_profile(self):
         from growatt_guard.outage_days import today_is_outage_day
 
         self.assertTrue(
-            today_is_outage_day("auto", dt.datetime(2026, 11, 10), schedule=self.CURRENT),
+            today_is_outage_day("auto", dt.datetime(2026, 11, 10), schedule=self.WEEKDAY_ONLY),
             "Tuesday must be an outage day",
         )
         self.assertFalse(
-            today_is_outage_day("auto", dt.datetime(2026, 11, 7), schedule=self.CURRENT),
-            "Saturday has no cuts in estate-current",
+            today_is_outage_day("auto", dt.datetime(2026, 11, 7), schedule=self.WEEKDAY_ONLY),
+            "This fixture declares no weekend cuts",
         )
 
     def test_auto_follows_estate_16h_weekend_windows(self):
@@ -137,14 +137,23 @@ class OutageGateResolutionTests(unittest.TestCase):
 
     def test_auto_reads_the_shipped_schedule(self):
         from growatt_guard.outage_days import today_is_outage_day
+        from growatt_guard.schedule import load_schedule_document, outages_for_date
 
         self.assertTrue(today_is_outage_day("auto", dt.datetime(2026, 11, 10)))
-        self.assertFalse(today_is_outage_day("auto", dt.datetime(2026, 11, 7)))
+        for day in (dt.date(2026, 11, 14), dt.date(2026, 11, 15)):  # Sat, Sun
+            self.assertTrue(
+                today_is_outage_day("auto", dt.datetime(day.year, day.month, day.day)),
+                f"{day} has an 08:00-10:30 estate cut and must be an outage day",
+            )
+
+        windows = load_schedule_document()["profiles"]["estate-current"]["outages"]
+        weekend = [(w["start"], w["end"]) for w in outages_for_date(windows, dt.date(2026, 11, 14))]
+        self.assertEqual(weekend, [("08:00", "10:30")])
 
     def test_gate_source_names_the_authority(self):
         from growatt_guard.outage_days import outage_gate_source
 
-        self.assertEqual(outage_gate_source("auto", schedule=self.CURRENT), "profile:estate-current")
+        self.assertEqual(outage_gate_source("auto", schedule=self.WEEKDAY_ONLY), "profile:estate-current")
         self.assertEqual(outage_gate_source("auto", schedule=self.NO_PROFILE), "fallback:all")
         self.assertEqual(outage_gate_source("all"), "manual:all")
         self.assertEqual(outage_gate_source("weekdays"), "manual:weekdays")
@@ -152,8 +161,8 @@ class OutageGateResolutionTests(unittest.TestCase):
     def test_mode_label_reports_today(self):
         from growatt_guard.outage_days import outage_mode_label
 
-        weekday = outage_mode_label("auto", dt.datetime(2026, 11, 10), schedule=self.CURRENT)
-        weekend = outage_mode_label("auto", dt.datetime(2026, 11, 7), schedule=self.CURRENT)
+        weekday = outage_mode_label("auto", dt.datetime(2026, 11, 10), schedule=self.WEEKDAY_ONLY)
+        weekend = outage_mode_label("auto", dt.datetime(2026, 11, 7), schedule=self.WEEKDAY_ONLY)
         self.assertIn("today: outage day", weekday)
         self.assertIn("today: no outage", weekend)
         self.assertIn("profile:estate-current", weekday)
