@@ -451,9 +451,12 @@ edit `schedule.json` and does not need a cron reinstall.
   ],
   "profiles": {
     "estate-current": {
-      "label": "19h weekday / 24h weekend",
-      "description": "Weekday cuts only",
-      "outages": [{"days": "weekdays", "start": "08:00", "end": "10:30"}],
+      "label": "19h weekday / 21.5h weekend",
+      "description": "Weekday cuts and a weekend morning cut",
+      "outages": [
+        {"days": "weekdays", "start": "08:00", "end": "10:30"},
+        {"days": "weekends", "start": "08:00", "end": "10:30"}
+      ],
       "jobs": [
         {"id": "morning-preserve", "cron": "30 6 * * *", "command": "preserve-battery"}
       ]
@@ -470,7 +473,7 @@ against the active profile.
 
 | Key | Label | Weekday cuts | Weekend cuts | Afternoon mode jobs |
 |---|---|---|---|---|
-| `estate-current` | 19h weekday / 24h weekend | 08:00-10:30, 15:30-18:00 | none | preserve 12:30/13:30/14:00/14:30, return 15:25, watchdog 15:31 |
+| `estate-current` | 19h weekday / 21.5h weekend | 08:00-10:30, 15:30-18:00 | 08:00-10:30 (Sat and Sun) | weekday preserve 12:30/13:30/14:00/14:30, return 15:25, watchdog 15:31 |
 | `estate-16h` | 16h weekday / 18h weekend | 08:00-12:00, 14:00-18:00 | 08:00-11:00, 15:00-18:00 | weekday preserve 12:05/12:35/13:15, return 13:55, watchdog 14:01; weekend preserve 11:05/12:35/14:15, return 14:55, watchdog 15:01 |
 
 Both profiles share the 06:30/06:40 preserve, 07:55 return, and 08:01 watchdog
@@ -497,9 +500,10 @@ refresh. Keep the dashboard behind the basic-auth proxy: the toggle is a write
 endpoint, and `serve-dashboard` binds to `127.0.0.1` by default.
 
 The outage-day gate follows the active profile: `set-outage-days auto` skips
-`preserve-battery` on days the profile declares no cuts (so `estate-current`
-keeps its weekends on SBU, while `estate-16h` still preserves through weekend
-cuts). `return-sbu` and `watchdog-sbu` are never gated — they cannot import grid
+`preserve-battery` on days the profile declares no cuts. `estate-current` has
+weekend morning cuts only, so its weekday-only afternoon jobs are also scoped
+by cron (`* * 1-5`) — the gate is per day, not per window. `return-sbu` and
+`watchdog-sbu` are never gated — they cannot import grid
 and are what closes a Utility hold. `set-outage-days all` / `weekdays` remain
 manual overrides for ad-hoc cuts; `outage-status` names the authority in force.
 
@@ -512,17 +516,17 @@ Estate power is unavailable during these windows:
 
 ```text
 Weekdays: 08:00-10:30 and 15:30-18:00
-Weekends: no scheduled rationing
+Weekends: 08:00-10:30 (Saturday and Sunday)
 ```
 
 The automation should therefore:
 
 ```text
 06:10 daily       post Discord health report
-06:30 weekdays    preserve-battery if SOC is below 50%
-06:40 weekdays    retry preserve-battery if the first Utility switch failed
-07:55 weekdays    return to SBU before the 08:00 outage
-08:01 weekdays    verify SBU and retry once if needed
+06:30 daily       preserve-battery if SOC is below 50%
+06:40 daily       retry preserve-battery if the first Utility switch failed
+07:55 daily       return to SBU before the 08:00 outage
+08:01 daily       verify SBU and retry once if needed
 12:30 weekdays    catch a battery that has not recovered by noon
 13:30 weekdays    begin conditional afternoon battery preservation
 14:00 weekdays    retry if SOC became low after the first check
@@ -535,6 +539,10 @@ The automation should therefore:
 00:10 daily       prune old generated probe/temp files
 00:20 monthly     prune audit CSV rows older than retention
 ```
+
+The morning sequence runs every day because both day types have an 08:00 cut;
+only the afternoon jobs are weekday-scoped, since weekends have no afternoon
+cut to preserve against.
 
 The cloud cron installer reads the shared jobs and every profile from
 [schedule.json](schedule.json). Cron calls
