@@ -47,7 +47,10 @@ public-safe: no IDs, serials, domains, or credentials.
     reserve plan wanted about 274 minutes but was clamped to 210, while the
     recorded 63.97% completion target is unreachable in 210 minutes at any
     plausible rate (53.7% at the planned 1512.7 W, 58.8% even at the configured
-    1950 W, 58% at the realized 1877 W). See N8.
+    1950 W, 58% at the realized 1877 W). Fixed by sizing the scheduled window
+    from the horizon: `DISCORD_TOPUP_MAX_MINUTES` now caps only a manual
+    `/growatt_topup`, `AUTO_TOPUP_MAX_MINUTES` (default `0`) bounds the
+    schedule, and a bound that binds records the SOC the window can reach.
   - Count only `auto-topup-started` rows. A morning preserve Utility hold also
     closes through `topup-complete-check` and appears as a `topup-target-reached`
     row (07:36 today, `ownership=owned`, target 45%); it is not a top-up start.
@@ -55,7 +58,8 @@ public-safe: no IDs, serials, domains, or credentials.
     only for 2026-10-21 to 2026-11-03. The 14 nights ending 2026-11-09 have 4,
     and the two nights before the change had 3 each. Judge the new nights
     against the 2026-11-09 window.
-- Remaining: two more nights, then write the verdict and close this task.
+- Remaining: two more nights, then write the verdict and close this task. The
+  window fix should remove the 21:40 repeat that followed the 18:00 plan.
 - Done when: three nights are reviewed and the result is written here as either
   "fewer repeat top-ups" or a follow-up task with the numbers.
 
@@ -137,30 +141,6 @@ public-safe: no IDs, serials, domains, or credentials.
 - Logs print the plant ID and device serial at INFO. Mask them.
 - The Discord bot logs "voice will NOT be supported" warnings on every start.
 - GitHub has announced that `ubuntu-latest` moves to Ubuntu 26; pin or test.
-
-### N8. Do not clamp a reserve top-up below its survival window
-
-- Status: ready. Changes inverter mode timing.
-- Why: found while reviewing N1. `command_auto_topup_check` sizes the window
-  from the horizon maths and then clamps it with
-  `topup_min = min(topup_min, config.discord_topup_max_minutes)`. The completion
-  target is then derived from the clamped window as the SOC that still preserves
-  the reserve across the remaining hours, but nothing checks that the clamped
-  window can deliver that much charge. On the night of 2026-11-10 the survival
-  maths wanted about 274 minutes (load 1455 W, learned charge rate 1512.7 W,
-  12.6 hours to sunrise), it ran 210 minutes, and it recorded a 63.97%
-  completion target. That target needs about 8400 Wh of battery gain, or 333
-  minutes at the planned rate; 210 minutes cannot deliver it at the planned
-  rate (53.7%), the configured 1950 W (58.8%) or the realized 1877 W (58%). It
-  expired 6 points short and the next check started a second window, so the
-  repeat is structural.
-- Options: give the scheduled planner its own bound and keep the Discord cap
-  for manual `/topup`; or, when the cap binds, record a reachable target and
-  plan the remainder as a second window; or split the requirement into two
-  planned windows from the start.
-- Done when: a replay of the 2026-11-10 evening either plans a window that
-  reaches its recorded target or records a target it can reach, and N1 shows
-  one fewer repeat top-up.
 
 ## Current Baseline
 

@@ -92,6 +92,7 @@ class Config:
     auto_topup_enabled: bool = False
     auto_topup_min_hours_to_sunrise: float = 4.0
     auto_topup_min_minutes: float = 0.0
+    auto_topup_max_minutes: float = 0.0
     auto_topup_target_soc: float = 0.0
     auto_topup_solar_skip_kwh_m2: float = 0.0
     auto_topup_solar_skip_min_margin_minutes: float = 60.0
@@ -235,6 +236,8 @@ def validate_config(config: Config) -> list[str]:
         warnings.append(
             "AUTO_TOPUP_ENABLED requires BATTERY_CAPACITY_WH and BATTERY_CHARGE_RATE_W to be configured"
         )
+    if config.auto_topup_max_minutes < 0:
+        warnings.append("AUTO_TOPUP_MAX_MINUTES must not be negative")
     if config.app_health_failure_threshold < 1:
         warnings.append("APP_HEALTH_FAILURE_THRESHOLD must be at least 1")
     if config.app_health_timeout_seconds <= 0:
@@ -337,6 +340,7 @@ def load_config() -> Config:
         auto_topup_enabled=str_to_bool(env("AUTO_TOPUP_ENABLED"), default=False),
         auto_topup_min_hours_to_sunrise=float(env("AUTO_TOPUP_MIN_HOURS_TO_SUNRISE", "4")),
         auto_topup_min_minutes=float(env("AUTO_TOPUP_MIN_MINUTES", "0")),
+        auto_topup_max_minutes=float(env("AUTO_TOPUP_MAX_MINUTES", "0")),
         auto_topup_target_soc=float(env("AUTO_TOPUP_TARGET_SOC", "0")),
         auto_topup_solar_skip_kwh_m2=float(env("AUTO_TOPUP_SOLAR_SKIP_KWH_M2", "0")),
         auto_topup_solar_skip_min_margin_minutes=float(env("AUTO_TOPUP_SOLAR_SKIP_MIN_MARGIN_MINUTES", "60")),

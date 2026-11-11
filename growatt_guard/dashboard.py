@@ -190,7 +190,7 @@ def build_dashboard_html(
     auto_topup_target_soc: float = 0.0,
     auto_topup_solar_skip_min_margin_minutes: float = 60.0,
     auto_topup_min_minutes: float = 0.0,
-    discord_topup_max_minutes: float = 0.0,
+    auto_topup_max_minutes: float = 0.0,
     metrics_history: list[dict[str, Any]] | None = None,
     hours_to_sunset: float | None = None,
     tonight_floor_soc: float = 35.0,
@@ -301,8 +301,8 @@ def build_dashboard_html(
                         minimum = format_duration_minutes(auto_topup_min_minutes)
                         topup_sunrise_display = f"skip (<{minimum})"
                     else:
-                        if discord_topup_max_minutes > 0 and topup_min > discord_topup_max_minutes:
-                            topup_min = round(discord_topup_max_minutes)
+                        if auto_topup_max_minutes > 0 and topup_min > auto_topup_max_minutes:
+                            topup_min = round(auto_topup_max_minutes)
                         topup_sunrise_display = format_duration_minutes(topup_min)
     pause_state = read_pause_state()
     pause = pause_message(pause_state) if pause_state else "active"

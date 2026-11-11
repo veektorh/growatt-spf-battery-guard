@@ -134,7 +134,7 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
         config.auto_topup_target_soc,
         config.auto_topup_solar_skip_min_margin_minutes,
         config.auto_topup_min_minutes,
-        config.discord_topup_max_minutes,
+        config.auto_topup_max_minutes,
         metrics_history,
         hours_to_sunset=hrs_to_sunset,
         tonight_floor_soc=config.auto_topup_sunrise_floor_soc,
