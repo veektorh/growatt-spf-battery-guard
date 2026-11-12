@@ -195,6 +195,9 @@ class OutageGateScopeTests(unittest.TestCase):
 
         config = make_config(discord_notify_skip=False)
         with (
+            TemporaryDirectory() as tmpdir,
+            patch("growatt_guard.audit.LOG_DIR", Path(tmpdir)),
+            patch("growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"),
             patch("growatt_guard.modes.ensure_not_paused", return_value=False),
             patch("growatt_guard.modes.ensure_device_reporting", return_value=False),
             patch(

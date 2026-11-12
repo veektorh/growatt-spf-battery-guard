@@ -16,6 +16,10 @@ def main() -> int:
     logging.disable(logging.CRITICAL)
     with tempfile.TemporaryDirectory(prefix="growatt_guard_tests_") as state_dir:
         os.environ["GROWATT_GUARD_STATE_DIR"] = state_dir
+        # Audit rows, dashboard metrics and the daily ledger resolve from DATA_HOME,
+        # so a test that forgets its own patch would otherwise append to the live
+        # production files on a deployment host.
+        os.environ["GROWATT_GUARD_DATA_DIR"] = state_dir
         suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"))
         result = unittest.TextTestRunner(verbosity=0, buffer=True).run(suite)
     return 0 if result.wasSuccessful() else 1
