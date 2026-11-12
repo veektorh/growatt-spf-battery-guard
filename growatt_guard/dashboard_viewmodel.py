@@ -6,9 +6,12 @@ from typing import Any
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.pvoutput import read_pvoutput_state
 from growatt_guard.operational_status import build_sbu_guard_status
-from growatt_guard.growatt_api import format_duration_minutes
+from growatt_guard.audit import build_chart_data, read_mode_audit_rows
+from growatt_guard.growatt_api import (
+    estimate_charge_time, estimate_runtime, format_duration_minutes, resolve_soc,
+)
 from growatt_guard.dashboard_metrics import (
-    _fmt_w, _history_with_live, build_dashboard_history_payload,
+    _fmt_kwh, _fmt_pct, _fmt_w, _history_with_live, build_dashboard_history_payload,
     extract_dashboard_metric_sources, extract_dashboard_metrics,
 )
 from growatt_guard.dashboard_insights import (
@@ -21,8 +24,9 @@ from growatt_guard.dashboard_planning import (
     build_dashboard_next_action, build_dashboard_recommendations,
 )
 from growatt_guard.state import (
-    outage_mode, pause_message, read_battery_alert_state, read_growatt_cloud_failure_state,
-    read_pause_state, utc_now,
+    outage_mode, pause_message, parse_utc_datetime, read_battery_alert_state,
+    read_discharge_rate_history, read_growatt_cloud_failure_state, read_pause_state,
+    read_utility_hold_state, utc_now,
 )
 from growatt_guard.outage_days import outage_gate_source, today_is_outage_day
 from growatt_guard.schedule import (
@@ -31,6 +35,61 @@ from growatt_guard.schedule import (
 )
 
 from growatt_guard.dashboard_render_components import format_duration, _status_badge_class
+
+def _learned_discharge_load_w() -> float | None:
+    """Average discharge reading the planner uses as the top-up load."""
+    history = read_discharge_rate_history()
+    rates = [row["rate_w"] for row in history if isinstance(row.get("rate_w"), (int, float))]
+    return sum(rates) / len(rates) if len(rates) >= 2 else None
+
+
+def _utility_hold_detail(hold_state: dict[str, Any] | None) -> str:
+    if not hold_state or hold_state.get("ownership") not in ("owned", "adopted"):
+        return ""
+    ownership = str(hold_state.get("ownership", "owned")).capitalize()
+    target = hold_state.get("target_soc")
+    eta = ""
+    expiry = str(hold_state.get("max_expiry") or "")
+    if expiry:
+        try:
+            remaining = int(max(0, (parse_utc_datetime(expiry) - utc_now()).total_seconds() // 60))
+        except ValueError:
+            remaining = None
+        if remaining is not None:
+            eta = f" · ETA {remaining}m"
+    target_text = f"{target:.0f}%" if isinstance(target, (int, float)) else "?"
+    return f"{ownership} Utility hold · returning to SBU at {target_text}{eta}"
+
+
+def _battery_runtime(
+    live_metrics: dict[str, Any],
+    soc: float | None,
+    battery_capacity_wh: float,
+    battery_bms_cutoff_soc: float,
+) -> dict[str, str]:
+    display = "—"
+    note = "Usable energy unavailable"
+    if battery_capacity_wh > 0 and soc is not None:
+        usable_kwh = max(0.0, (soc - battery_bms_cutoff_soc) / 100.0 * battery_capacity_wh / 1000.0)
+        note = f"Usable to {_fmt_pct(battery_bms_cutoff_soc)} floor: {_fmt_kwh(usable_kwh)}"
+    elif battery_capacity_wh > 0:
+        note = "Capacity " + _fmt_kwh(battery_capacity_wh / 1000.0)
+    net_w = _numeric_metric(live_metrics.get("battery_net_w"))
+    if net_w is not None and battery_capacity_wh > 0 and soc is not None:
+        if net_w > 0:
+            if net_w < 200:
+                display = "PV covering load"
+                note = f"Live battery draw only {_fmt_w(net_w)}"
+            else:
+                runtime_min = estimate_runtime(soc, net_w, battery_capacity_wh, battery_bms_cutoff_soc)
+                if runtime_min is not None:
+                    display = format_duration_minutes(runtime_min) + " remaining"
+        elif net_w < 0:
+            charge_min = estimate_charge_time(soc, abs(net_w), battery_capacity_wh)
+            if charge_min is not None:
+                display = format_duration_minutes(charge_min) + " to full"
+    return {"display": display, "note": note}
+
 
 def build_dashboard_data_payload(
     status: dict[str, Any],
@@ -63,6 +122,22 @@ def build_dashboard_data_payload(
     cloud_state = read_growatt_cloud_failure_state()
     sbu_guard = build_sbu_guard_status(min_sbu_return_soc)
     pvoutput_state = read_pvoutput_state()
+    hold_state = read_utility_hold_state()
+    recent_decisions = [
+        row
+        for row in read_mode_audit_rows(limit=40, newest_first=True)
+        if str(row.get("dry_run", "")).strip().lower() != "true"
+    ][:8]
+    # build_chart_data compares against naive audit timestamps.
+    chart_data = build_chart_data(now=now.replace(tzinfo=None))
+    learned_load_w = _learned_discharge_load_w()
+    soc_result = resolve_soc(status).as_tuple()
+    runtime = _battery_runtime(
+        live_metrics,
+        soc_result[0] if soc_result else None,
+        battery_capacity_wh,
+        battery_bms_cutoff_soc,
+    )
     sources = extract_dashboard_metric_sources(status)
     data_quality = build_dashboard_data_quality(live_metrics, sources)
     daily_mix = build_dashboard_daily_mix(live_metrics)
@@ -180,6 +255,10 @@ def build_dashboard_data_payload(
             "topup_status": topup_status or {"active": False, "warnings": []},
             "today_override_note": str(today_override.get("note", "")).strip() or "none",
             "today_skipped_jobs": today_override.get("skip", []) if isinstance(today_override.get("skip", []), list) else [],
+            "recent_decisions": recent_decisions,
+            "chart_data": chart_data,
+            "utility_hold_detail": _utility_hold_detail(hold_state),
+            "learned_load_w": learned_load_w,
         },
         "schedule": {
             "timezone": schedule.get("timezone", ""),
@@ -192,6 +271,10 @@ def build_dashboard_data_payload(
                 for t, jid, cmd, st in today_jobs
             ],
             "timeline": schedule_timeline,
+            "upcoming_overrides": [
+                {"date": date_str, "note": note, "action": action}
+                for date_str, note, action in _upcoming_override_rows(overrides, now.date())
+            ],
             "next_runs": [
                 {
                     "time": run_at.isoformat(timespec="minutes"),
@@ -202,7 +285,8 @@ def build_dashboard_data_payload(
                 for run_at, job in next_runs
             ],
         },
-        "pvoutput": pvoutput_state or {"status": "not_configured_or_no_uploads"},
+        "pvoutput": pvoutput_state,
+        "runtime": runtime,
         "history": build_dashboard_history_payload(metric_history, now=now),
     }
 

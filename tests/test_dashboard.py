@@ -80,7 +80,7 @@ class DashboardTests(unittest.TestCase):
             "growatt_guard.state.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
         ), patch(
             "growatt_guard.dashboard_metrics.DASHBOARD_METRICS_FILE", Path(tmpdir) / "dashboard_metrics.jsonl"
-        ), patch("growatt_guard.dashboard.read_mode_audit_rows", return_value=[]), redirect_stdout(StringIO()):
+        ), patch("growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]), redirect_stdout(StringIO()):
             output = Path(tmpdir) / "dashboard.html"
             self.assertEqual(command_dashboard(config, str(output)), 0)
             html = output.read_text(encoding="utf-8")
@@ -217,7 +217,7 @@ class DashboardTests(unittest.TestCase):
             "growatt_guard.dashboard_viewmodel.read_battery_alert_state", return_value=None
         ), patch("growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value=None), patch(
             "growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None
-        ), patch("growatt_guard.dashboard.read_mode_audit_rows", return_value=[]):
+        ), patch("growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]):
             html = build_dashboard_html(
                 status,
                 schedule,
@@ -254,7 +254,7 @@ class DashboardTests(unittest.TestCase):
             "growatt_guard.dashboard_viewmodel.read_battery_alert_state", return_value=None
         ), patch("growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value=None), patch(
             "growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None
-        ), patch("growatt_guard.dashboard.read_mode_audit_rows", return_value=[]):
+        ), patch("growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]):
             html = build_dashboard_html(status, schedule, {"dates": {}}, Threshold(), metrics_history=[])
             metrics = extract_dashboard_metrics(status)
             sources = extract_dashboard_metric_sources(status)
@@ -454,8 +454,8 @@ class DashboardTests(unittest.TestCase):
         ), patch(
             "growatt_guard.dashboard_viewmodel.read_pvoutput_state",
             return_value={"uploaded_at": "2026-06-25T07:55:00", "fields": {"v1": 1200}},
-        ), patch("growatt_guard.dashboard.read_mode_audit_rows", return_value=[]), patch(
-            "growatt_guard.dashboard.build_chart_data", return_value={"labels": [], "soc": []}
+        ), patch("growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]), patch(
+            "growatt_guard.dashboard_viewmodel.build_chart_data", return_value={"labels": [], "soc": []}
         ):
             payload = build_dashboard_data_payload(
                 status, schedule, {"dates": {}}, ThresholdDecision(50, "test"), now=now
@@ -463,6 +463,108 @@ class DashboardTests(unittest.TestCase):
 
         self.assertEqual(payload["freshness"]["last_successful_growatt_read_at"], "2026-06-25T08:00:00")
         self.assertEqual(payload["freshness"]["last_successful_pvoutput_upload_at"], "2026-06-25T07:55:00")
+
+    def test_dashboard_payload_includes_automation_history_decisions_overrides_and_runtime(self):
+        status = {
+            "device": {"capacity": "58%"},
+            "storage_params": {
+                "storageBean": {"outputConfig": "0", "ppv": 0, "outPutPower": 900, "pDischarge": 760},
+                "storageDetailBean": {"bmsSoc": 58},
+            },
+        }
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+        overrides = {"dates": {"2026-06-27": {"note": "estate maintenance", "skip_all": True}}}
+        audit_rows = [
+            {"timestamp": "2026-06-25T06:30:00", "command": "preserve-battery", "action": "switch-to-utility"},
+            {"timestamp": "2026-06-25T06:00:00", "command": "watchdog-sbu", "action": "return-sbu", "dry_run": "true"},
+            {"timestamp": "2026-06-25T05:00:00", "command": "return-sbu", "action": "switch-to-sbu"},
+        ]
+        now = dt.datetime(2026, 6, 25, 8, 0)
+
+        with patch("growatt_guard.dashboard_viewmodel.read_pause_state", return_value=None), patch(
+            "growatt_guard.dashboard_viewmodel.read_battery_alert_state", return_value=None
+        ), patch("growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value={}), patch(
+            "growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None
+        ), patch(
+            "growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=audit_rows
+        ), patch(
+            "growatt_guard.dashboard_viewmodel.build_chart_data",
+            return_value={"labels": ["Wed 06-25"], "preserve": [1], "utility": [1], "watchdog": [0]},
+        ), patch(
+            "growatt_guard.dashboard_viewmodel.read_utility_hold_state",
+            return_value={
+                "ownership": "owned",
+                "target_soc": 45,
+                "max_expiry": "2026-06-25T10:00:00+00:00",
+            },
+        ), patch(
+            "growatt_guard.dashboard_viewmodel.read_discharge_rate_history",
+            return_value=[{"rate_w": 1400}, {"rate_w": 1500}],
+        ):
+            payload = build_dashboard_data_payload(
+                status, schedule, overrides, ThresholdDecision(50, "test"),
+                battery_capacity_wh=10000, battery_bms_cutoff_soc=20, now=now,
+            )
+
+        automation = payload["automation"]
+        self.assertEqual(len(automation["recent_decisions"]), 2)
+        self.assertEqual(automation["recent_decisions"][0]["command"], "preserve-battery")
+        self.assertEqual(automation["chart_data"]["preserve"], [1])
+        self.assertEqual(automation["learned_load_w"], 1450.0)
+        self.assertIn("Owned Utility hold", automation["utility_hold_detail"])
+        self.assertEqual(
+            payload["schedule"]["upcoming_overrides"],
+            [{"date": "2026-06-27", "note": "estate maintenance", "action": "skip-all"}],
+        )
+        self.assertEqual(payload["runtime"]["display"], "5h 00m remaining")
+        self.assertEqual(payload["runtime"]["note"], "Usable to 20% floor: 3.8 kWh")
+
+    def test_renderer_reads_no_state_or_audit_files(self):
+        status = {
+            "device": {"capacity": "58%"},
+            "storage_params": {
+                "storageBean": {"outputConfig": "0", "ppv": 0, "outPutPower": 900, "pDischarge": 760},
+                "storageDetailBean": {"bmsSoc": 58},
+            },
+        }
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+        now = dt.datetime(2026, 6, 25, 8, 0)
+
+        with patch("growatt_guard.dashboard_viewmodel.read_pause_state", return_value=None), patch(
+            "growatt_guard.dashboard_viewmodel.read_battery_alert_state", return_value=None
+        ), patch("growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value={}), patch(
+            "growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None
+        ), patch("growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]), patch(
+            "growatt_guard.dashboard_viewmodel.build_chart_data", return_value={"labels": [], "soc": []}
+        ), patch("growatt_guard.dashboard_viewmodel.read_utility_hold_state", return_value=None), patch(
+            "growatt_guard.dashboard_viewmodel.read_discharge_rate_history", return_value=[]
+        ):
+            payload = build_dashboard_data_payload(
+                status, schedule, {"dates": {}}, ThresholdDecision(50, "test"),
+                battery_capacity_wh=10000, battery_bms_cutoff_soc=20, now=now,
+            )
+
+        readers = (
+            "read_pause_state", "read_battery_alert_state", "read_growatt_cloud_failure_state",
+            "read_pvoutput_state", "read_mode_audit_rows", "build_chart_data",
+            "read_utility_hold_state", "read_discharge_rate_history",
+        )
+        patches = [
+            patch(f"growatt_guard.dashboard_viewmodel.{name}", side_effect=AssertionError(f"{name} read by renderer"))
+            for name in readers
+        ]
+        for active in patches:
+            active.start()
+        try:
+            html = build_dashboard_html(
+                status, schedule, {"dates": {}}, ThresholdDecision(50, "test"),
+                30, 10000, 20, None, 1950, 0, 60, dashboard_data=payload,
+            )
+        finally:
+            for active in patches:
+                active.stop()
+
+        self.assertIn("Growatt Dashboard", html)
 
     def test_dashboard_topup_estimate_shows_short_topup_skip(self):
         status = {
@@ -478,18 +580,18 @@ class DashboardTests(unittest.TestCase):
         schedule = {"timezone": "Africa/Lagos", "jobs": []}
 
         with patch(
-            "growatt_guard.dashboard.read_discharge_rate_history",
+            "growatt_guard.dashboard_viewmodel.read_discharge_rate_history",
             return_value=[{"rate_w": 1507}, {"rate_w": 1507}],
         ), patch("growatt_guard.dashboard_viewmodel.read_pause_state", return_value=None), patch(
             "growatt_guard.dashboard_viewmodel.read_battery_alert_state", return_value=None
         ), patch(
             "growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value={}
         ), patch(
-            "growatt_guard.dashboard.read_mode_audit_rows", return_value=[]
+            "growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]
         ), patch(
             "growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None
         ), patch(
-            "growatt_guard.dashboard.build_chart_data",
+            "growatt_guard.dashboard_viewmodel.build_chart_data",
             return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
         ):
             html = build_dashboard_html(
@@ -523,18 +625,18 @@ class DashboardTests(unittest.TestCase):
 
         def render(**overrides) -> str:
             with patch(
-                "growatt_guard.dashboard.read_discharge_rate_history",
+                "growatt_guard.dashboard_viewmodel.read_discharge_rate_history",
                 return_value=[{"rate_w": 2000}, {"rate_w": 2000}],
             ), patch("growatt_guard.dashboard_viewmodel.read_pause_state", return_value=None), patch(
                 "growatt_guard.dashboard_viewmodel.read_battery_alert_state", return_value=None
             ), patch(
                 "growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value={}
             ), patch(
-                "growatt_guard.dashboard.read_mode_audit_rows", return_value=[]
+                "growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]
             ), patch(
                 "growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None
             ), patch(
-                "growatt_guard.dashboard.build_chart_data",
+                "growatt_guard.dashboard_viewmodel.build_chart_data",
                 return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
             ):
                 return build_dashboard_html(
@@ -582,11 +684,11 @@ class DashboardTests(unittest.TestCase):
         ), patch(
             "growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value={}
         ), patch(
-            "growatt_guard.dashboard.read_mode_audit_rows", return_value=audit_rows
+            "growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=audit_rows
         ), patch(
             "growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None
         ), patch(
-            "growatt_guard.dashboard.build_chart_data",
+            "growatt_guard.dashboard_viewmodel.build_chart_data",
             return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
         ):
             html = build_dashboard_html(status, schedule, {"dates": {}}, ThresholdDecision(50, "fixed threshold"))
@@ -612,11 +714,11 @@ class DashboardTests(unittest.TestCase):
         ), patch(
             "growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value={}
         ), patch(
-            "growatt_guard.dashboard.read_mode_audit_rows", return_value=[]
+            "growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]
         ), patch(
             "growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None
         ), patch(
-            "growatt_guard.dashboard.build_chart_data",
+            "growatt_guard.dashboard_viewmodel.build_chart_data",
             return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
         ):
             html = build_dashboard_html(
@@ -661,11 +763,11 @@ class DashboardTests(unittest.TestCase):
         ), patch(
             "growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value={}
         ), patch(
-            "growatt_guard.dashboard.read_mode_audit_rows", return_value=[]
+            "growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]
         ), patch(
             "growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None
         ), patch(
-            "growatt_guard.dashboard.build_chart_data",
+            "growatt_guard.dashboard_viewmodel.build_chart_data",
             return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
         ):
             html = build_dashboard_html(
@@ -702,11 +804,11 @@ class DashboardTests(unittest.TestCase):
         ), patch(
             "growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value={}
         ), patch(
-            "growatt_guard.dashboard.read_mode_audit_rows", return_value=[]
+            "growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]
         ), patch(
             "growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None
         ), patch(
-            "growatt_guard.dashboard.build_chart_data",
+            "growatt_guard.dashboard_viewmodel.build_chart_data",
             return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
         ):
             html = build_dashboard_html(
@@ -740,11 +842,11 @@ class DashboardTests(unittest.TestCase):
         ), patch(
             "growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value={}
         ), patch(
-            "growatt_guard.dashboard.read_mode_audit_rows", return_value=[]
+            "growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]
         ), patch(
             "growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None
         ), patch(
-            "growatt_guard.dashboard.build_chart_data",
+            "growatt_guard.dashboard_viewmodel.build_chart_data",
             return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
         ):
             html = build_dashboard_html(

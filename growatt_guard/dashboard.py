@@ -12,18 +12,13 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from growatt_guard.audit import build_chart_data, read_mode_audit_rows
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.outage_days import outage_mode_label
 from growatt_guard.notifications import notify_failure, send_discord_message
-from growatt_guard.operational_status import build_sbu_guard_status
 from growatt_guard.dashboard_assets import DASHBOARD_CSS, DASHBOARD_JS
-from growatt_guard.pvoutput import publish_pvoutput_status_from_status, read_pvoutput_state
 from growatt_guard.growatt_api import (
     PV_POWER_CHANNELS,
     PV_TODAY_CHANNELS,
-    estimate_charge_time,
-    estimate_runtime,
     estimate_topup_for_sunrise,
     deep_values,
     detect_unexpected_grid_bypass,
@@ -39,7 +34,6 @@ from growatt_guard.growatt_api import (
     parse_number,
 )
 from growatt_guard.dashboard_metrics import (
-    _history_with_live,
     _metric_date,
     _parse_metric_timestamp,
     _series_value,
@@ -62,25 +56,12 @@ from growatt_guard.dashboard_insights import (
     compute_tonight_safe,
 )
 from growatt_guard.dashboard_planning import (
-    _project_sunset_soc,
-    _should_use_projected_sunset_start,
-    build_dashboard_assistant_summary,
     build_dashboard_daily_mix,
-    build_dashboard_energy_outlook,
-    build_dashboard_home_status,
-    _numeric_metric,
     build_dashboard_next_action,
-    build_dashboard_recommendations,
 )
 from growatt_guard.state import (
     clear_dashboard_stale_alert_state,
-    pause_message,
-    read_battery_alert_state,
     read_dashboard_stale_alert_state,
-    read_discharge_rate_history,
-    read_growatt_cloud_failure_state,
-    read_pause_state,
-    utc_now,
     write_dashboard_stale_alert_state,
 )
 from growatt_guard.schedule import (
@@ -201,21 +182,31 @@ def build_dashboard_html(
     dashboard_data: dict[str, Any] | None = None,
 ) -> str:
     if dashboard_data is None:
-        now = dt.datetime.now()
-        generated_at = now.astimezone()
-        generated_at_iso = generated_at.isoformat(timespec="seconds")
-        live_metrics = extract_dashboard_metrics(status, now=generated_at)
-        metric_history = _history_with_live(metrics_history or [], live_metrics)
-        history_payload = build_dashboard_history_payload(metric_history, now=now)
-        metric_history_json = json.dumps(history_payload)
-    else:
-        generated_at_iso = str(dashboard_data["generated_at"])
-        generated_at = dt.datetime.fromisoformat(generated_at_iso)
-        now = generated_at.replace(tzinfo=None)
-        live_metrics = dict(dashboard_data["live"])
-        metric_history = []
-        history_payload = dashboard_data["history"]
-        metric_history_json = json.dumps(history_payload)
+        # The renderer reads nothing itself: every state file and audit read
+        # belongs to the view-model payload.
+        dashboard_data = build_dashboard_data_payload(
+            status,
+            schedule,
+            overrides,
+            threshold_decision,
+            stale_after_minutes=stale_after_minutes,
+            battery_capacity_wh=battery_capacity_wh,
+            battery_bms_cutoff_soc=battery_bms_cutoff_soc,
+            hours_to_sunrise=hours_to_sunrise,
+            battery_charge_rate_w=battery_charge_rate_w,
+            auto_topup_target_soc=auto_topup_target_soc,
+            auto_topup_solar_skip_min_margin_minutes=auto_topup_solar_skip_min_margin_minutes,
+            metrics_history=metrics_history,
+            hours_to_sunset=hours_to_sunset,
+            pv_forecast=pv_forecast,
+            min_sbu_return_soc=min_sbu_return_soc,
+        )
+    generated_at_iso = str(dashboard_data["generated_at"])
+    generated_at = dt.datetime.fromisoformat(generated_at_iso)
+    now = generated_at.replace(tzinfo=None)
+    live_metrics = dict(dashboard_data["live"])
+    history_payload = dashboard_data["history"]
+    metric_history_json = json.dumps(history_payload)
     resolved = resolve_soc(status)
     soc_result = resolved.as_tuple()
     # Keep the primary SOC label short so glance/ring cards stay compact.
@@ -237,31 +228,10 @@ def build_dashboard_html(
     _n = parse_number(_load[0]) if _load else None
     load_pct = f"{_n:.0f}%" if _n is not None else "—"
     _pd = extract_first_metric(status, ("pDischarge", "pDischarge1"))
-    _pc = extract_first_metric(status, ("pCharge", "pCharge1"))
     _pdv = parse_number(_pd[0]) if _pd else None
-    _pcv = parse_number(_pc[0]) if _pc else None
-    est_runtime = "—"
-    runtime_note = "Usable energy unavailable"
-    if battery_capacity_wh > 0 and soc_result:
-        _usable_runtime_kwh = max(0.0, (soc_result[0] - battery_bms_cutoff_soc) / 100.0 * battery_capacity_wh / 1000.0)
-        runtime_note = f"Usable to {_fmt_pct(battery_bms_cutoff_soc)} floor: {_fmt_kwh(_usable_runtime_kwh)}"
-    elif battery_capacity_wh > 0:
-        runtime_note = "Capacity " + _fmt_kwh(battery_capacity_wh / 1000.0)
-    if _pdv is not None or _pcv is not None:
-        _bw = (_pdv or 0.0) - (_pcv or 0.0)
-        if battery_capacity_wh > 0 and soc_result:
-            if _bw > 0:
-                if _bw < 200:
-                    est_runtime = "PV covering load"
-                    runtime_note = f"Live battery draw only {_fmt_w(_bw)}"
-                else:
-                    _rt = estimate_runtime(soc_result[0], _bw, battery_capacity_wh, battery_bms_cutoff_soc)
-                    if _rt is not None:
-                        est_runtime = format_duration_minutes(_rt) + " remaining"
-            elif _bw < 0:
-                _ct = estimate_charge_time(soc_result[0], abs(_bw), battery_capacity_wh)
-                if _ct is not None:
-                    est_runtime = format_duration_minutes(_ct) + " to full"
+    runtime = dashboard_data["runtime"]
+    est_runtime = runtime["display"]
+    runtime_note = runtime["note"]
     _vbat = extract_first_metric(status, ("vBat", "vBat1", "vbat"))
     _vbat_n = parse_number(_vbat[0]) if _vbat else None
     vbat = f"{_vbat_n:g} V" if _vbat_n is not None else "—"
@@ -272,10 +242,9 @@ def build_dashboard_html(
         sunrise_display = format_duration_minutes(hours_to_sunrise * 60)
         if battery_charge_rate_w > 0 and soc_result and _pdv is not None and _pdv > 0:
             topup_load_w = _pdv
-            history = read_discharge_rate_history()
-            rates = [r["rate_w"] for r in history if isinstance(r.get("rate_w"), (int, float))]
-            if len(rates) >= 2:
-                topup_load_w = sum(rates) / len(rates)
+            learned_load_w = dashboard_data["automation"].get("learned_load_w")
+            if isinstance(learned_load_w, (int, float)):
+                topup_load_w = learned_load_w
 
             margin_minutes = max(0.0, auto_topup_solar_skip_min_margin_minutes)
             margin_hours = hours_to_sunrise + margin_minutes / 60.0
@@ -304,8 +273,8 @@ def build_dashboard_html(
                         if auto_topup_max_minutes > 0 and topup_min > auto_topup_max_minutes:
                             topup_min = round(auto_topup_max_minutes)
                         topup_sunrise_display = format_duration_minutes(topup_min)
-    pause_state = read_pause_state()
-    pause = pause_message(pause_state) if pause_state else "active"
+    pause_state = dashboard_data["automation"].get("pause_state")
+    pause = str(dashboard_data["automation"]["pause"])
     outage = outage_mode_label(schedule=schedule)
     profile = str(schedule.get("active_profile") or "").strip()
     profile_label = str(schedule.get("profile_label") or profile or "single schedule")
@@ -327,40 +296,22 @@ def build_dashboard_html(
             )
         profile_buttons_html = "".join(buttons)
     profile_line = f"Outage days: {outage}" + (f" · Profile: {profile}" if profile else "")
-    alert_state = read_battery_alert_state()
-    alert = "active" if alert_state and alert_state.get("active") else "clear"
-    cloud_state = read_growatt_cloud_failure_state()
-    cloud_streak = int(cloud_state.get("count", 0)) if cloud_state else 0
+    alert = str(dashboard_data["automation"]["emergency_alert"])
+    cloud_streak = int(dashboard_data["automation"].get("cloud_failure_streak") or 0)
     today_override = today_schedule_override(overrides, now.date())
     override_note = str(today_override.get("note", "")).strip() or "none"
     skipped = ", ".join(today_override.get("skip", [])) if isinstance(today_override.get("skip", []), list) else ""
-    last_actions = [
-        row
-        for row in read_mode_audit_rows(limit=40, newest_first=True)
-        if str(row.get("dry_run", "")).strip().lower() != "true"
-    ][:8]
-    if dashboard_data is None:
-        sbu_guard = build_sbu_guard_status(
-            min_sbu_return_soc,
-            audit_rows=last_actions,
-            utility_hold=utility_hold_state,
-        )
-        topup_status = {"active": bool(utility_hold_state), "ownership": (utility_hold_state or {}).get("ownership")}
-    else:
-        sbu_guard = dashboard_data["automation"]["sbu_return_guard"]
-        topup_status = dashboard_data["automation"].get("topup_status") or {"active": False}
+    last_actions = dashboard_data["automation"]["recent_decisions"]
+    sbu_guard = dashboard_data["automation"]["sbu_return_guard"]
+    topup_status = dashboard_data["automation"].get("topup_status") or {"active": False}
     next_runs = next_scheduled_runs(schedule, now=now, limit=8)
-    next_action = (
-        dashboard_data["schedule"]["next_action"]
-        if dashboard_data is not None
-        else build_dashboard_next_action(schedule, now=now)
-    )
+    next_action = dashboard_data["schedule"]["next_action"]
     stale_minutes_text = f"{stale_after_minutes:g}"
 
     today_jobs = _today_job_rows(schedule, today_override, now.date())
     schedule_timeline = build_dashboard_schedule_timeline(schedule, today_override, now=now)
-    upcoming_overrides = _upcoming_override_rows(overrides, now.date())
-    chart_data_json = json.dumps(build_chart_data(now=now))
+    upcoming_overrides = dashboard_data["schedule"].get("upcoming_overrides") or []
+    chart_data_json = json.dumps(dashboard_data["automation"]["chart_data"])
     pv_power_display = _fmt_w(live_metrics.get("pv_w"))
     grid_power_display = _fmt_w(live_metrics.get("grid_w"))
     load_power_display = _fmt_w(live_metrics.get("load_w"))
@@ -376,30 +327,7 @@ def build_dashboard_html(
     load_today_display = _fmt_kwh(live_metrics.get("load_today_kwh"))
     grid_today_display = _fmt_kwh(live_metrics.get("grid_today_kwh"))
     pv_total_text = str(live_metrics.get("pv_total") or "").strip()
-    if dashboard_data is not None:
-        tonight_risk = dashboard_data["planner"]["tonight_risk"]
-    else:
-        projected_sunset_soc = _project_sunset_soc(live_metrics, battery_capacity_wh, hours_to_sunset)
-        overnight_hours = None
-        risk_start_soc = None
-        risk_basis = ""
-        if projected_sunset_soc is not None and _should_use_projected_sunset_start(now, hours_to_sunset, hours_to_sunrise):
-            overnight_hours = float(hours_to_sunrise or 0) - float(hours_to_sunset or 0)
-            risk_start_soc = projected_sunset_soc
-            risk_basis = "projected sunset SOC"
-        tonight_risk = build_tonight_risk(
-            live_metrics,
-            battery_capacity_wh,
-            battery_bms_cutoff_soc,
-            hours_to_sunrise,
-            battery_charge_rate_w,
-            auto_topup_target_soc,
-            auto_topup_solar_skip_min_margin_minutes,
-            projection_start_soc=risk_start_soc,
-            projection_hours=overnight_hours,
-            projection_basis=risk_basis,
-            now=now,
-        )
+    tonight_risk = dashboard_data["planner"]["tonight_risk"]
     tonight_badge_class = _status_badge_class(str(tonight_risk.get("level", "unknown")))
     tonight_title = str(tonight_risk.get("title", "Unknown"))
     tonight_detail = str(tonight_risk.get("detail", ""))
@@ -435,25 +363,7 @@ def build_dashboard_html(
         )
 
     # Utility hold status (shown when owned/adopted hold is active).
-    from growatt_guard.state import read_utility_hold_state as _read_hold
-    _hold_state = utility_hold_state if utility_hold_state is not None else _read_hold()
-    utility_hold_detail = ""
-    if _hold_state and _hold_state.get("ownership") in ("owned", "adopted"):
-        _own = str(_hold_state.get("ownership", "owned")).capitalize()
-        _target = _hold_state.get("target_soc")
-        _expiry_str = _hold_state.get("max_expiry", "")
-        _eta_str = ""
-        if _expiry_str:
-            try:
-                import datetime as _dt2
-                from growatt_guard.state import parse_utc_datetime as _putc, utc_now as _unow
-                _exp = _putc(str(_expiry_str))
-                _rem_min = int(max(0, (_exp - _unow()).total_seconds() // 60))
-                _eta_str = f" · ETA {_rem_min}m"
-            except Exception:  # noqa: BLE001
-                pass
-        _target_str = f"{_target:.0f}%" if isinstance(_target, (int, float)) else "?"
-        utility_hold_detail = f"{_own} Utility hold · returning to SBU at {_target_str}{_eta_str}"
+    utility_hold_detail = str(dashboard_data["automation"].get("utility_hold_detail") or "")
 
     soc_value = soc_result[0] if soc_result else None
     soc_gauge_value = max(0.0, min(100.0, float(soc_value))) if isinstance(soc_value, (int, float)) else 0.0
@@ -499,45 +409,14 @@ def build_dashboard_html(
         battery_context = f"Idle · {soc_health}"
     if soc_note:
         battery_context = f"{battery_context} · {soc_note}"
-    if dashboard_data is None:
-        metric_sources = extract_dashboard_metric_sources(status)
-        data_quality = build_dashboard_data_quality(live_metrics, metric_sources)
-        daily_insights = build_dashboard_daily_insights(live_metrics, metric_history, now=now)
-        energy_outlook = build_dashboard_energy_outlook(
-            live_metrics,
-            tonight_risk,
-            pv_forecast,
-            threshold_decision,
-            hours_to_sunset,
-            hours_to_sunrise,
-            battery_capacity_wh,
-            battery_charge_rate_w,
-        )
-    else:
-        metric_sources = dashboard_data["sources"]
-        data_quality = dashboard_data["quality"]["data"]
-        daily_insights = dashboard_data["insights"]["daily"]
-        energy_outlook = dashboard_data["planner"]["outlook"]
+    metric_sources = dashboard_data["sources"]
+    data_quality = dashboard_data["quality"]["data"]
+    daily_insights = dashboard_data["insights"]["daily"]
+    energy_outlook = dashboard_data["planner"]["outlook"]
     threshold_display = _fmt_g(getattr(threshold_decision, "threshold", None), "%")
     threshold_reason = str(getattr(threshold_decision, "reason", "") or "Weather signal is unavailable.")
-    if dashboard_data is None:
-        home_status = build_dashboard_home_status(
-            live_metrics, mode, battery_flow_dir, tonight_risk, next_action, now=now,
-        )
-        recommendations = build_dashboard_recommendations(
-            live_metrics=live_metrics,
-            soc_health=soc_health,
-            battery_flow_dir=battery_flow_dir,
-            tonight_risk=tonight_risk,
-            daily_insights=daily_insights,
-            pv_power_display=pv_power_display,
-            grid_status_text=grid_status_text,
-            energy_outlook=energy_outlook,
-            threshold_decision=threshold_decision,
-        )
-    else:
-        home_status = dashboard_data["assistant"]["status"]
-        recommendations = dashboard_data["assistant"]["recommendations"]
+    home_status = dashboard_data["assistant"]["status"]
+    recommendations = dashboard_data["assistant"]["recommendations"]
 
     _tmr_value = energy_outlook.get("tomorrow_kwh")
     _tmr_str = _fmt_kwh(_tmr_value)
@@ -861,7 +740,9 @@ def build_dashboard_html(
         + "<td>{}</td>".format(esc(n) if n else '<span class="muted">—</span>')
         + f"<td>{esc(a)}</td>"
         + "</tr>"
-        for d, n, a in upcoming_overrides
+        for d, n, a in (
+            (row["date"], row["note"], row["action"]) for row in upcoming_overrides
+        )
     )
     upcoming_overrides_html = (
         '<div class="table-wrap"><table><thead><tr><th>Date</th><th>Note</th><th>Actions</th></tr></thead>'
@@ -881,7 +762,9 @@ def build_dashboard_html(
     )
 
     # ---- System tab ----------------------------------------------------------
-    pvoutput_badge, pvoutput_badge_class, pvoutput_detail = _pvoutput_status(read_pvoutput_state(), now)
+    pvoutput_badge, pvoutput_badge_class, pvoutput_detail = _pvoutput_status(
+        dashboard_data["pvoutput"], now,
+    )
     health_rows_html = _render_health_rows(
         [
             ("Inverter Mode", bat_status, mode, mode_badge_class),

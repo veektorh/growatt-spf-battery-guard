@@ -137,8 +137,14 @@ public-safe: no IDs, serials, domains, or credentials.
   files itself, so `dashboard.json` lacks automation history, recent decisions,
   upcoming overrides, and runtime.
 - Steps, each a separate small PR:
-  - Move those reads into `dashboard_viewmodel.py` so the HTML renders only
-    from the payload.
+  - Done 2026-11-12: the renderer reads nothing. Pause, alert, cloud streak,
+    PVOutput, audit rows and discharge-rate reads moved into
+    `dashboard_viewmodel.py`, and the payload now carries automation history,
+    recent decisions, upcoming overrides, runtime, the learned load and the
+    Utility-hold detail. Rendered HTML was byte-identical to the previous code
+    with empty and with populated state. Still open in this step:
+    `build_dashboard_html` takes raw status, schedule and config scalars, so a
+    payload-only signature remains.
   - Unify the two top-up estimates: the "Topup to Sunrise" row can show a dash
     while the Top-up Tonight tile shows minutes.
   - Fix the grid label: "Solar covering entire load" appears whenever grid

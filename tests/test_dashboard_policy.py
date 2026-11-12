@@ -491,7 +491,7 @@ class DashboardTests(unittest.TestCase):
             "growatt_guard.dashboard_service.publish_pvoutput_status_from_status",
             return_value=(True, "PVOutput OK: v2=1200"),
         ) as pvoutput_mock, patch(
-            "growatt_guard.dashboard.read_mode_audit_rows", return_value=[]
+            "growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]
         ), redirect_stdout(StringIO()) as stdout:
             output = Path(tmpdir) / "dashboard.html"
             result = command_observability_refresh(config, str(output), 1, loop=False)
@@ -530,7 +530,7 @@ class DashboardTests(unittest.TestCase):
             "growatt_guard.state.GROWATT_CLOUD_FAILURE_FILE", Path(tmpdir) / "growatt_cloud_failures.json"
         ), patch(
             "growatt_guard.dashboard_metrics.DASHBOARD_METRICS_FILE", Path(tmpdir) / "dashboard_metrics.jsonl"
-        ), patch("growatt_guard.dashboard.read_mode_audit_rows", return_value=[]), redirect_stdout(StringIO()):
+        ), patch("growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]), redirect_stdout(StringIO()):
             output = Path(tmpdir) / "dashboard.html"
             command_dashboard(config, str(output))
             html = output.read_text(encoding="utf-8")
