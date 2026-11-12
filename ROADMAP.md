@@ -93,19 +93,6 @@ public-safe: no IDs, serials, domains, or credentials.
   target from the next morning's preserve threshold on outage days.
 - Done when: one option is chosen with the owner, trialled, and reviewed.
 
-### N4. Recheck the rainy-day PV forecast factor
-
-- Status: ready. Read-only analysis first.
-- Why: the learned rainy factor is 84%, but recent rainy days came in far lower
-  (for example 13.4 kWh actual against 31.8 forecast, and 20.6 against 27.9).
-  The forecast feeds the "tomorrow can run leaner" recommendation and the sunny
-  top-up skip.
-- Steps: in `growatt_guard/forecast_calibration.py`, compare the all-history
-  ratio with a recent-window ratio (last 7 to 14 completed rainy days) and
-  report both before changing the factor.
-- Done when: the comparison is documented and either the weighting changes with
-  tests or the task is closed with the reason.
-
 ### N5. Confirm the preserve-window deferral in production
 
 - Status: waiting for a natural occurrence. Read-only.
@@ -168,7 +155,10 @@ The following capabilities are implemented and should be preserved:
 - An append-only daily-generation ledger seeded from verified Growatt history
   and advanced from completed late-evening observability days.
 - Forecast-versus-actual calibration with evidence thresholds before tuning
-  recommendations.
+  recommendations. The rainy/cloudy factor learns from the last 14 completed
+  rainy days and reports the all-history ratio beside it: on 2026-11-12 the
+  45-day pooled ratio was 0.83 while the last 11 days pooled 0.70, so the
+  long window was hiding a seasonal drop that the 14-day window follows.
 - Schedule overrides, outage profiles, dry-plan preview, calendar export, and
   schedule lint for duplicate, fast, or tightly spaced jobs.
 - Selective backup/restore with strict validation for active Utility holds and

@@ -10,6 +10,10 @@ from growatt_guard.state import (
 
 FORECAST_CALIBRATION_RETENTION_DAYS = 45
 FORECAST_CALIBRATION_MIN_SAMPLES = 5
+# The factor is a planning input, so it follows the most recent completed rainy
+# days instead of the whole retained history: a six-week pooled window lagged the
+# dry-season drop (0.83 pooled against 0.70 in the last eleven days) by weeks.
+RAINY_FORECAST_RECENT_DAYS = 14
 RAINY_FORECAST_DEFAULT_FACTOR = 0.60
 RAINY_FORECAST_MIN_FACTOR = 0.40
 RAINY_FORECAST_MAX_FACTOR = 1.00
@@ -68,26 +72,30 @@ def _summarize(
     rainy_predicted = sum(float(row["predicted_kwh"]) for row in rainy_rows)
     rainy_actual = sum(float(row["actual_kwh"]) for row in rainy_rows)
     rainy_ratio = rainy_actual / rainy_predicted if rainy_predicted > 0 else None
-    rainy_sample_count = len(rainy_rows)
+    recent_rainy_rows = rainy_rows[-RAINY_FORECAST_RECENT_DAYS:]
+    recent_predicted = sum(float(row["predicted_kwh"]) for row in recent_rainy_rows)
+    recent_actual = sum(float(row["actual_kwh"]) for row in recent_rainy_rows)
+    recent_rainy_ratio = recent_actual / recent_predicted if recent_predicted > 0 else None
+    rainy_sample_count = len(recent_rainy_rows)
     rainy_errors = [
         float(row["actual_kwh"]) - float(row["predicted_kwh"])
-        for row in rainy_rows
+        for row in recent_rainy_rows
     ]
     confidence = (
-        "high" if rainy_sample_count >= 14
+        "high" if rainy_sample_count >= RAINY_FORECAST_RECENT_DAYS
         else ("medium" if rainy_sample_count >= FORECAST_CALIBRATION_MIN_SAMPLES else "learning")
     )
     rainy_factor = RAINY_FORECAST_DEFAULT_FACTOR
     rainy_factor_source = "conservative default"
-    if rainy_sample_count >= FORECAST_CALIBRATION_MIN_SAMPLES and rainy_ratio is not None:
+    if rainy_sample_count >= FORECAST_CALIBRATION_MIN_SAMPLES and recent_rainy_ratio is not None:
         rainy_factor = round(
-            min(RAINY_FORECAST_MAX_FACTOR, max(RAINY_FORECAST_MIN_FACTOR, rainy_ratio)),
+            min(RAINY_FORECAST_MAX_FACTOR, max(RAINY_FORECAST_MIN_FACTOR, recent_rainy_ratio)),
             2,
         )
-        rainy_factor_source = "learned from rainy/cloudy days"
+        rainy_factor_source = "learned from recent rainy/cloudy days"
         recommendation = (
             f"Rainy/cloudy forecasts use {rainy_factor * 100:.0f}% of the Open-Meteo base, "
-            f"learned from {rainy_sample_count} comparable completed day(s)."
+            f"learned from the last {rainy_sample_count} comparable completed day(s)."
         )
     else:
         remaining = FORECAST_CALIBRATION_MIN_SAMPLES - rainy_sample_count
@@ -115,6 +123,9 @@ def _summarize(
         "recommendation": recommendation,
         "rainy_sample_count": rainy_sample_count,
         "rainy_actual_to_forecast_ratio": round(rainy_ratio, 3) if rainy_ratio is not None else None,
+        "rainy_recent_actual_to_forecast_ratio": (
+            round(recent_rainy_ratio, 3) if recent_rainy_ratio is not None else None
+        ),
         "rainy_adjustment_factor": rainy_factor,
         "rainy_mean_absolute_error_kwh": (
             round(sum(abs(error) for error in rainy_errors) / rainy_sample_count, 2) if rainy_errors else None

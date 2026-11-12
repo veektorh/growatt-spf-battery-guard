@@ -6,8 +6,10 @@ from unittest.mock import patch
 
 from growatt_guard.forecast_calibration import (
     apply_weather_adjustment,
+    summarize_forecast_calibration,
     update_forecast_calibration,
 )
+from growatt_guard.state import write_forecast_calibration_history
 
 
 class ForecastCalibrationTests(unittest.TestCase):
@@ -77,6 +79,31 @@ class ForecastCalibrationTests(unittest.TestCase):
         self.assertEqual(summary["rainy_adjustment_factor"], 0.8)
         self.assertIn("80% of the Open-Meteo base", summary["recommendation"])
         self.assertNotIn("PANEL_PERFORMANCE_RATIO", summary["recommendation"])
+
+    def test_rainy_factor_follows_the_recent_window_not_all_history(self):
+        now = dt.datetime(2026, 11, 12, 20, 0, tzinfo=dt.timezone.utc)
+        history = []
+        for days_ago in range(20, 0, -1):
+            forecast_date = (now - dt.timedelta(days=days_ago)).date()
+            history.append(
+                {
+                    "forecast_date": forecast_date.isoformat(),
+                    "predicted_kwh": 10.0,
+                    "actual_kwh": 10.0 if days_ago > 8 else 5.0,
+                    "weather_category": "rainy/cloudy",
+                }
+            )
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.state.FORECAST_CALIBRATION_FILE", Path(tmpdir) / "forecast.json"
+        ):
+            write_forecast_calibration_history(history)
+            summary = summarize_forecast_calibration()
+
+        self.assertEqual(summary["rainy_sample_count"], 14)
+        self.assertEqual(summary["rainy_actual_to_forecast_ratio"], 0.8)
+        self.assertEqual(summary["rainy_recent_actual_to_forecast_ratio"], 0.714)
+        self.assertEqual(summary["rainy_adjustment_factor"], 0.71)
+        self.assertIn("the last 14 comparable completed day(s)", summary["recommendation"])
 
     def test_applies_default_rainy_factor_to_headline_without_compounding(self):
         forecast = {
