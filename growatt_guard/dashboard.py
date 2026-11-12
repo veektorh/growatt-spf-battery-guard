@@ -235,8 +235,6 @@ def build_dashboard_html(
     _load = extract_first_metric(status, ("loadPercent", "loadPercent1"))
     _n = parse_number(_load[0]) if _load else None
     load_pct = f"{_n:.0f}%" if _n is not None else "—"
-    _pd = extract_first_metric(status, ("pDischarge", "pDischarge1"))
-    _pdv = parse_number(_pd[0]) if _pd else None
     runtime = dashboard_data["runtime"]
     est_runtime = runtime["display"]
     runtime_note = runtime["note"]
@@ -245,42 +243,8 @@ def build_dashboard_html(
     vbat = f"{_vbat_n:g} V" if _vbat_n is not None else "—"
     battery_temp = format_battery_temperature(status)
     sunrise_display = "—"
-    topup_sunrise_display = "—"
     if hours_to_sunrise is not None and hours_to_sunrise > 0:
         sunrise_display = format_duration_minutes(hours_to_sunrise * 60)
-        if battery_charge_rate_w > 0 and soc_result and _pdv is not None and _pdv > 0:
-            topup_load_w = _pdv
-            learned_load_w = dashboard_data["automation"].get("learned_load_w")
-            if isinstance(learned_load_w, (int, float)):
-                topup_load_w = learned_load_w
-
-            margin_minutes = max(0.0, auto_topup_solar_skip_min_margin_minutes)
-            margin_hours = hours_to_sunrise + margin_minutes / 60.0
-            effective_target_soc = max(battery_bms_cutoff_soc, auto_topup_target_soc)
-            estimates = [
-                estimate_topup_for_sunrise(
-                    soc_result[0], topup_load_w, battery_capacity_wh, battery_bms_cutoff_soc,
-                    battery_charge_rate_w, margin_hours,
-                ),
-                estimate_topup_for_sunrise(
-                    soc_result[0], topup_load_w, battery_capacity_wh, effective_target_soc,
-                    battery_charge_rate_w, hours_to_sunrise,
-                ),
-            ]
-            valid_estimates = [value for value in estimates if value is not None]
-            _ts = max(valid_estimates) if valid_estimates else None
-            if _ts is not None:
-                if _ts <= 0:
-                    topup_sunrise_display = "not needed"
-                else:
-                    topup_min = max(1, round(_ts))
-                    if auto_topup_min_minutes > 0 and _ts < auto_topup_min_minutes:
-                        minimum = format_duration_minutes(auto_topup_min_minutes)
-                        topup_sunrise_display = f"skip (<{minimum})"
-                    else:
-                        if auto_topup_max_minutes > 0 and topup_min > auto_topup_max_minutes:
-                            topup_min = round(auto_topup_max_minutes)
-                        topup_sunrise_display = format_duration_minutes(topup_min)
     pause_state = dashboard_data["automation"].get("pause_state")
     pause = str(dashboard_data["automation"]["pause"])
     outage = outage_mode_label(schedule=schedule)
@@ -365,6 +329,14 @@ def build_dashboard_html(
         if isinstance(tonight_topup, (int, float)) and tonight_topup > 0
         else ("not needed" if tonight_topup == 0 else "--")
     )
+    # One top-up estimate for the whole page: the planner's, not a second one
+    # computed here from a different load and horizon.
+    topup_sunrise_display = tonight_topup_display
+    if (
+        isinstance(tonight_topup, (int, float))
+        and 0 < tonight_topup < auto_topup_min_minutes
+    ):
+        topup_sunrise_display = f"skip (<{format_duration_minutes(auto_topup_min_minutes)})"
 
     # Tonight Safe headline (only shown after evening cutoff).
     _tonight_proj = tonight_risk.get("projected_sunrise_soc")
@@ -419,13 +391,7 @@ def build_dashboard_html(
     bypass_badge_class = "badge-fail" if bypass_detected else "badge-ok"
     bypass_badge_label = "Detected" if bypass_detected else "Clear"
     bypass_status_detail = bypass_reason or "No grid bypass detected"
-    _grid_w = live_metrics.get("grid_w") or 0
-    if _grid_w < 20:
-        grid_status_text = "Solar covering entire load"
-    elif _grid_w > 0:
-        grid_status_text = f"Drawing {grid_power_display} from grid"
-    else:
-        grid_status_text = f"Exporting {_fmt_w(abs(int(_grid_w)))} to grid"
+    grid_status_text = str(dashboard_data["grid_status_text"])
 
     if battery_flow_dir == "charging":
         battery_context = f"Charging · {soc_health}"

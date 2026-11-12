@@ -145,10 +145,13 @@ public-safe: no IDs, serials, domains, or credentials.
     with empty and with populated state. Still open in this step:
     `build_dashboard_html` takes raw status, schedule and config scalars, so a
     payload-only signature remains.
-  - Unify the two top-up estimates: the "Topup to Sunrise" row can show a dash
-    while the Top-up Tonight tile shows minutes.
-  - Fix the grid label: "Solar covering entire load" appears whenever grid
-    import is under 20 W, including at night on battery.
+  - Done 2026-11-12: one top-up estimate. The "Topup to Sunrise" row reads the
+    planner's minutes instead of a second estimate built from a different load
+    and horizon, and the manual `DISCORD_TOPUP_MAX_MINUTES` cap no longer
+    shortens it.
+  - Done 2026-11-12: the grid label comes from the payload, so a night on
+    battery reads "No meaningful grid draw" instead of "Solar covering entire
+    load".
   - With live data, look once at the Automation tab history chart and decisions
     table, and at an alert row on the Now tab when one applies.
 
