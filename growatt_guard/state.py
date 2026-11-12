@@ -741,6 +741,7 @@ def append_discharge_rate_reading(
     *,
     recorded_at: dt.datetime | None = None,
     aggregate_nightly: bool = False,
+    tz: dt.tzinfo | None = None,
 ) -> list[dict]:
     from growatt_guard.load_learning import night_band, night_key
 
@@ -748,9 +749,9 @@ def append_discharge_rate_reading(
     recorded_at = recorded_at or dt.datetime.now().astimezone()
     # One row per night: evening samples keep their date and after-midnight
     # samples join the night that started the evening before.
-    night = night_key(recorded_at)
+    night = night_key(recorded_at, tz)
     sample_date = night.isoformat()
-    band = night_band(recorded_at)
+    band = night_band(recorded_at, tz)
     entry = {
         "rate_w": round(rate_w),
         "recorded_at": recorded_at.isoformat(),

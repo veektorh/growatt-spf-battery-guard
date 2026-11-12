@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 MIN_MATCHING_NIGHTS = 3
@@ -71,13 +72,26 @@ OVERNIGHT_END_HOUR = 6
 NIGHT_BANDS = ("evening", "overnight")
 
 
-def _local(value: dt.datetime) -> dt.datetime:
+def resolve_timezone(name: Any) -> dt.tzinfo | None:
+    """Site timezone for night boundaries, or None to use the host's local time."""
+    text = str(name or "").strip()
+    if not text:
+        return None
+    try:
+        return ZoneInfo(text)
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+
+
+def _local(value: dt.datetime, tz: dt.tzinfo | None = None) -> dt.datetime:
+    if tz is not None:
+        return value.astimezone(tz) if value.tzinfo is not None else value.replace(tzinfo=tz)
     return value.astimezone() if value.tzinfo is not None else value
 
 
-def night_band(value: dt.datetime) -> str | None:
+def night_band(value: dt.datetime, tz: dt.tzinfo | None = None) -> str | None:
     """Which band a discharge sample belongs to, or None for daytime samples."""
-    hour = _local(value).hour
+    hour = _local(value, tz).hour
     if EVENING_START_HOUR <= hour < OVERNIGHT_START_HOUR:
         return "evening"
     if hour >= OVERNIGHT_START_HOUR or hour < OVERNIGHT_END_HOUR:
@@ -85,17 +99,17 @@ def night_band(value: dt.datetime) -> str | None:
     return None
 
 
-def night_key(value: dt.datetime) -> dt.date:
+def night_key(value: dt.datetime, tz: dt.tzinfo | None = None) -> dt.date:
     """The night a sample belongs to.
 
     Evening hours keep their date and after-midnight hours belong to the previous
     date, so one night's evening and overnight samples share a row and the night
     keeps the day type of the evening that started it.
     """
-    return (_local(value) - dt.timedelta(hours=OVERNIGHT_END_HOUR)).date()
+    return (_local(value, tz) - dt.timedelta(hours=OVERNIGHT_END_HOUR)).date()
 
 
-def band_hours(start: dt.datetime, hours: float, band: str) -> float:
+def band_hours(start: dt.datetime, hours: float, band: str, tz: dt.tzinfo | None = None) -> float:
     """Hours of a remaining horizon that fall inside one band.
 
     Bands change on the hour, so splitting the horizon at every hour boundary and
@@ -113,7 +127,7 @@ def band_hours(start: dt.datetime, hours: float, band: str) -> float:
     points = sorted(edges)
     total = 0.0
     for lower, upper in zip(points, points[1:]):
-        if night_band(lower + (upper - lower) / 2) == band:
+        if night_band(lower + (upper - lower) / 2, tz) == band:
             total += (upper - lower).total_seconds() / 3600.0
     return total
 
@@ -142,6 +156,7 @@ def select_night_load_profile(
     *,
     now: dt.datetime | None = None,
     hours: float,
+    tz: dt.tzinfo | None = None,
     min_matching_nights: int = MIN_MATCHING_NIGHTS,
 ) -> dict[str, Any]:
     """Learn the evening and overnight loads separately and weight them by the horizon.
@@ -151,7 +166,7 @@ def select_night_load_profile(
     the horizon still needs has no history, the profile is not ready and ``rate_w``
     is None so the caller keeps using the flat nightly average.
     """
-    local_now = _local(now or dt.datetime.now())
+    local_now = _local(now or dt.datetime.now(), tz)
     target = day_type(local_now)
     matching = [
         row
@@ -159,7 +174,7 @@ def select_night_load_profile(
         if isinstance(row.get("rate_w"), (int, float)) and _row_day_type(row) == target
     ]
     band_rates = {band: _band_average(matching, band) for band in NIGHT_BANDS}
-    band_spans = {band: band_hours(local_now, hours, band) for band in NIGHT_BANDS}
+    band_spans = {band: band_hours(local_now, hours, band, tz) for band in NIGHT_BANDS}
     # A night horizon can start before 18:00 or end after 06:00. Those hours are
     # outside both bands and are planned at the overnight rate, which is the rate
     # either side of them.

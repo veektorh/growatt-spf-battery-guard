@@ -327,6 +327,7 @@ def build_tonight_risk(
     projection_hours: float | None = None,
     projection_basis: str = "",
     now: dt.datetime | None = None,
+    tz: dt.tzinfo | None = None,
 ) -> dict[str, Any]:
     soc = live_metrics.get("soc")
     if not isinstance(soc, (int, float)):
@@ -370,7 +371,7 @@ def build_tonight_risk(
         basis = basis or "projected sunset SOC"
 
     history = read_discharge_rate_history()
-    profile = select_night_load_profile(history, now=now, hours=duration_hours)
+    profile = select_night_load_profile(history, now=now, hours=duration_hours, tz=tz)
     if profile["rate_w"] is not None:
         load_w = float(profile["rate_w"])
         source = str(profile["source"])

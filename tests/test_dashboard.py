@@ -414,7 +414,8 @@ class DashboardTests(unittest.TestCase):
                 battery_bms_cutoff_soc=20,
                 hours_to_sunrise=11.2,
                 battery_charge_rate_w=1950,
-                now=dt.datetime(2026, 11, 12, 19, 20, tzinfo=dt.timezone(dt.timedelta(hours=1))),
+                now=dt.datetime(2026, 11, 12, 18, 20, tzinfo=dt.timezone.utc),
+                tz=dt.timezone(dt.timedelta(hours=1)),
             )
 
         self.assertIn("weekday bands", risk["detail"])

@@ -15,6 +15,7 @@ from growatt_guard.dashboard_metrics import (
     _fmt_kwh, _fmt_pct, _fmt_w, _history_with_live, build_dashboard_history_payload,
     extract_dashboard_metric_sources, extract_dashboard_metrics,
 )
+from growatt_guard.load_learning import resolve_timezone
 from growatt_guard.dashboard_insights import (
     build_dashboard_daily_insights, build_dashboard_data_quality, build_tonight_risk,
 )
@@ -164,6 +165,7 @@ def build_dashboard_data_payload(
         projection_hours=overnight_hours,
         projection_basis=risk_basis,
         now=now,
+        tz=resolve_timezone(schedule.get("timezone")),
     )
     battery_net_w = _numeric_metric(live_metrics.get("battery_net_w")) or 0.0
     battery_flow_dir = "discharging" if battery_net_w > 0 else ("charging" if battery_net_w < 0 else "standby")

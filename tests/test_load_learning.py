@@ -107,6 +107,7 @@ class BandedNightLoadTests(unittest.TestCase):
                     rate,
                     recorded_at=dt.datetime(2026, 11, day, hour, 0, tzinfo=self.TZ),
                     aggregate_nightly=True,
+                    tz=self.TZ,
                 )
             rows = state_mod.read_discharge_rate_history()
 
@@ -120,8 +121,9 @@ class BandedNightLoadTests(unittest.TestCase):
     def test_profile_weights_bands_by_the_remaining_horizon(self):
         result = select_night_load_profile(
             self._history(),
-            now=dt.datetime(2026, 11, 12, 19, 20, tzinfo=self.TZ),
+            now=dt.datetime(2026, 11, 12, 18, 20, tzinfo=dt.timezone.utc),
             hours=11.2,
+            tz=self.TZ,
         )
 
         self.assertTrue(result["ready"])

@@ -430,12 +430,16 @@ class DischargeRateAverageTests(unittest.TestCase):
                 for days_ago in range(3, 0, -1):
                     evening = dt.datetime(2026, 11, 12, 19, 0, tzinfo=fixed_now.tzinfo) - dt.timedelta(days=days_ago)
                     overnight = evening + dt.timedelta(hours=7)
-                    state_mod.append_discharge_rate_reading(2500, recorded_at=evening, aggregate_nightly=True)
-                    state_mod.append_discharge_rate_reading(1600, recorded_at=overnight, aggregate_nightly=True)
+                    state_mod.append_discharge_rate_reading(
+                        2500, recorded_at=evening, aggregate_nightly=True, tz=fixed_now.tzinfo
+                    )
+                    state_mod.append_discharge_rate_reading(
+                        1600, recorded_at=overnight, aggregate_nightly=True, tz=fixed_now.tzinfo
+                    )
             with patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", dr_file), patch(
                 "growatt_guard.topup.select_night_load_profile",
                 side_effect=lambda history, **kwargs: real_profile(history, now=fixed_now, **kwargs),
-            ):
+            ), patch("growatt_guard.topup.resolve_timezone", return_value=fixed_now.tzinfo):
                 result = self._run_check(cfg, tmpdir, discharge_w=2500.0, prior_readings=[])
 
         # 2.67 h of 2500 W evening load plus 2.33 h of 1600 W overnight load over a
