@@ -622,7 +622,7 @@ class DashboardTests(unittest.TestCase):
         schedule = {"timezone": "Africa/Lagos", "jobs": []}
 
         with patch(
-            "growatt_guard.dashboard_viewmodel.read_discharge_rate_history",
+            "growatt_guard.dashboard_insights.read_discharge_rate_history",
             return_value=[{"rate_w": 1507}, {"rate_w": 1507}],
         ), patch("growatt_guard.dashboard_viewmodel.read_pause_state", return_value=None), patch(
             "growatt_guard.dashboard_viewmodel.read_battery_alert_state", return_value=None
@@ -652,7 +652,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Topup to Sunrise", html)
         self.assertIn("skip (&lt;20min)", html)
 
-    def test_dashboard_topup_estimate_uses_the_schedule_window_bound(self):
+    def test_dashboard_topup_estimate_is_not_shortened_by_the_manual_cap(self):
         status = {
             "storage_params": {
                 "storageBean": {"outputConfig": "0"},
@@ -667,7 +667,7 @@ class DashboardTests(unittest.TestCase):
 
         def render(**overrides) -> str:
             with patch(
-                "growatt_guard.dashboard_viewmodel.read_discharge_rate_history",
+                "growatt_guard.dashboard_insights.read_discharge_rate_history",
                 return_value=[{"rate_w": 2000}, {"rate_w": 2000}],
             ), patch("growatt_guard.dashboard_viewmodel.read_pause_state", return_value=None), patch(
                 "growatt_guard.dashboard_viewmodel.read_battery_alert_state", return_value=None
@@ -697,7 +697,34 @@ class DashboardTests(unittest.TestCase):
         # 2000 W load, 1000 W charge, no usable SOC and 11h horizon wants 7h 20m;
         # the manual /growatt_topup limit must not shorten the scheduled estimate.
         self.assertIn("7h 20m", render())
-        self.assertIn("3h 00m", render(auto_topup_max_minutes=180))
+        self.assertIn("7h 20m", render(auto_topup_max_minutes=180))
+
+    def test_dashboard_grid_label_distinguishes_night_from_solar_cover(self):
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+
+        def render(pv_w: int) -> str:
+            status = {
+                "storage_params": {
+                    "storageBean": {"outputConfig": "0", "pGrid": 0, "ppv": pv_w, "outPutPower": 900,
+                                    "pDischarge": 900},
+                    "storageDetailBean": {"bmsSoc": 60},
+                }
+            }
+            with patch("growatt_guard.dashboard_viewmodel.read_pause_state", return_value=None), patch(
+                "growatt_guard.dashboard_viewmodel.read_battery_alert_state", return_value=None
+            ), patch("growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value={}), patch(
+                "growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None
+            ), patch("growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]), patch(
+                "growatt_guard.dashboard_viewmodel.build_chart_data", return_value={"labels": []}
+            ):
+                return build_dashboard_html(
+                    status, schedule, {"dates": {}}, ThresholdDecision(50, "test"),
+                    battery_capacity_wh=10000, battery_bms_cutoff_soc=20,
+                )
+
+        self.assertIn("No meaningful grid draw", render(0))
+        self.assertNotIn("Solar covering entire load", render(0))
+        self.assertIn("Solar covering entire load", render(2000))
 
     def test_dashboard_recent_activity_hides_dry_run_rows(self):
         status = {"device": {"capacity": "90%"}, "storage_params": {"storageBean": {"outputConfig": "0"}}}

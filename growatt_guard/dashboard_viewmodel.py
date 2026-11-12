@@ -286,6 +286,7 @@ def build_dashboard_data_payload(
                 for run_at, job in next_runs
             ],
         },
+        "grid_status_text": grid_status_text,
         "pvoutput": pvoutput_state,
         "runtime": runtime,
         "history": build_dashboard_history_payload(metric_history, now=now),
