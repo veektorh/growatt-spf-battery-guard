@@ -85,6 +85,9 @@ public-safe: no IDs, serials, domains, or credentials.
     for N2.
 - Remaining: one more night (2026-11-12), then write the verdict and close this
   task.
+- Tomorrow, 2026-11-13: the night of 2026-11-12 is the third and final one.
+  Read its `auto-topup-started` rows, count them against the 2026-11-09 window
+  (three starts), and write the verdict here.
 - Done when: three nights are reviewed and the result is written here as either
   "fewer repeat top-ups" or a follow-up task with the numbers.
 
@@ -150,6 +153,15 @@ public-safe: no IDs, serials, domains, or credentials.
   target plus headroom (about 6.7 points of drain instead of 3.7), roughly
   doubling the interval between windows. The risk tile reports both
   `target_soc` and `plan_target_soc`.
+- Tomorrow, 2026-11-13, read these three things from the night of 2026-11-12:
+  - `auto-topup-started` count per night, against the 2026-11-09 window's three.
+  - The gap between a `topup-complete-check` and the next start. The corrected
+    sizing should land about three points above the policy target and stretch
+    the re-arm interval towards two hours instead of the 2026-11-11 one.
+  - `planned_load_w` on each start: it stays the flat average until three
+    matching nights carry `bands`, so a banded value is the signal that the
+    evening/overnight split is live. `state/discharge_rate_history.json` shows
+    whether the newest rows have `bands`.
 - Done when: banded planning is in use in production (audit `planned_load_w`
   reflects the horizon-weighted load), the headroom change is in, and N1-style
   checks over three nights show fewer repeat top-ups than the 2026-11-09
