@@ -329,9 +329,6 @@ def command_auto_topup_check(config: Config) -> int:
     effective_target_soc = max(config.battery_bms_cutoff_soc, config.auto_topup_target_soc)
     if late_safety_window:
         effective_target_soc = max(effective_target_soc, safety_floor_soc)
-    # Headroom stops a completion from landing exactly on target, where the next
-    # checks rebuild the same deficit and start another window.
-    effective_target_soc += max(0.0, config.auto_topup_headroom_soc)
     target_topup_min_f = estimate_topup_for_sunrise(
         soc, load_w, config.battery_capacity_wh, effective_target_soc,
         charge_rate_w, hrs,
@@ -340,15 +337,38 @@ def command_auto_topup_check(config: Config) -> int:
         value for value in (target_topup_min_f, margin_topup_min_f)
         if value is not None
     ]
+    # The decision uses the policy target. The headroom sizes the window past it,
+    # because a plan that lands exactly on target re-arms the next checks after
+    # the same drain that caused the window in the first place.
+    headroom_soc = max(0.0, config.auto_topup_headroom_soc)
+    plan_target_soc = effective_target_soc + headroom_soc
     topup_min_f = max(topup_candidates) if topup_candidates else None
     if topup_min_f is None or topup_min_f <= 0:
         margin_text = f" plus {margin_minutes:.0f}min margin" if margin_minutes > 0 else ""
         print(f"Battery sufficient to reach sunrise{margin_text} (SOC={soc:.0f}%, {hrs:.1f}h remaining).")
         return 0
 
+    plan_min_f = topup_min_f
+    if headroom_soc > 0:
+        plan_candidates = [
+            value for value in (
+                estimate_topup_for_sunrise(
+                    soc, load_w, config.battery_capacity_wh, plan_target_soc,
+                    charge_rate_w, hrs,
+                ),
+                estimate_topup_for_sunrise(
+                    soc, load_w, config.battery_capacity_wh, plan_target_soc,
+                    charge_rate_w, hrs + margin_minutes / 60.0,
+                ) if margin_minutes > 0 else None,
+            )
+            if value is not None
+        ]
+        if plan_candidates:
+            plan_min_f = max(plan_min_f, max(plan_candidates))
+
     # Floor at 1 min: topup_min_f can be e.g. 0.3 (passes the >0 check above) yet
     # round to 0, which would make command_pause raise on a 0-hour pause.
-    topup_min = max(1, round(topup_min_f))
+    topup_min = max(1, round(plan_min_f))
     if (
         config.auto_topup_min_minutes > 0
         and topup_min_f < config.auto_topup_min_minutes
@@ -438,7 +458,7 @@ def command_auto_topup_check(config: Config) -> int:
     # Completion target is the SOC needed when the planned Utility window ends,
     # not the SOC needed right now. The topup period itself avoids discharge.
     current_soc_target = _topup_completion_target_soc(
-        effective_target_soc,
+        plan_target_soc,
         load_w,
         config.battery_capacity_wh,
         hrs,
@@ -495,7 +515,7 @@ def command_auto_topup_check(config: Config) -> int:
             f"plan_kind={'late-safety' if late_safety_window else 'reserve'}"
         ),
     )
-    target_soc_arg = effective_target_soc if effective_target_soc > config.battery_bms_cutoff_soc else None
+    target_soc_arg = plan_target_soc if plan_target_soc > config.battery_bms_cutoff_soc else None
     if config.discord_notify_success and not config.dry_run:
         send_discord_embed(config, embed_auto_topup_started(
             soc,
@@ -506,7 +526,7 @@ def command_auto_topup_check(config: Config) -> int:
             completion_target_soc=current_soc_target,
         ))
 
-    target_note = f", target {effective_target_soc:g}% SOC" if target_soc_arg else ""
+    target_note = f", target {plan_target_soc:g}% SOC" if target_soc_arg else ""
     print(f"Auto-topup started: {topup_min}min on Utility (SOC={soc:.0f}%, {hrs:.1f}h to sunrise{target_note}).")
     return 0
 

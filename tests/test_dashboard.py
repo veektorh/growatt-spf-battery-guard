@@ -391,8 +391,11 @@ class DashboardTests(unittest.TestCase):
                 now=dt.datetime(2026, 11, 12, 19, 20),
             )
 
+        # The policy target and therefore the risk decision are unchanged; only
+        # the window is sized past it, so a completion lands above target.
         self.assertEqual(without["target_soc"], 20.0)
-        self.assertEqual(with_margin["target_soc"], 23.0)
+        self.assertEqual(with_margin["target_soc"], 20.0)
+        self.assertEqual(with_margin["plan_target_soc"], 23.0)
         self.assertGreater(with_margin["topup_minutes"], without["topup_minutes"])
 
     def test_tonight_risk_uses_the_banded_evening_load(self):
