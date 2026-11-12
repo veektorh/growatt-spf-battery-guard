@@ -121,6 +121,7 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
         hrs_to_sunrise, config.battery_charge_rate_w,
         config.auto_topup_target_soc,
         config.auto_topup_solar_skip_min_margin_minutes,
+        config.auto_topup_headroom_soc,
         metrics_history,
         hours_to_sunset=hrs_to_sunset,
         pv_forecast=pv_forecast,

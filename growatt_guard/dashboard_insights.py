@@ -323,6 +323,7 @@ def build_tonight_risk(
     battery_charge_rate_w: float,
     auto_topup_target_soc: float = 0.0,
     auto_topup_solar_skip_min_margin_minutes: float = 0.0,
+    auto_topup_headroom_soc: float = 0.0,
     projection_start_soc: float | None = None,
     projection_hours: float | None = None,
     projection_basis: str = "",
@@ -400,7 +401,7 @@ def build_tonight_risk(
 
     soc_drop = (load_w * duration_hours / battery_capacity_wh) * 100.0
     projected_soc = max(0.0, start_soc - soc_drop)
-    target_soc = max(battery_bms_cutoff_soc, auto_topup_target_soc)
+    target_soc = max(battery_bms_cutoff_soc, auto_topup_target_soc) + max(0.0, auto_topup_headroom_soc)
     margin = projected_soc - target_soc
     margin_hours = duration_hours + max(0.0, auto_topup_solar_skip_min_margin_minutes) / 60.0
     topup_minutes = None

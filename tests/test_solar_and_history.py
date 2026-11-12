@@ -446,6 +446,25 @@ class DischargeRateAverageTests(unittest.TestCase):
         # 5 h horizon is 2081 W, and the live 2500 W spike is capped to it.
         self.assertAlmostEqual(result["start_load_w"], 2080.6, delta=1.0)
 
+    def test_headroom_adds_soc_margin_to_the_planned_window(self):
+        cfg_base = self._make_cfg()
+        results = {}
+        for headroom in (0.0, 3.0):
+            cfg = make_config(
+                **{
+                    **cfg_base.__dict__,
+                    "auto_topup_headroom_soc": headroom,
+                    "auto_topup_solar_skip_min_margin_minutes": 0.0,
+                }
+            )
+            with TemporaryDirectory() as tmpdir:
+                results[headroom] = self._run_check(cfg, tmpdir, discharge_w=1500.0, prior_readings=[])
+
+        # 1500 W load, 3000 W charge, 5 h horizon: 40 minutes to reach the 25% floor,
+        # and 52 minutes once the three-point headroom has to be earned too.
+        self.assertAlmostEqual(results[0.0]["minutes"], 40.0, delta=1.0)
+        self.assertAlmostEqual(results[3.0]["minutes"], 52.0, delta=1.0)
+
     def test_uses_live_reading_when_history_has_only_one_entry(self):
         cfg = self._make_cfg()
         with TemporaryDirectory() as tmpdir:

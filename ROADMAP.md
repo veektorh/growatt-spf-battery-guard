@@ -127,6 +127,10 @@ public-safe: no IDs, serials, domains, or credentials.
     22:00 to 23:20 implies about 1700 W. Judge the repeat count over real nights
     after the headroom change, and revisit the band count only if the recorded
     bands keep missing.
+- Progress, headroom: `AUTO_TOPUP_HEADROOM_SOC` (default 3) raises the charge
+  target above the sunrise target so a completion lands above it instead of
+  exactly on it. The planner, the audit `target_soc` and the dashboard risk tile
+  all use it, so the tile no longer promises a top-up the planner would not run.
 - Done when: banded planning is in use in production (audit `planned_load_w`
   reflects the horizon-weighted load), the headroom change is in, and N1-style
   checks over three nights show fewer repeat top-ups than the 2026-11-09

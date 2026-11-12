@@ -94,6 +94,7 @@ class Config:
     auto_topup_min_minutes: float = 0.0
     auto_topup_max_minutes: float = 0.0
     auto_topup_target_soc: float = 0.0
+    auto_topup_headroom_soc: float = 0.0
     auto_topup_solar_skip_kwh_m2: float = 0.0
     auto_topup_solar_skip_min_margin_minutes: float = 60.0
     runtime_alert_minutes: float = 0.0
@@ -342,6 +343,7 @@ def load_config() -> Config:
         auto_topup_min_minutes=float(env("AUTO_TOPUP_MIN_MINUTES", "0")),
         auto_topup_max_minutes=float(env("AUTO_TOPUP_MAX_MINUTES", "0")),
         auto_topup_target_soc=float(env("AUTO_TOPUP_TARGET_SOC", "0")),
+        auto_topup_headroom_soc=float(env("AUTO_TOPUP_HEADROOM_SOC", "3")),
         auto_topup_solar_skip_kwh_m2=float(env("AUTO_TOPUP_SOLAR_SKIP_KWH_M2", "0")),
         auto_topup_solar_skip_min_margin_minutes=float(env("AUTO_TOPUP_SOLAR_SKIP_MIN_MARGIN_MINUTES", "60")),
         runtime_alert_minutes=float(env("RUNTIME_ALERT_MINUTES", "0")),

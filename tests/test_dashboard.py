@@ -378,6 +378,23 @@ class DashboardTests(unittest.TestCase):
         self.assertIsNone(pv_item["delta_pct"])
         self.assertIn("zero average", pv_item["detail"])
 
+    def test_tonight_risk_target_includes_the_headroom_margin(self):
+        live = {"soc": 40.0, "battery_net_w": 1500.0, "load_w": 1500.0}
+        history = [{"rate_w": 1500, "day_type": "weekday"}] * 3
+
+        with patch("growatt_guard.dashboard_insights.read_discharge_rate_history", return_value=history):
+            without = build_tonight_risk(
+                live, 30000, 20, 5.0, 3000, now=dt.datetime(2026, 11, 12, 19, 20)
+            )
+            with_margin = build_tonight_risk(
+                live, 30000, 20, 5.0, 3000, auto_topup_headroom_soc=3.0,
+                now=dt.datetime(2026, 11, 12, 19, 20),
+            )
+
+        self.assertEqual(without["target_soc"], 20.0)
+        self.assertEqual(with_margin["target_soc"], 23.0)
+        self.assertGreater(with_margin["topup_minutes"], without["topup_minutes"])
+
     def test_tonight_risk_uses_the_banded_evening_load(self):
         live = {"soc": 69.0, "battery_net_w": 2000.0, "load_w": 2000.0}
         history = [
