@@ -19,6 +19,7 @@ from growatt_guard.notifications import (
     record_growatt_cloud_success,
 )
 from growatt_guard.paths import DATA_HOME
+from growatt_guard.redact import mask_identifier
 
 try:
     from dotenv import load_dotenv as _load_dotenv
@@ -344,7 +345,7 @@ def choose_plant(api, login_response: dict[str, Any], config: Any) -> str:
     plant_id = get_key(plant, "plantId", "id")
     if not plant_id:
         raise api_error(f"Could not determine plant id from: {plant}")
-    logging.info("Using plant %s (%s)", plant_id, get_key(plant, "plantName", "name") or "unnamed")
+    logging.info("Using plant %s", mask_identifier(plant_id))
     return str(plant_id)
 
 
@@ -369,13 +370,15 @@ def choose_device(api, plant_id: str, config: Any) -> DeviceRef:
     for wanted_type in DEVICE_TYPE_PRIORITY:
         for device in devices:
             if device["deviceType"] == wanted_type and device["deviceSn"]:
-                logging.info("Using %s device %s", device["deviceType"], device["deviceSn"])
+                logging.info("Using %s device %s", device["deviceType"], mask_identifier(device["deviceSn"]))
                 return DeviceRef(plant_id, device["deviceSn"], device["deviceType"], device)
 
     first = devices[0]
     if not first["deviceSn"]:
         raise api_error(f"Could not determine device serial from: {first}")
-    logging.info("Using first device %s (%s)", first["deviceSn"], first["deviceType"] or "unknown type")
+    logging.info(
+        "Using first device %s (%s)", mask_identifier(first["deviceSn"]), first["deviceType"] or "unknown type"
+    )
     return DeviceRef(plant_id, first["deviceSn"], first["deviceType"], first)
 
 
@@ -448,10 +451,16 @@ def summarize_status(
     bms_cutoff_soc: float = 25.0,
     charge_rate_w: float = 0.0,
     hours_to_sunrise: float | None = None,
+    mask_identifiers: bool = False,
 ) -> str:
+    plant_id = status.get("plant_id")
+    device_sn = status.get("device_sn")
+    if mask_identifiers:
+        plant_id = mask_identifier(plant_id)
+        device_sn = mask_identifier(device_sn)
     parts = [
-        f"plant={status.get('plant_id')}",
-        f"device={status.get('device_sn')}",
+        f"plant={plant_id}",
+        f"device={device_sn}",
         f"type={status.get('device_type') or 'unknown'}",
     ]
     if extract_device_lost(status):
@@ -741,7 +750,7 @@ def load_context(config: Any, max_attempts: int = 3):
             plant_id = choose_plant(api, login_response, config)
             device = choose_device(api, plant_id, config)
             status = read_device_status(api, device)
-            logging.info("Current status: %s", summarize_status(status))
+            logging.info("Current status: %s", summarize_status(status, mask_identifiers=True))
             record_growatt_cloud_success(config)
             return api, device, status
         except _GrowattGuardError:
