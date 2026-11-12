@@ -28,12 +28,14 @@ DAILY_ENERGY_FIELDS: tuple[tuple[str, str], ...] = (
 )
 
 
-def _parse_timestamp(value: Any) -> dt.datetime | None:
+def _parse_timestamp(value: Any, tz: dt.tzinfo | None = None) -> dt.datetime | None:
     try:
         parsed = dt.datetime.fromisoformat(str(value))
     except (TypeError, ValueError):
         return None
-    return parsed.astimezone() if parsed.tzinfo is None else parsed
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=tz) if tz is not None else parsed
+    return parsed.astimezone(tz) if tz is not None else parsed
 
 
 def read_daily_generation(path: Path | None = None) -> list[dict[str, Any]]:
@@ -199,10 +201,13 @@ def finalize_completed_daily_generation(
     *,
     now: dt.datetime | None = None,
     path: Path | None = None,
+    tz: dt.tzinfo | None = None,
 ) -> tuple[int, tuple[dict[str, Any], ...]]:
     local_now = now or dt.datetime.now()
     if local_now.tzinfo is None:
-        local_now = local_now.astimezone()
+        local_now = local_now.replace(tzinfo=tz) if tz is not None else local_now.astimezone()
+    elif tz is not None:
+        local_now = local_now.astimezone(tz)
     existing = read_daily_generation(path)
     latest_date = (
         dt.date.fromisoformat(str(existing[-1]["date"]))
@@ -212,7 +217,7 @@ def finalize_completed_daily_generation(
     values: dict[dt.date, list[tuple[dt.datetime, float]]] = {}
     counters: dict[dt.date, dict[dt.datetime, dict[str, int]]] = {}
     for row in metric_rows:
-        timestamp = _parse_timestamp(row.get("timestamp"))
+        timestamp = _parse_timestamp(row.get("timestamp"), tz)
         if timestamp is None or timestamp.date() >= local_now.date():
             continue
         if existing and timestamp.date() <= latest_date:

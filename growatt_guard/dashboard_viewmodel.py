@@ -293,7 +293,9 @@ def build_dashboard_data_payload(
         "grid_status_text": grid_status_text,
         "pvoutput": pvoutput_state,
         "runtime": runtime,
-        "history": build_dashboard_history_payload(metric_history, now=now),
+        "history": build_dashboard_history_payload(
+            metric_history, now=now, tz=resolve_timezone(schedule.get("timezone"))
+        ),
         "energy_history": build_daily_energy_view(read_daily_generation(), today=now.date()),
     }
 

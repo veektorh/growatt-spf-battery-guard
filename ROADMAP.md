@@ -159,25 +159,6 @@ public-safe: no IDs, serials, domains, or credentials.
 - Done when: an audit row with action `topup-complete-deferred` is seen and the
   following scheduled `return-sbu` returned to SBU as planned.
 
-### N9. Audit the remaining host-local day buckets
-
-- Status: ready. Read-only analysis first.
-- Why: N8 fixed the weekly summary and found the same assumption elsewhere.
-  `dashboard_metrics._parse_metric_timestamp` converts to the host zone and
-  `_metric_date` then buckets by that date, so the dashboard's 7-day history and
-  the daily-generation finalize step would shift a day's samples if the host
-  zone differed from the estate's. Production runs WAT, so nothing is wrong
-  today; a UTC host would move the day boundary by an hour.
-- Audit result, 2026-11-12: the other `astimezone()` uses are comparisons or
-  display normalisation within one conversion (`audit`, `ops_review`,
-  `dashboard_planning`, `dashboard_viewmodel`, `modes`, `preservation`,
-  `topup_outcomes`, `weather`) and are safe as they stand.
-- Steps: give `_parse_metric_timestamp` and the daily-generation bucketing an
-  explicit site timezone, resolved once and passed down, then re-run the suite
-  under UTC, Africa/Lagos, America/New_York and Asia/Tokyo.
-- Done when: the dashboard history and the daily ledger bucket by the site date
-  under any host zone, with a test that asserts it.
-
 ### N6. Finish the dashboard clean-up
 
 - Status: ready. No inverter writes.

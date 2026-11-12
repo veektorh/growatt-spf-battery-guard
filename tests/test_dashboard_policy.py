@@ -1,5 +1,7 @@
 import datetime as dt
 import json
+import os
+import time
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -384,6 +386,33 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(payload["power"]["pv_w"], [500.0, 500.0])
         self.assertEqual(payload["soc"]["soc"], [50.0, 50.0])
         self.assertEqual(payload["daily"]["pv_kwh"][-1], 2.5)
+
+    def test_history_days_follow_the_site_timezone_not_the_host(self):
+        site_tz = dt.timezone(dt.timedelta(hours=1))
+        history = [
+            {"timestamp": "2026-06-15T22:30:00+00:00", "pv_today_kwh": 9.0},
+            {"timestamp": "2026-06-15T23:30:00+00:00", "pv_today_kwh": 1.0},
+        ]
+        now = dt.datetime(2026, 6, 16, 1, 0, tzinfo=dt.timezone.utc)
+        previous_tz = os.environ.get("TZ")
+        try:
+            os.environ["TZ"] = "UTC"
+            time.tzset()
+            host_payload = build_dashboard_history_payload(history, now=now)
+            site_payload = build_dashboard_history_payload(history, now=now, tz=site_tz)
+        finally:
+            if previous_tz is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = previous_tz
+            time.tzset()
+
+        # 23:30Z is already the 16th in the site zone but still the 15th in a UTC
+        # host, where it also overwrites the 15th's larger total.
+        self.assertEqual(site_payload["daily"]["pv_kwh"][-2], 9.0)
+        self.assertEqual(site_payload["daily"]["pv_kwh"][-1], 1.0)
+        self.assertEqual(host_payload["daily"]["pv_kwh"][-2], 1.0)
+        self.assertIsNone(host_payload["daily"]["pv_kwh"][-1])
 
     def test_payload_is_json_serializable_when_paused(self):
         # read_pause_state injects a raw datetime under paused_until_dt; it must
