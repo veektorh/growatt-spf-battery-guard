@@ -58,8 +58,33 @@ public-safe: no IDs, serials, domains, or credentials.
     only for 2026-10-21 to 2026-11-03. The 14 nights ending 2026-11-09 have 4,
     and the two nights before the change had 3 each. Judge the new nights
     against the 2026-11-09 window.
-- Remaining: two more nights, then write the verdict and close this task. The
-  window fix should remove the 21:40 repeat that followed the 18:00 plan.
+- Progress, 2026-11-12 (2 of 3 nights reviewed, night of 2026-11-11):
+  - First night under the horizon-sized window (the fix deployed 2026-11-11
+    11:44 UTC). The 210-minute clamp is gone: plans ran 20, 22, 21 and 85
+    minutes.
+  - The learned rate held all night: `Planning with charge rate 1571 W` rising
+    to `1772 W (learned from 10 top-ups); configured 1950 W`.
+  - The near-target rule is now exercised. Three expiries landed one point
+    below a fractional target and were recorded as `topup-target-reached`
+    rather than misses: 53 against 53.08, 44 against 44.03, 47 against 47.14.
+  - Repeat top-ups did not fall: four starts (21:20, 23:20, 01:20, 02:40)
+    against three on each of the two prior nights. Total Utility minutes fell
+    from 295 to 146.
+  - The mechanism changed. This was a high-SOC night (69% at 20:20), so every
+    check found a deficit too small to justify the 20-minute minimum and the
+    night sawtoothed: skips of 0.3, 9.1 and 11.8 minutes, a 20-minute start at
+    21:20 that reached target, skips of 7.3, 9.7, 12.1 and 14.4 minutes, a
+    22-minute start at 23:20, skips of 4.4, 10.2, 11.5 and 19.4 minutes, then a
+    21-minute start at 01:20 and the 85-minute late-safety window. Each plan
+    aims at exactly the projected sunrise requirement (`target_soc` about one
+    point above the starting SOC), so a completion leaves no headroom and the
+    next checks rebuild the same deficit.
+  - The realized rate is well above the planned rate and varies widely: implied
+    1637 to 2405 W against planned 1571 to 1741 W. One learned rate cannot hold
+    the target tightly, so plan headroom, not only per-band load, is in scope
+    for N2.
+- Remaining: one more night (2026-11-12), then write the verdict and close this
+  task.
 - Done when: three nights are reviewed and the result is written here as either
   "fewer repeat top-ups" or a follow-up task with the numbers.
 
@@ -70,7 +95,9 @@ public-safe: no IDs, serials, domains, or credentials.
   every live reading was higher: about 2400 to 2700 W at 19:00 to 20:30, about
   1800 W at 21:00 to 22:30, and 1500 to 1650 W after midnight. The shortfall
   therefore regrows by about two minutes per 20-minute check, and a new top-up
-  starts each time it crosses `AUTO_TOPUP_MIN_MINUTES`.
+  starts each time it crosses `AUTO_TOPUP_MIN_MINUTES`. On 2026-11-11 the same
+  regrowth split a high-SOC night into three reserve top-ups plus the
+  late-safety window; N1 has the numbers.
 - Steps: decide how discharge history is stored per time band (it is one
   nightly aggregate today, see `append_discharge_rate_reading` and
   `select_overnight_load`), then make `command_auto_topup_check` project the
