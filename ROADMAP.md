@@ -139,10 +139,17 @@ public-safe: no IDs, serials, domains, or credentials.
     before they replace it. What this night has to show is whether the next
     checks stay skipped for longer than the 2026-11-11 sawtooth, which re-armed
     about two hours later.
-- Progress, headroom: `AUTO_TOPUP_HEADROOM_SOC` (default 3) raises the charge
-  target above the sunrise target so a completion lands above it instead of
-  exactly on it. The planner, the audit `target_soc` and the dashboard risk tile
-  all use it, so the tile no longer promises a top-up the planner would not run.
+- Progress, headroom: `AUTO_TOPUP_HEADROOM_SOC` (default 3). The first
+  implementation raised the *target* used for both the decision and the sizing,
+  so the plan still landed exactly on the raised target and the re-arm interval
+  was unchanged — the 19:04 payload showed `projected 23.0` against `target 23.0`
+  with `topup 0.2min`, which is the sawtooth's signature. The decision now uses
+  the policy target (20, or the late-safety floor) and only the *window* is sized
+  to target plus headroom, so a completion leaves the projection three points
+  above the target. The start band becomes target minus the 20-minute minimum to
+  target plus headroom (about 6.7 points of drain instead of 3.7), roughly
+  doubling the interval between windows. The risk tile reports both
+  `target_soc` and `plan_target_soc`.
 - Done when: banded planning is in use in production (audit `planned_load_w`
   reflects the horizon-weighted load), the headroom change is in, and N1-style
   checks over three nights show fewer repeat top-ups than the 2026-11-09

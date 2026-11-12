@@ -401,7 +401,8 @@ def build_tonight_risk(
 
     soc_drop = (load_w * duration_hours / battery_capacity_wh) * 100.0
     projected_soc = max(0.0, start_soc - soc_drop)
-    target_soc = max(battery_bms_cutoff_soc, auto_topup_target_soc) + max(0.0, auto_topup_headroom_soc)
+    target_soc = max(battery_bms_cutoff_soc, auto_topup_target_soc)
+    plan_target_soc = target_soc + max(0.0, auto_topup_headroom_soc)
     margin = projected_soc - target_soc
     margin_hours = duration_hours + max(0.0, auto_topup_solar_skip_min_margin_minutes) / 60.0
     topup_minutes = None
@@ -410,7 +411,7 @@ def build_tonight_risk(
             start_soc,
             load_w,
             battery_capacity_wh,
-            target_soc,
+            plan_target_soc,
             battery_charge_rate_w,
             margin_hours,
         )
@@ -445,6 +446,7 @@ def build_tonight_risk(
         "detail": "; ".join(detail_parts),
         "projected_sunrise_soc": round(projected_soc, 1),
         "target_soc": round(target_soc, 1),
+        "plan_target_soc": round(plan_target_soc, 1),
         "margin_soc": round(margin, 1),
         "hours_to_sunrise": round(hours_to_sunrise, 2),
         "projection_hours": round(duration_hours, 2),
