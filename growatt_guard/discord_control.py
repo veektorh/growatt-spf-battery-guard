@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
+import logging
 import math
 import re
 import sys
@@ -427,6 +428,13 @@ async def _guarded(config: Config, interaction: Any, callback: Any) -> None:
     await callback()
 
 
+class _VoiceSupportWarningFilter(logging.Filter):
+    """Drop the PyNaCl warning: this bot has no voice commands and never will."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "voice will NOT be supported" not in record.getMessage()
+
+
 def command_serve_discord_bot(config: Config) -> int:
     validate_control_config(config)
     try:
@@ -437,6 +445,7 @@ def command_serve_discord_bot(config: Config) -> int:
             "discord.py is not installed. Run: .venv/bin/python -m pip install -r requirements.txt"
         ) from exc
 
+    logging.getLogger("discord.client").addFilter(_VoiceSupportWarningFilter())
     intents = discord.Intents.default()
     client = discord.Client(intents=intents)
     tree = app_commands.CommandTree(client)
