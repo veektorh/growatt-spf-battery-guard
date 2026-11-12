@@ -329,6 +329,9 @@ def command_auto_topup_check(config: Config) -> int:
     effective_target_soc = max(config.battery_bms_cutoff_soc, config.auto_topup_target_soc)
     if late_safety_window:
         effective_target_soc = max(effective_target_soc, safety_floor_soc)
+    # Headroom stops a completion from landing exactly on target, where the next
+    # checks rebuild the same deficit and start another window.
+    effective_target_soc += max(0.0, config.auto_topup_headroom_soc)
     target_topup_min_f = estimate_topup_for_sunrise(
         soc, load_w, config.battery_capacity_wh, effective_target_soc,
         charge_rate_w, hrs,
