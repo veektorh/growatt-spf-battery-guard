@@ -4,7 +4,7 @@ from typing import Any
 
 from growatt_guard.growatt_api import estimate_topup_for_sunrise, format_duration_minutes
 from growatt_guard.dashboard_metrics import _fmt_kwh, _fmt_pct, _fmt_w, _parse_metric_timestamp
-from growatt_guard.load_learning import select_overnight_load
+from growatt_guard.load_learning import select_night_load_profile, select_overnight_load
 from growatt_guard.state import read_discharge_rate_history
 
 from growatt_guard.dashboard_planning import _positive_metric
@@ -327,6 +327,7 @@ def build_tonight_risk(
     projection_hours: float | None = None,
     projection_basis: str = "",
     now: dt.datetime | None = None,
+    tz: dt.tzinfo | None = None,
 ) -> dict[str, Any]:
     soc = live_metrics.get("soc")
     if not isinstance(soc, (int, float)):
@@ -357,9 +358,27 @@ def build_tonight_risk(
             "topup_minutes": None,
         }
 
-    learned_load = select_overnight_load(read_discharge_rate_history(), now=now)
-    load_w = learned_load["rate_w"]
-    source = learned_load["source"]
+    start_soc = soc
+    duration_hours = hours_to_sunrise
+    basis = projection_basis
+    if (
+        isinstance(projection_start_soc, (int, float))
+        and isinstance(projection_hours, (int, float))
+        and projection_hours > 0
+    ):
+        start_soc = float(projection_start_soc)
+        duration_hours = float(projection_hours)
+        basis = basis or "projected sunset SOC"
+
+    history = read_discharge_rate_history()
+    profile = select_night_load_profile(history, now=now, hours=duration_hours, tz=tz)
+    if profile["rate_w"] is not None:
+        load_w = float(profile["rate_w"])
+        source = str(profile["source"])
+    else:
+        learned_load = select_overnight_load(history, now=now)
+        load_w = learned_load["rate_w"]
+        source = learned_load["source"]
     if load_w is None:
         battery_net_w = live_metrics.get("battery_net_w")
         if isinstance(battery_net_w, (int, float)) and battery_net_w > 0:
@@ -378,18 +397,6 @@ def build_tonight_risk(
             "load_w": None,
             "topup_minutes": None,
         }
-
-    start_soc = soc
-    duration_hours = hours_to_sunrise
-    basis = projection_basis
-    if (
-        isinstance(projection_start_soc, (int, float))
-        and isinstance(projection_hours, (int, float))
-        and projection_hours > 0
-    ):
-        start_soc = float(projection_start_soc)
-        duration_hours = float(projection_hours)
-        basis = basis or "projected sunset SOC"
 
     soc_drop = (load_w * duration_hours / battery_capacity_wh) * 100.0
     projected_soc = max(0.0, start_soc - soc_drop)

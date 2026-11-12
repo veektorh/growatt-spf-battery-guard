@@ -741,20 +741,26 @@ def append_discharge_rate_reading(
     *,
     recorded_at: dt.datetime | None = None,
     aggregate_nightly: bool = False,
+    tz: dt.tzinfo | None = None,
 ) -> list[dict]:
-    from growatt_guard.load_learning import day_type
+    from growatt_guard.load_learning import night_band, night_key
 
     readings = read_discharge_rate_history()
     recorded_at = recorded_at or dt.datetime.now().astimezone()
-    local_recorded_at = recorded_at.astimezone() if recorded_at.tzinfo is not None else recorded_at
-    sample_date = local_recorded_at.date().isoformat()
+    # One row per night: evening samples keep their date and after-midnight
+    # samples join the night that started the evening before.
+    night = night_key(recorded_at, tz)
+    sample_date = night.isoformat()
+    band = night_band(recorded_at, tz)
     entry = {
         "rate_w": round(rate_w),
         "recorded_at": recorded_at.isoformat(),
-        "day_type": day_type(local_recorded_at),
+        "day_type": "weekday" if night.weekday() < 5 else "weekend",
         "sample_date": sample_date,
         "sample_count": 1,
     }
+    if band:
+        entry["band"] = band
     if aggregate_nightly:
         existing = next((row for row in reversed(readings) if row.get("sample_date") == sample_date), None)
         if existing is not None and isinstance(existing.get("rate_w"), (int, float)):
@@ -763,7 +769,20 @@ def append_discharge_rate_reading(
             existing.update(entry)
             existing["rate_w"] = round((old_rate * count + rate_w) / (count + 1))
             existing["sample_count"] = count + 1
+            if band:
+                bands = existing.get("bands") if isinstance(existing.get("bands"), dict) else {}
+                previous = bands.get(band) if isinstance(bands.get(band), dict) else {}
+                previous_count = max(0, int(previous.get("sample_count", 0) or 0))
+                previous_rate = float(previous.get("rate_w", 0) or 0)
+                total = previous_count + 1
+                bands[band] = {
+                    "rate_w": round((previous_rate * previous_count + rate_w) / total),
+                    "sample_count": total,
+                }
+                existing["bands"] = bands
         else:
+            if band:
+                entry["bands"] = {band: {"rate_w": round(rate_w), "sample_count": 1}}
             readings.append(entry)
     else:
         readings.append(entry)
