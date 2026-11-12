@@ -7,6 +7,7 @@ from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.pvoutput import read_pvoutput_state
 from growatt_guard.operational_status import build_sbu_guard_status
 from growatt_guard.audit import build_chart_data, read_mode_audit_rows
+from growatt_guard.daily_generation import build_daily_energy_view, read_daily_generation
 from growatt_guard.growatt_api import (
     estimate_charge_time, estimate_runtime, format_duration_minutes, resolve_soc,
 )
@@ -288,6 +289,7 @@ def build_dashboard_data_payload(
         "pvoutput": pvoutput_state,
         "runtime": runtime,
         "history": build_dashboard_history_payload(metric_history, now=now),
+        "energy_history": build_daily_energy_view(read_daily_generation(), today=now.date()),
     }
 
 

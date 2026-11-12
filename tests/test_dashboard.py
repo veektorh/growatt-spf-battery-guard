@@ -566,6 +566,48 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("Growatt Dashboard", html)
 
+    def test_dashboard_renders_month_by_month_energy_from_the_ledger(self):
+        status = {
+            "device": {"capacity": "58%"},
+            "storage_params": {
+                "storageBean": {"outputConfig": "0", "ppv": 0, "outPutPower": 900, "pDischarge": 760},
+                "storageDetailBean": {"bmsSoc": 58},
+            },
+        }
+        schedule = {"timezone": "Africa/Lagos", "jobs": []}
+        ledger = [
+            {"date": "2026-10-31", "generated_wh": 28000, "load_wh": 21000, "utility_wh": 4000},
+            {"date": "2026-11-01", "generated_wh": 31000, "load_wh": 22000, "utility_wh": 0},
+            {"date": "2026-11-02", "generated_wh": 12000},
+        ]
+        now = dt.datetime(2026, 11, 3, 9, 0)
+
+        with patch("growatt_guard.dashboard_viewmodel.read_pause_state", return_value=None), patch(
+            "growatt_guard.dashboard_viewmodel.read_battery_alert_state", return_value=None
+        ), patch("growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value={}), patch(
+            "growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None
+        ), patch("growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]), patch(
+            "growatt_guard.dashboard_viewmodel.build_chart_data", return_value={"labels": [], "soc": []}
+        ), patch("growatt_guard.dashboard_viewmodel.read_utility_hold_state", return_value=None), patch(
+            "growatt_guard.dashboard_viewmodel.read_discharge_rate_history", return_value=[]
+        ), patch("growatt_guard.dashboard_viewmodel.read_daily_generation", return_value=ledger):
+            payload = build_dashboard_data_payload(
+                status, schedule, {"dates": {}}, ThresholdDecision(50, "test"),
+                battery_capacity_wh=10000, battery_bms_cutoff_soc=20, now=now,
+            )
+            html = build_dashboard_html(
+                status, schedule, {"dates": {}}, ThresholdDecision(50, "test"),
+                30, 10000, 20, None, 1950, 0, 60, dashboard_data=payload,
+            )
+
+        months = {row["month"]: row for row in payload["energy_history"]["months"]}
+        self.assertEqual(months["2026-10"]["utility_kwh"], 4.0)
+        self.assertEqual(months["2026-11"]["solar_kwh"], 43.0)
+        self.assertIn("Month by Month", html)
+        self.assertIn('<td class="t">Oct 2026</td><td class="r">28.0 kWh</td><td class="r">21.0 kWh</td><td class="r">4.0 kWh</td><td class="r">1</td>', html)
+        self.assertIn('<td class="t">Nov 2026</td><td class="r">43.0 kWh</td><td class="r">22.0 kWh</td><td class="r">0.0 kWh</td><td class="r">2*</td>', html)
+        self.assertIn('id="month-energy-chart"', html)
+
     def test_dashboard_topup_estimate_shows_short_topup_skip(self):
         status = {
             "storage_params": {

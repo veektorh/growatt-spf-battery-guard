@@ -286,6 +286,13 @@ data, and skipped automation that render only when they apply. Today's schedule
 is a compact table on the Automation tab. The follow-up clean-up is N6 in Next
 Up.
 
+Shipped on 2026-11-12: the Energy tab has a month-by-month view. "This Month
+by Day" stacks solar and Utility per day with load tick marks, and "Month by
+Month" lists solar, load and Utility totals with a day count. Solar history
+reaches back to 2026-03-14 from the daily ledger; load and Utility totals start
+on 2026-11-12, the day the ledger began recording those counters, because
+Growatt exposes only today's values and no history endpoint returns them.
+
 - Preserve that first viewport: new detail belongs on the Energy, Automation,
   or System tab unless it answers what the Now tab is for.
 - Add download/export for local metric history.

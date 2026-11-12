@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from growatt_guard.daily_generation import (
+    build_daily_energy_view,
     finalize_completed_daily_generation,
     merge_daily_generation,
     read_daily_generation,
@@ -129,3 +130,56 @@ class DailyGenerationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DailyEnergyViewTests(unittest.TestCase):
+    def test_records_load_and_utility_counters_beside_generation(self):
+        rows = [
+            {
+                "timestamp": "2026-08-11T20:15:00+01:00",
+                "pv_today_kwh": 18.4,
+                "load_today_kwh": 12.5,
+                "grid_today_kwh": 3.1,
+                "charge_today_kwh": 6.2,
+                "discharge_today_kwh": 4.4,
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ledger = Path(tmpdir) / "daily_generation.jsonl"
+            finalize_completed_daily_generation(
+                rows,
+                now=dt.datetime(2026, 8, 12, 9, 0, tzinfo=dt.timezone(dt.timedelta(hours=1))),
+                path=ledger,
+            )
+            saved = read_daily_generation(ledger)
+
+        self.assertEqual(saved[0]["generated_wh"], 18400)
+        self.assertEqual(saved[0]["load_wh"], 12500)
+        self.assertEqual(saved[0]["utility_wh"], 3100)
+        self.assertEqual(saved[0]["charge_wh"], 6200)
+        self.assertEqual(saved[0]["discharge_wh"], 4400)
+
+    def test_month_totals_report_missing_metrics_as_none(self):
+        rows = [
+            {"date": "2026-09-30", "generated_wh": 28000},
+            {"date": "2026-10-01", "generated_wh": 31000},
+            {"date": "2026-10-02", "generated_wh": 12000, "load_wh": 21000, "utility_wh": 4000},
+            {"date": "2026-11-01", "generated_wh": 22000, "load_wh": 18000, "utility_wh": 0},
+        ]
+
+        view = build_daily_energy_view(rows, today=dt.date(2026, 11, 12))
+
+        by_month = {row["month"]: row for row in view["months"]}
+        self.assertEqual(by_month["2026-09"]["solar_kwh"], 28.0)
+        self.assertIsNone(by_month["2026-09"]["load_kwh"])
+        self.assertIsNone(by_month["2026-09"]["utility_kwh"])
+        self.assertEqual(by_month["2026-10"]["solar_kwh"], 43.0)
+        self.assertEqual(by_month["2026-10"]["load_kwh"], 21.0)
+        self.assertEqual(by_month["2026-10"]["utility_kwh"], 4.0)
+        self.assertTrue(by_month["2026-10"]["complete"])
+        self.assertFalse(by_month["2026-11"]["complete"])
+        self.assertEqual(by_month["2026-11"]["utility_kwh"], 0.0)
+        self.assertEqual(
+            view["month_days"],
+            [{"date": "2026-11-01", "day": 1, "solar_kwh": 22.0, "load_kwh": 18.0, "utility_kwh": 0.0}],
+        )
