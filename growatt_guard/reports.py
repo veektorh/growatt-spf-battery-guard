@@ -13,6 +13,7 @@ from growatt_guard.audit import (
 )
 from growatt_guard.config import Config
 from growatt_guard.daily_generation import read_daily_generation
+from growatt_guard.load_learning import resolve_timezone
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import load_context
 from growatt_guard.notifications import embed_summary, send_discord_embed
@@ -77,8 +78,15 @@ def _local_solar_daily_outputs(
     now: dt.datetime,
     *,
     days: int = 7,
+    tz: dt.tzinfo | None = None,
 ) -> dict[str, int]:
-    """Return the latest local Growatt PV total for each calendar day, in Wh."""
+    """Return the latest Growatt PV total for each calendar day in Wh.
+
+    Days are bucketed in ``tz``, the estate's timezone, so a host whose zone
+    differs from the site cannot move a day's total across midnight.
+    """
+    if tz is not None:
+        now = now.astimezone(tz) if now.tzinfo is not None else now.replace(tzinfo=tz)
     expected_dates = [now.date() - dt.timedelta(days=offset) for offset in range(days - 1, -1, -1)]
     wanted = {day.isoformat() for day in expected_dates}
     latest_by_date: dict[str, tuple[dt.datetime, float]] = {}
@@ -92,7 +100,7 @@ def _local_solar_daily_outputs(
         except ValueError:
             continue
         if parsed.tzinfo is not None:
-            parsed = parsed.astimezone().replace(tzinfo=None)
+            parsed = (parsed.astimezone(tz) if tz is not None else parsed.astimezone()).replace(tzinfo=None)
         date_key = parsed.date().isoformat()
         if date_key not in wanted:
             continue
@@ -297,8 +305,10 @@ def _bypass_episodes_section(now: dt.datetime, *, days: int) -> str:
 def command_weekly_summary(config: Config) -> int:
     now = dt.datetime.now()
     days = 7
-    local_this = _local_solar_daily_outputs(now, days=days)
-    local_this_complete = _complete_solar_window(local_this, now, days=days)
+    site_tz = resolve_timezone(getattr(config, "weather_timezone", ""))
+    site_now = now.astimezone(site_tz) if site_tz is not None else now
+    local_this = _local_solar_daily_outputs(site_now, days=days, tz=site_tz)
+    local_this_complete = _complete_solar_window(local_this, site_now, days=days)
     solar_this: dict[str, int] = local_this
     solar_this_source = (
         "local Growatt dashboard history"

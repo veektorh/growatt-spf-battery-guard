@@ -418,14 +418,15 @@ class WeeklySolarYieldTests(unittest.TestCase):
 
     def test_local_history_uses_latest_snapshot_per_day(self):
         from growatt_guard.reports import _local_solar_daily_outputs
-        now = dt.datetime(2026, 6, 21, 21, 0)
+        site_tz = dt.timezone(dt.timedelta(hours=1))
+        now = dt.datetime(2026, 6, 21, 20, 0, tzinfo=dt.timezone.utc)
         history = [
             {"timestamp": "2026-06-15T12:00:00+01:00", "pv_today_kwh": 8.0},
             {"timestamp": "2026-06-15T23:50:00+01:00", "pv_today_kwh": 12.5},
             {"timestamp": "2026-06-21T20:50:00+01:00", "pv_today_kwh": 19.4},
         ]
         with patch("growatt_guard.reports.read_dashboard_metrics_history", return_value=history):
-            result = _local_solar_daily_outputs(now)
+            result = _local_solar_daily_outputs(now, tz=site_tz)
         self.assertEqual(result, {"2026-06-15": 12500, "2026-06-21": 19400})
 
     def test_weekly_summary_raises_when_discord_delivery_fails(self):
