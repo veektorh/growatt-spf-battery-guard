@@ -159,22 +159,24 @@ public-safe: no IDs, serials, domains, or credentials.
 - Done when: an audit row with action `topup-complete-deferred` is seen and the
   following scheduled `return-sbu` returned to SBU as planned.
 
-### N8. Group daily figures in the site timezone, not the host's
+### N9. Audit the remaining host-local day buckets
 
-- Status: ready. Read-only analysis first, then a small fix.
-- Why: `reports._local_solar_daily_outputs` buckets metric rows by the host's
-  local date, so a host whose zone differs from the estate's shifts each day's
-  totals across the boundary. The band fix in N2 hit the same assumption. The
-  suite hides it because CI runs UTC: with `TZ=Asia/Tokyo`,
-  `test_pvoutput.WeeklySolarYieldTests.test_local_history_uses_latest_snapshot_per_day`
-  fails (12.5 kWh for 2026-06-15 lands on the next day), and the same test
-  passes on `main` and on this branch, so it predates N2.
-- Steps: give the helper an explicit `tz` (the schedule or weather timezone,
-  resolved with `load_learning.resolve_timezone`) and have the weekly and
-  monthly summaries pass it. Audit the other `astimezone()` day-bucketing call
-  sites the same way.
-- Done when: the pvoutput daily-history test passes under UTC, Africa/Lagos,
-  America/New_York and Asia/Tokyo, and the summaries take the site zone.
+- Status: ready. Read-only analysis first.
+- Why: N8 fixed the weekly summary and found the same assumption elsewhere.
+  `dashboard_metrics._parse_metric_timestamp` converts to the host zone and
+  `_metric_date` then buckets by that date, so the dashboard's 7-day history and
+  the daily-generation finalize step would shift a day's samples if the host
+  zone differed from the estate's. Production runs WAT, so nothing is wrong
+  today; a UTC host would move the day boundary by an hour.
+- Audit result, 2026-11-12: the other `astimezone()` uses are comparisons or
+  display normalisation within one conversion (`audit`, `ops_review`,
+  `dashboard_planning`, `dashboard_viewmodel`, `modes`, `preservation`,
+  `topup_outcomes`, `weather`) and are safe as they stand.
+- Steps: give `_parse_metric_timestamp` and the daily-generation bucketing an
+  explicit site timezone, resolved once and passed down, then re-run the suite
+  under UTC, Africa/Lagos, America/New_York and Asia/Tokyo.
+- Done when: the dashboard history and the daily ledger bucket by the site date
+  under any host zone, with a test that asserts it.
 
 ### N6. Finish the dashboard clean-up
 
