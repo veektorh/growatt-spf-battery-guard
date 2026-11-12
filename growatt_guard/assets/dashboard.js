@@ -245,6 +245,32 @@
           emphasizeLast: true, yMax: niceMax(Math.max(1, maxOf([supplyTotals, daily.load_kwh]))),
           tick: { name: "Load", values: daily.load_kwh || [] }
         });
+        const energyHistory = readJson("energy-history-data", {});
+        const monthDays = energyHistory.month_days || [];
+        if (monthDays.length) {
+          const monthOf = String(energyHistory.month || "");
+          const monthName = monthOf
+            ? new Date(monthOf + "-01T12:00").toLocaleDateString("en-GB", { month: "long", year: "numeric" })
+            : "This month";
+          const solar = monthDays.map(function (row) { return row.solar_kwh; });
+          const utility = monthDays.map(function (row) { return row.utility_kwh; });
+          const load = monthDays.map(function (row) { return row.load_kwh; });
+          const supply = solar.map(function (v, i) {
+            return (isNum(v) ? v : 0) + (isNum(utility[i]) ? utility[i] : 0);
+          });
+          drawBarChart("month-energy-chart", monthDays.map(function (row) { return String(row.day); }), [
+            { name: "Solar", c: "solar", values: solar },
+            { name: "Utility", c: "grid-c", values: utility }
+          ], {
+            label: "Daily solar and Utility supply with load for " + monthName + ", in kWh",
+            mode: "stack", emphasizeLast: false,
+            titles: monthDays.map(function (row) {
+              return new Date(row.date + "T12:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+            }),
+            yMax: niceMax(Math.max(1, maxOf([supply, load]))),
+            tick: { name: "Load", values: load }
+          });
+        }
         drawBarChart("battery-energy-chart", days.short, [
           { name: "Charge", c: "battery", values: daily.charge_kwh || [] },
           { name: "Discharge", c: "neutral-mark", values: daily.discharge_kwh || [] }

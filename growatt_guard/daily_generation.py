@@ -17,6 +17,15 @@ FINAL_OBSERVATION_HOUR = 20
 # Growatt reports pv_today in 0.1 kWh steps, so a drop larger than rounding means the
 # counter reset and every earlier sample in the day was a stale carry-over.
 STALE_RESET_MIN_DROP_KWH = 0.2
+# Daily energy totals kept beside generation so the dashboard can show Utility and
+# load by day, week and month. Growatt exposes only today's counters, so a day that
+# is not captured here can never be recovered.
+DAILY_ENERGY_FIELDS: tuple[tuple[str, str], ...] = (
+    ("load_wh", "load_today_kwh"),
+    ("utility_wh", "grid_today_kwh"),
+    ("charge_wh", "charge_today_kwh"),
+    ("discharge_wh", "discharge_today_kwh"),
+)
 
 
 def _parse_timestamp(value: Any) -> dt.datetime | None:
@@ -63,6 +72,20 @@ def read_daily_generation(path: Path | None = None) -> list[dict[str, Any]]:
             )
         normalized = dict(row)
         normalized["date"] = dt.date.fromisoformat(str(row["date"])).isoformat()
+        for field, _ in DAILY_ENERGY_FIELDS:
+            if field not in row or row[field] is None:
+                continue
+            try:
+                value = int(row[field])
+            except (TypeError, ValueError) as exc:
+                raise GrowattGuardError(
+                    f"Invalid daily generation ledger row {line_number}: {field} must be an integer."
+                ) from exc
+            if value < 0:
+                raise GrowattGuardError(
+                    f"Invalid daily generation ledger row {line_number}: {field} cannot be negative."
+                )
+            normalized[field] = value
         if normalized["date"] in dates:
             raise GrowattGuardError(
                 f"Invalid daily generation ledger row {line_number}: duplicate date {normalized['date']}."
@@ -93,8 +116,14 @@ def _write_daily_generation(rows: list[dict[str, Any]], path: Path | None = None
         raise
 
 
+def _energy_row(value: int | dict[str, int]) -> dict[str, int]:
+    if isinstance(value, dict):
+        return {field: int(amount) for field, amount in value.items()}
+    return {"generated_wh": int(value)}
+
+
 def merge_daily_generation(
-    records: dict[dt.date, int],
+    records: dict[dt.date, int | dict[str, int]],
     *,
     source: str,
     finalized_at: dt.datetime | None = None,
@@ -107,7 +136,9 @@ def merge_daily_generation(
     conflicts: list[dict[str, Any]] = []
     added = 0
     stamp = (finalized_at or dt.datetime.now(dt.timezone.utc)).isoformat()
-    for day, generated_wh in sorted(records.items()):
+    for day, raw in sorted(records.items()):
+        energy = _energy_row(raw)
+        generated_wh = energy.get("generated_wh", 0)
         if generated_wh < 0:
             raise GrowattGuardError(f"Daily generation cannot be negative for {day.isoformat()}.")
         key = day.isoformat()
@@ -130,6 +161,9 @@ def merge_daily_generation(
             "source": source,
             "finalized_at": stamp,
         }
+        for field, amount in energy.items():
+            if field != "generated_wh":
+                row[field] = int(amount)
         if observed_through and day in observed_through:
             row["observed_through"] = observed_through[day]
         by_date[key] = row
@@ -176,6 +210,7 @@ def finalize_completed_daily_generation(
         else local_now.date() - dt.timedelta(days=1)
     )
     values: dict[dt.date, list[tuple[dt.datetime, float]]] = {}
+    counters: dict[dt.date, dict[dt.datetime, dict[str, int]]] = {}
     for row in metric_rows:
         timestamp = _parse_timestamp(row.get("timestamp"))
         if timestamp is None or timestamp.date() >= local_now.date():
@@ -191,8 +226,18 @@ def finalize_completed_daily_generation(
         if generated_kwh < 0:
             continue
         values.setdefault(timestamp.date(), []).append((timestamp, generated_kwh))
+        day_counters = counters.setdefault(timestamp.date(), {})
+        snapshot = day_counters.setdefault(timestamp, {})
+        for field, source_key in DAILY_ENERGY_FIELDS:
+            try:
+                amount_kwh = float(row[source_key])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if amount_kwh < 0:
+                continue
+            snapshot[field] = round(amount_kwh * 1000)
 
-    records: dict[dt.date, int] = {}
+    records: dict[dt.date, dict[str, int]] = {}
     observed_through: dict[dt.date, str] = {}
     previous_wh = int(existing[-1]["generated_wh"]) if existing else None
     for day in sorted(values):
@@ -217,7 +262,9 @@ def finalize_completed_daily_generation(
                 generated_wh,
             )
             continue
-        records[day] = generated_wh
+        record = {"generated_wh": generated_wh}
+        record.update(counters.get(day, {}).get(last_timestamp, {}))
+        records[day] = record
         observed_through[day] = last_timestamp.isoformat()
         previous_wh = generated_wh
 
@@ -237,3 +284,57 @@ def finalize_completed_daily_generation(
             conflict["candidate_wh"],
         )
     return added, conflicts
+
+
+def _kwh(value: int | None) -> float | None:
+    return None if value is None else round(value / 1000, 2)
+
+
+def _sum_or_none(values: list[int | None]) -> int | None:
+    present = [value for value in values if value is not None]
+    return sum(present) if present else None
+
+
+def build_daily_energy_view(
+    rows: list[dict[str, Any]],
+    *,
+    today: dt.date | None = None,
+    months: int = 12,
+) -> dict[str, Any]:
+    """Month totals plus the current month's per-day solar, load and Utility energy.
+
+    Load and Utility only exist from the day the ledger started recording them, so a
+    month reports ``None`` for a metric whose days carry no reading instead of zero.
+    """
+    local_today = today or dt.date.today()
+    current_month = local_today.isoformat()[:7]
+    by_month: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        month = str(row["date"])[:7]
+        by_month.setdefault(month, []).append(row)
+
+    month_rows: list[dict[str, Any]] = []
+    for month in sorted(by_month)[-months:]:
+        days = by_month[month]
+        month_rows.append(
+            {
+                "month": month,
+                "solar_kwh": _kwh(_sum_or_none([int(day["generated_wh"]) for day in days])),
+                "load_kwh": _kwh(_sum_or_none([day.get("load_wh") for day in days])),
+                "utility_kwh": _kwh(_sum_or_none([day.get("utility_wh") for day in days])),
+                "days": len(days),
+                "complete": month != current_month,
+            }
+        )
+
+    month_days = [
+        {
+            "date": str(row["date"]),
+            "day": int(str(row["date"])[8:10]),
+            "solar_kwh": _kwh(int(row["generated_wh"])),
+            "load_kwh": _kwh(row.get("load_wh")),
+            "utility_kwh": _kwh(row.get("utility_wh")),
+        }
+        for row in by_month.get(current_month, [])
+    ]
+    return {"month": current_month, "months": month_rows, "month_days": month_days}
