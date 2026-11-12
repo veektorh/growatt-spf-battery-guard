@@ -223,7 +223,7 @@ def _rounded(value: float | None, digits: int = 1) -> float | None:
     return round(value, digits)
 
 
-def _parse_metric_timestamp(row: dict[str, Any]) -> dt.datetime | None:
+def _parse_metric_timestamp(row: dict[str, Any], tz: dt.tzinfo | None = None) -> dt.datetime | None:
     value = row.get("timestamp")
     if not value:
         return None
@@ -233,11 +233,11 @@ def _parse_metric_timestamp(row: dict[str, Any]) -> dt.datetime | None:
         return None
     if parsed.tzinfo is None:
         return parsed
-    return parsed.astimezone().replace(tzinfo=None)
+    return (parsed.astimezone(tz) if tz is not None else parsed.astimezone()).replace(tzinfo=None)
 
 
-def _metric_date(row: dict[str, Any]) -> dt.date | None:
-    ts = _parse_metric_timestamp(row)
+def _metric_date(row: dict[str, Any], tz: dt.tzinfo | None = None) -> dt.date | None:
+    ts = _parse_metric_timestamp(row, tz)
     return ts.date() if ts else None
 
 
@@ -346,6 +346,7 @@ def _write_dashboard_metrics_history(rows: list[dict[str, Any]]) -> None:
 def append_dashboard_metric_snapshot(
     status: dict[str, Any],
     now: dt.datetime | None = None,
+    tz: dt.tzinfo | None = None,
 ) -> dict[str, Any]:
     now = now or dt.datetime.now().astimezone()
     metric = extract_dashboard_metrics(status, now=now)
@@ -357,7 +358,7 @@ def append_dashboard_metric_snapshot(
     try:
         from growatt_guard.daily_generation import finalize_completed_daily_generation
 
-        finalize_completed_daily_generation(rows, now=now)
+        finalize_completed_daily_generation(rows, now=now, tz=tz)
     except Exception:  # noqa: BLE001 - retain the bounded metric history for a later retry
         logging.exception("Could not finalize the durable daily generation ledger")
     try:
@@ -417,27 +418,28 @@ def _series_value(row: dict[str, Any], key: str) -> float | None:
 def build_dashboard_history_payload(
     history: list[dict[str, Any]],
     now: dt.datetime | None = None,
+    tz: dt.tzinfo | None = None,
 ) -> dict[str, Any]:
     now = now or dt.datetime.now()
     if now.tzinfo is not None:
-        now = now.astimezone().replace(tzinfo=None)
+        now = (now.astimezone(tz) if tz is not None else now.astimezone()).replace(tzinfo=None)
     cutoff = now - dt.timedelta(hours=24)
     recent = [
         row for row in history
-        if (ts := _parse_metric_timestamp(row)) is not None and ts >= cutoff
+        if (ts := _parse_metric_timestamp(row, tz)) is not None and ts >= cutoff
     ]
     if len(recent) > 144:
         step = max(1, len(recent) // 144)
         recent = recent[::step]
 
     def label(row: dict[str, Any]) -> str:
-        ts = _parse_metric_timestamp(row)
+        ts = _parse_metric_timestamp(row, tz)
         return ts.strftime("%H:%M") if ts else ""
 
     dates = [(now.date() - dt.timedelta(days=i)) for i in range(6, -1, -1)]
     latest_by_date: dict[str, dict[str, Any]] = {}
     for row in history:
-        row_date = _metric_date(row)
+        row_date = _metric_date(row, tz)
         if row_date is not None:
             latest_by_date[row_date.isoformat()] = row
 

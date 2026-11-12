@@ -11,6 +11,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
+from growatt_guard.load_learning import resolve_timezone
 from growatt_guard.dashboard import (
     BASE_DIR,
     MIN_DASHBOARD_REFRESH_MINUTES,
@@ -102,7 +103,11 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
     except Exception:  # noqa: BLE001
         pass
     output_path = resolve_dashboard_output(output)
-    append_dashboard_metric_snapshot(status, now=dt.datetime.now().astimezone())
+    append_dashboard_metric_snapshot(
+        status,
+        now=dt.datetime.now().astimezone(),
+        tz=resolve_timezone(config.weather_timezone),
+    )
     metrics_history = read_dashboard_metrics_history()
     pv_forecast = get_pv_forecast(config)
     topup_status = collect_topup_status(config, status=status)
