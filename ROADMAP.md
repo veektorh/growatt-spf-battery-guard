@@ -90,8 +90,8 @@ public-safe: no IDs, serials, domains, or credentials.
 
 ### N2. Plan the night with an evening load and an overnight load
 
-- Status: bands shipped 2026-11-12. Headroom is the next step. Changes inverter
-  mode timing.
+- Status: bands and headroom shipped 2026-11-12. Waiting on three nights of
+  observation. Changes inverter mode timing.
 - Why: the planner uses one flat learned load (about 1450 W). On 2026-11-09
   every live reading was higher: about 2400 to 2700 W at 19:00 to 20:30, about
   1800 W at 21:00 to 22:30, and 1500 to 1650 W after midnight. The shortfall
@@ -158,6 +158,23 @@ public-safe: no IDs, serials, domains, or credentials.
   production since it deployed on 2026-11-10.
 - Done when: an audit row with action `topup-complete-deferred` is seen and the
   following scheduled `return-sbu` returned to SBU as planned.
+
+### N8. Group daily figures in the site timezone, not the host's
+
+- Status: ready. Read-only analysis first, then a small fix.
+- Why: `reports._local_solar_daily_outputs` buckets metric rows by the host's
+  local date, so a host whose zone differs from the estate's shifts each day's
+  totals across the boundary. The band fix in N2 hit the same assumption. The
+  suite hides it because CI runs UTC: with `TZ=Asia/Tokyo`,
+  `test_pvoutput.WeeklySolarYieldTests.test_local_history_uses_latest_snapshot_per_day`
+  fails (12.5 kWh for 2026-06-15 lands on the next day), and the same test
+  passes on `main` and on this branch, so it predates N2.
+- Steps: give the helper an explicit `tz` (the schedule or weather timezone,
+  resolved with `load_learning.resolve_timezone`) and have the weekly and
+  monthly summaries pass it. Audit the other `astimezone()` day-bucketing call
+  sites the same way.
+- Done when: the pvoutput daily-history test passes under UTC, Africa/Lagos,
+  America/New_York and Asia/Tokyo, and the summaries take the site zone.
 
 ### N6. Finish the dashboard clean-up
 
