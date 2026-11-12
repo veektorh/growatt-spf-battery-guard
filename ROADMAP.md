@@ -127,6 +127,18 @@ public-safe: no IDs, serials, domains, or credentials.
     22:00 to 23:20 implies about 1700 W. Judge the repeat count over real nights
     after the headroom change, and revisit the band count only if the recorded
     bands keep missing.
+- First headroom night, 2026-11-12 18:20 (reserve plan, SOC 78%):
+  - The window was 25 minutes to a completion target of 80.62%, against the 8
+    minutes the same maths gave for the old 20% sunrise target. It closed at
+    18:46 with `topup-target-reached`, `end_soc=80`, `actual_min=26`.
+  - The realized rate was 1385 W against the planned 1887.5 W, so it landed
+    half a point under target and only the near-target rule recorded it as a
+    completion. That is the same charge-rate noise N1 is measuring, now in the
+    other direction (2026-11-11 came in above the plan).
+  - The load was still the flat 1463.91 W; the bands need three matching nights
+    before they replace it. What this night has to show is whether the next
+    checks stay skipped for longer than the 2026-11-11 sawtooth, which re-armed
+    about two hours later.
 - Progress, headroom: `AUTO_TOPUP_HEADROOM_SOC` (default 3) raises the charge
   target above the sunrise target so a completion lands above it instead of
   exactly on it. The planner, the audit `target_soc` and the dashboard risk tile
