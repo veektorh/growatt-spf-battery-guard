@@ -153,17 +153,9 @@ public-safe: no IDs, serials, domains, or credentials.
     battery reads "No meaningful grid draw" instead of "Solar covering entire
     load".
   - With live data, look once at the Automation tab history chart and decisions
-    table, and at an alert row on the Now tab when one applies.
-
-### N7. Small operational hygiene
-
-- Stray dry-run audit rows: pairs of `return-sbu` and `watchdog-sbu` rows with
-  `dry_run=true` and SOC 70 appear in the production `mode_decisions.csv`, one
-  pair at a deploy time. Find what writes them and keep it out of the
-  production audit log.
-- Logs print the plant ID and device serial at INFO. Mask them.
-- The Discord bot logs "voice will NOT be supported" warnings on every start.
-- GitHub has announced that `ubuntu-latest` moves to Ubuntu 26; pin or test.
+    table, and at an alert row on the Now tab when one applies. The chart and
+    table are confirmed against the live payload on 2026-11-12 (7-day series,
+    8 decisions); the alert row still needs a live alert to observe.
 
 ## Current Baseline
 
