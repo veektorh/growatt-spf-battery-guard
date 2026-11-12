@@ -90,7 +90,8 @@ public-safe: no IDs, serials, domains, or credentials.
 
 ### N2. Plan the night with an evening load and an overnight load
 
-- Status: needs a short design before code. Changes inverter mode timing.
+- Status: bands shipped 2026-11-12. Headroom is the next step. Changes inverter
+  mode timing.
 - Why: the planner uses one flat learned load (about 1450 W). On 2026-11-09
   every live reading was higher: about 2400 to 2700 W at 19:00 to 20:30, about
   1800 W at 21:00 to 22:30, and 1500 to 1650 W after midnight. The shortfall
@@ -98,13 +99,38 @@ public-safe: no IDs, serials, domains, or credentials.
   starts each time it crosses `AUTO_TOPUP_MIN_MINUTES`. On 2026-11-11 the same
   regrowth split a high-SOC night into three reserve top-ups plus the
   late-safety window; N1 has the numbers.
+- Decisions taken 2026-11-12: two bands (evening 18:00-22:00, overnight
+  22:00-06:00), banded values stored on the existing nightly row, a fixed
+  three-point SOC headroom, and bands before headroom.
 - Steps: decide how discharge history is stored per time band (it is one
   nightly aggregate today, see `append_discharge_rate_reading` and
   `select_overnight_load`), then make `command_auto_topup_check` project the
   drain as evening hours times evening load plus overnight hours times
   overnight load.
-- Done when: a replay of the 2026-11-09 night in a test plans one evening
-  top-up instead of two, and N1-style checks confirm it in production.
+- Progress, 2026-11-12:
+  - One row per night now carries `bands` with a running evening and overnight
+    rate, and after-midnight samples join the night that started the evening
+    before, so the night also keeps the day type of its evening.
+  - `select_night_load_profile` returns the horizon-weighted band load, which is
+    energy-exact, and falls back to the flat nightly average whenever a band the
+    horizon still needs has no history. The planner and the dashboard risk tile
+    both use it, so one load feeds planning, the tile and the audit.
+  - The replay does not plan one evening top-up instead of two, and that is the
+    honest result rather than a test to bend. On the 2026-11-09 night the flat
+    1448 W plan asked 27 minutes, which reproduces the production 27-minute
+    window; the banded 1807 W plan asks 89 minutes. Charging at 1950 W against
+    a heavier evening band still leaves a genuine deficit by 22:40, and the
+    three-point headroom adds about 14 minutes to the first window without
+    removing the second.
+  - The SOC path implies the evening load is not one number: +2 points in the
+    19:20-19:50 window means about 750 W of load there, while the drain from
+    22:00 to 23:20 implies about 1700 W. Judge the repeat count over real nights
+    after the headroom change, and revisit the band count only if the recorded
+    bands keep missing.
+- Done when: banded planning is in use in production (audit `planned_load_w`
+  reflects the horizon-weighted load), the headroom change is in, and N1-style
+  checks over three nights show fewer repeat top-ups than the 2026-11-09
+  baseline.
 
 ### N3. Use one sunrise target through the night
 

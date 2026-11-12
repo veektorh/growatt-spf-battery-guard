@@ -417,6 +417,31 @@ class DischargeRateAverageTests(unittest.TestCase):
             dry_run=True,
         )
 
+    def test_plans_with_the_banded_evening_load_when_it_is_ready(self):
+        cfg = self._make_cfg()
+        fixed_now = dt.datetime(2026, 11, 12, 19, 20, tzinfo=dt.timezone(dt.timedelta(hours=1)))
+        from growatt_guard import state as state_mod
+        from growatt_guard.load_learning import select_night_load_profile as real_profile
+
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            dr_file = tmp / "dr.json"
+            with patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", dr_file):
+                for days_ago in range(3, 0, -1):
+                    evening = dt.datetime(2026, 11, 12, 19, 0, tzinfo=fixed_now.tzinfo) - dt.timedelta(days=days_ago)
+                    overnight = evening + dt.timedelta(hours=7)
+                    state_mod.append_discharge_rate_reading(2500, recorded_at=evening, aggregate_nightly=True)
+                    state_mod.append_discharge_rate_reading(1600, recorded_at=overnight, aggregate_nightly=True)
+            with patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", dr_file), patch(
+                "growatt_guard.topup.select_night_load_profile",
+                side_effect=lambda history, **kwargs: real_profile(history, now=fixed_now, **kwargs),
+            ):
+                result = self._run_check(cfg, tmpdir, discharge_w=2500.0, prior_readings=[])
+
+        # 2.67 h of 2500 W evening load plus 2.33 h of 1600 W overnight load over a
+        # 5 h horizon is 2081 W, and the live 2500 W spike is capped to it.
+        self.assertAlmostEqual(result["start_load_w"], 2080.6, delta=1.0)
+
     def test_uses_live_reading_when_history_has_only_one_entry(self):
         cfg = self._make_cfg()
         with TemporaryDirectory() as tmpdir:

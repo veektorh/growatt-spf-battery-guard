@@ -26,7 +26,7 @@ from growatt_guard.schedule import (
     validate_schedule,
     validate_schedule_overrides,
 )
-from growatt_guard.load_learning import select_overnight_load
+from growatt_guard.load_learning import select_night_load_profile, select_overnight_load
 from growatt_guard.notifications import (
     embed_auto_topup_started,
     embed_topup_below_target,
@@ -106,6 +106,18 @@ def _planning_load_w(live_load_w: float, learned_load_w: float | None) -> float:
     if live_load_w <= learned_load_w * _LIVE_LOAD_UPLIFT_TRIGGER_FACTOR:
         return learned_load_w
     return min(live_load_w, learned_load_w * _LIVE_LOAD_UPLIFT_CAP_FACTOR)
+
+
+def _learned_night_load(history: list[dict], hours: float) -> tuple[float | None, str]:
+    """Banded evening/overnight load when it is ready, else the flat nightly average."""
+    profile = select_night_load_profile(history, hours=hours)
+    if profile["rate_w"] is not None:
+        return float(profile["rate_w"]), str(profile["source"])
+    flat = select_overnight_load(history)
+    return (
+        float(flat["rate_w"]) if flat["rate_w"] is not None else None,
+        str(flat["source"]),
+    )
 
 
 def _projected_sunrise_soc(
@@ -257,17 +269,12 @@ def command_auto_topup_check(config: Config) -> int:
 
     append_discharge_rate_reading(live_load_w, aggregate_nightly=True)
     history = read_discharge_rate_history()
-    learned_load = select_overnight_load(history)
-    learned_load_w = (
-        float(learned_load["rate_w"])
-        if learned_load["rate_w"] is not None
-        else None
-    )
+    learned_load_w, learned_source = _learned_night_load(history, hrs)
     load_w = _planning_load_w(live_load_w, learned_load_w)
     if learned_load_w is not None:
         logging.info(
             "Planning with %.0f W from learned %.0f W (%s) and live %.0f W",
-            load_w, learned_load_w, learned_load["source"], live_load_w,
+            load_w, learned_load_w, learned_source, live_load_w,
         )
 
     safety_floor_soc = max(

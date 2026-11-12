@@ -378,6 +378,48 @@ class DashboardTests(unittest.TestCase):
         self.assertIsNone(pv_item["delta_pct"])
         self.assertIn("zero average", pv_item["detail"])
 
+    def test_tonight_risk_uses_the_banded_evening_load(self):
+        live = {"soc": 69.0, "battery_net_w": 2000.0, "load_w": 2000.0}
+        history = [
+            {
+                "rate_w": 2450,
+                "day_type": "weekday",
+                "bands": {
+                    "evening": {"rate_w": 2450, "sample_count": 6},
+                    "overnight": {"rate_w": 1600, "sample_count": 8},
+                },
+            },
+            {
+                "rate_w": 2350,
+                "day_type": "weekday",
+                "bands": {
+                    "evening": {"rate_w": 2350, "sample_count": 5},
+                    "overnight": {"rate_w": 1500, "sample_count": 7},
+                },
+            },
+            {
+                "rate_w": 2550,
+                "day_type": "weekday",
+                "bands": {
+                    "evening": {"rate_w": 2550, "sample_count": 4},
+                    "overnight": {"rate_w": 1700, "sample_count": 9},
+                },
+            },
+        ]
+
+        with patch("growatt_guard.dashboard_insights.read_discharge_rate_history", return_value=history):
+            risk = build_tonight_risk(
+                live,
+                battery_capacity_wh=30000,
+                battery_bms_cutoff_soc=20,
+                hours_to_sunrise=11.2,
+                battery_charge_rate_w=1950,
+                now=dt.datetime(2026, 11, 12, 19, 20, tzinfo=dt.timezone(dt.timedelta(hours=1))),
+            )
+
+        self.assertIn("weekday bands", risk["detail"])
+        self.assertAlmostEqual(risk["load_w"], 1807.1, delta=1.0)
+
     def test_tonight_risk_can_start_from_projected_sunset_soc(self):
         live = {"soc": 90.0, "battery_net_w": -2500.0, "load_w": 1200.0}
 
