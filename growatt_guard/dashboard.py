@@ -336,7 +336,10 @@ def build_dashboard_html(
         isinstance(tonight_topup, (int, float))
         and 0 < tonight_topup < auto_topup_min_minutes
     ):
-        topup_sunrise_display = f"skip (<{format_duration_minutes(auto_topup_min_minutes)})"
+        topup_sunrise_display = (
+            f"{format_duration_minutes(tonight_topup)}"
+            f" · skip (<{format_duration_minutes(auto_topup_min_minutes)})"
+        )
 
     # Tonight Safe headline (only shown after evening cutoff).
     _tonight_proj = tonight_risk.get("projected_sunrise_soc")

@@ -650,7 +650,9 @@ class DashboardTests(unittest.TestCase):
             )
 
         self.assertIn("Topup to Sunrise", html)
-        self.assertIn("skip (&lt;20min)", html)
+        # The row keeps the planner's minutes and adds the skip annotation, so it
+        # never contradicts the Top-up Tonight tile.
+        self.assertIn("19min · skip (&lt;20min)", html)
 
     def test_dashboard_topup_estimate_is_not_shortened_by_the_manual_cap(self):
         status = {
