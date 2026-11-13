@@ -134,6 +134,29 @@ class BandedNightLoadTests(unittest.TestCase):
         # 2.67h at the evening rate plus 8.53h at the overnight rate.
         self.assertAlmostEqual(result["rate_w"], 1807.1, delta=1.0)
 
+    def test_profile_needs_three_banded_nights_not_three_flat_ones(self):
+        banded = {
+            "evening": {"rate_w": 2050, "sample_count": 10},
+            "overnight": {"rate_w": 2120, "sample_count": 15},
+        }
+        history = [
+            {"rate_w": 2046, "day_type": "weekday", "bands": banded},
+            {"rate_w": 1960, "day_type": "weekday"},
+            {"rate_w": 1659, "day_type": "weekday"},
+        ]
+
+        result = select_night_load_profile(
+            history,
+            now=dt.datetime(2026, 11, 13, 22, 0, tzinfo=self.TZ),
+            hours=8.6,
+            tz=self.TZ,
+        )
+
+        self.assertFalse(result["ready"])
+        self.assertIsNone(result["rate_w"])
+        self.assertEqual(result["matching_nights"], 3)
+        self.assertEqual(result["banded_nights"], {"evening": 1, "overnight": 1})
+
     def test_profile_is_not_ready_when_a_needed_band_has_no_history(self):
         history = [
             {
