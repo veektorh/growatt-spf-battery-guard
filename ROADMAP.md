@@ -118,13 +118,18 @@ public-safe: no IDs, serials, domains, or credentials.
 
 ### N3. Use one sunrise target through the night
 
-- Status: blocked on N1 evidence (see the three-comparable-outcome gate in P1).
+- Status: ready, needs the owner's choice. N1 closed on 2026-11-13 with three
+  reviewed nights, which clears the three-comparable-outcome gate for this
+  decision. The 2026-11-12 night adds a data point: the last window (02:40 for
+  51 minutes) existed only because the late-safety floor raised the target to
+  35%, and the morning then sat at 41% against a 40% threshold, so the preserve
+  correctly skipped.
 - Why: with `AUTO_TOPUP_TARGET_SOC` unset the reserve plan aims to reach
   sunrise at the BMS cutoff (20%). Inside the last four hours the late-safety
   plan raises that to `AUTO_TOPUP_SUNRISE_FLOOR_SOC` (35%), which starts a 60 to
   80 minute top-up at about 02:40. At 06:30 the morning preserve then wants its
   threshold (45% on a rainy day) for the 08:00 outage and only reached 43% on
-  2026-11-10.
+  2026-11-10, while on 2026-11-13 a 40% threshold was met at 41%.
 - Options: set `AUTO_TOPUP_TARGET_SOC=35` (config only; moves charging earlier
   into the evening, when the measured charge rate is lower), or derive the
   target from the next morning's preserve threshold on outage days.
