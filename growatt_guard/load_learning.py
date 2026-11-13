@@ -6,11 +6,19 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 MIN_MATCHING_NIGHTS = 3
+# The flat fallback is only used while the bands are unproven, and load drifts:
+# averaging every retained night planned 1463 W on a night that drained near
+# 2100 W. The fallback now reads the most recent matching nights.
+FALLBACK_NIGHT_WINDOW = 7
 
 
 def day_type(value: dt.datetime) -> str:
     local = value.astimezone() if value.tzinfo is not None else value
     return "weekday" if local.weekday() < 5 else "weekend"
+
+
+def _window_label(used: int, total: int) -> str:
+    return f"{used} nights" if used == total else f"last {used} of {total} nights"
 
 
 def _row_day_type(row: dict[str, Any]) -> str | None:
@@ -38,10 +46,12 @@ def select_overnight_load(
     target = day_type(now)
     valid = [row for row in history if isinstance(row.get("rate_w"), (int, float)) and row["rate_w"] > 0]
     matching = [row for row in valid if _row_day_type(row) == target]
+    recent_matching = matching[-FALLBACK_NIGHT_WINDOW:]
+    recent_valid = valid[-FALLBACK_NIGHT_WINDOW:]
     if len(matching) >= min_matching_nights:
         return {
-            "rate_w": sum(float(row["rate_w"]) for row in matching) / len(matching),
-            "source": f"{target} history ({len(matching)} nights)",
+            "rate_w": sum(float(row["rate_w"]) for row in recent_matching) / len(recent_matching),
+            "source": f"{target} history ({_window_label(len(recent_matching), len(matching))})",
             "day_type": target,
             "matching_nights": len(matching),
             "total_nights": len(valid),
@@ -49,8 +59,11 @@ def select_overnight_load(
         }
     if len(valid) >= 2:
         return {
-            "rate_w": sum(float(row["rate_w"]) for row in valid) / len(valid),
-            "source": f"recent average ({len(valid)} nights; {len(matching)}/{min_matching_nights} matching {target})",
+            "rate_w": sum(float(row["rate_w"]) for row in recent_valid) / len(recent_valid),
+            "source": (
+                f"recent average ({_window_label(len(recent_valid), len(valid))}; "
+                f"{len(matching)}/{min_matching_nights} matching {target})"
+            ),
             "day_type": target,
             "matching_nights": len(matching),
             "total_nights": len(valid),

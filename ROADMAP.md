@@ -118,7 +118,10 @@ public-safe: no IDs, serials, domains, or credentials.
 
 ### N3. Use one sunrise target through the night
 
-- Status: ready, needs the owner's choice. N1 closed on 2026-11-13 with three
+- Decision taken 2026-11-13: keep the reserve target at 20% and raise
+  `AUTO_TOPUP_SUNRISE_FLOOR_SOC` from 35 to 40, so the late-safety window aims
+  at the normal dry-season threshold for about 23 extra minutes of Utility.
+- Status: chosen, implementing. N1 closed on 2026-11-13 with three
   reviewed nights, which clears the three-comparable-outcome gate for this
   decision. The 2026-11-12 night adds a data point: the last window (02:40 for
   51 minutes) existed only because the late-safety floor raised the target to
@@ -143,23 +146,6 @@ public-safe: no IDs, serials, domains, or credentials.
   production since it deployed on 2026-11-10.
 - Done when: an audit row with action `topup-complete-deferred` is seen and the
   following scheduled `return-sbu` returned to SBU as planned.
-
-### N10. Stop the flat fallback trusting stale nights
-
-- Status: ready. Changes planning inputs, not mode timing.
-- Why: until a band has three matching nights the planner falls back to
-  `select_overnight_load`, which averages every retained matching night (22
-  weekday rows). On 2026-11-12 that average was 1463 W while the night actually
-  drained near 2100 W, and the same night's banded value agreed with the
-  observed drain. A stale average under-plans the window and is part of why the
-  repeats persist.
-- Steps: weight or window the flat fallback by recency (for example the last
-  seven matching nights), keep `ready` semantics unchanged, and make the source
-  string state the window. The banded path should not need the fallback once
-  three nights exist, so this only governs the first days after a change or a
-  long gap.
-- Done when: the fallback reports a recent-window average with a test showing it
-  tracks the last nights rather than the whole retained history.
 
 ### N6. Finish the dashboard clean-up
 
