@@ -1014,3 +1014,59 @@ def effective_schedule_jobs_on_date(
         if fires:
             effective.append(resolve_effective_schedule_job(job, index, override, fires=fires))
     return effective
+
+
+def minutes_to_next_outage_start(
+    windows: list[dict[str, str]],
+    now: dt.datetime | None = None,
+) -> float | None:
+    """Minutes until the next outage window starts later today, if one does.
+
+    Only today's windows count: the morning preserve cares about the outage it is
+    about to run into, not tomorrow's.
+    """
+    local_now = now or dt.datetime.now()
+    if local_now.tzinfo is not None:
+        local_now = local_now.astimezone().replace(tzinfo=None)
+    weekday = local_now.weekday()
+    is_weekend = weekday >= 5
+    best: float | None = None
+    for window in windows or []:
+        days = str(window.get("days", "daily"))
+        if days == "weekdays" and is_weekend:
+            continue
+        if days == "weekends" and not is_weekend:
+            continue
+        try:
+            start_hour, start_minute = (int(part) for part in str(window["start"]).split(":", 1))
+            end_hour, end_minute = (int(part) for part in str(window["end"]).split(":", 1))
+        except (KeyError, ValueError):
+            continue
+        start = local_now.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+        end = local_now.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
+        if start <= local_now < end:
+            # Already inside an outage: there is no grid to charge from.
+            return None
+        minutes = (start - local_now).total_seconds() / 60.0
+        if minutes <= 0:
+            continue
+        if best is None or minutes < best:
+            best = minutes
+    return best
+
+
+def projected_soc_at_outage_start(
+    soc: float,
+    load_w: float | None,
+    battery_capacity_wh: float,
+    windows: list[dict[str, str]],
+    now: dt.datetime | None = None,
+) -> float | None:
+    """SOC expected when the next outage begins, given the current load."""
+    if load_w is None or load_w <= 0 or battery_capacity_wh <= 0:
+        return None
+    minutes = minutes_to_next_outage_start(windows, now)
+    if minutes is None:
+        return None
+    drain_soc = load_w * (minutes / 60.0) / battery_capacity_wh * 100.0
+    return soc - drain_soc

@@ -206,6 +206,49 @@ class IdempotencyTests(unittest.TestCase):
         mock_set.assert_not_called()
 
 
+    def _run_preserve(self, status: dict, config, tmpdir: str, projection):
+        from growatt_guard.modes import command_preserve_battery
+        from contextlib import redirect_stdout
+        from io import StringIO
+
+        with self._audit_patch(tmpdir)[0], self._audit_patch(tmpdir)[1], \
+             patch("growatt_guard.modes.load_context", return_value=(None, DeviceRef("p", "s", "storage", {}), status)), \
+             patch("growatt_guard.modes.projected_soc_at_outage_start", return_value=projection), \
+             patch("growatt_guard.modes.set_mode", return_value={"success": True}) as mock_set, \
+             patch("growatt_guard.modes.ensure_not_paused", return_value=False), \
+             redirect_stdout(StringIO()):
+            result = command_preserve_battery(config)
+        return result, mock_set
+
+    def test_preserve_battery_acts_on_the_projected_soc_at_the_outage_start(self):
+        from tempfile import TemporaryDirectory
+
+        config = make_config(low_battery_soc=40, battery_capacity_wh=30000)
+        status = {
+            "device": {"capacity": "41 %"},
+            "storage_params": {"storageBean": {"outputConfig": "0", "outPutPower": 1900}},
+        }
+        with TemporaryDirectory() as tmpdir:
+            result, mock_set = self._run_preserve(status, config, tmpdir, 31.5)
+
+        # 41% clears the 40% threshold, but the projection into the outage does not.
+        self.assertEqual(result, 0)
+        mock_set.assert_called_once()
+
+    def test_preserve_battery_skips_when_the_projection_clears_the_threshold(self):
+        from tempfile import TemporaryDirectory
+
+        config = make_config(low_battery_soc=40, battery_capacity_wh=30000)
+        status = {
+            "device": {"capacity": "44 %"},
+            "storage_params": {"storageBean": {"outputConfig": "0", "outPutPower": 1900}},
+        }
+        with TemporaryDirectory() as tmpdir:
+            result, mock_set = self._run_preserve(status, config, tmpdir, 42.0)
+
+        self.assertEqual(result, 0)
+        mock_set.assert_not_called()
+
     def test_preserve_battery_retry_preserves_existing_hold_target(self):
         from growatt_guard.modes import command_preserve_battery
         from growatt_guard.state import read_utility_hold_state, write_utility_hold_state

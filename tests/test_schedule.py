@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 from helpers import make_config
 from growatt_guard.schedule import (
+    minutes_to_next_outage_start,
+    projected_soc_at_outage_start,
     CONDITIONAL_GROWATT_READ_COMMANDS,
     GROWATT_READ_COMMANDS,
     estimate_growatt_api_runs_per_day,
@@ -655,3 +657,43 @@ class ScheduleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OutageProjectionTests(unittest.TestCase):
+    WINDOWS = [
+        {"days": "weekdays", "start": "08:00", "end": "10:30"},
+        {"days": "weekdays", "start": "15:30", "end": "18:00"},
+        {"days": "weekends", "start": "08:00", "end": "10:30"},
+    ]
+
+    def test_minutes_until_the_morning_outage(self):
+        self.assertEqual(
+            minutes_to_next_outage_start(self.WINDOWS, dt.datetime(2026, 11, 13, 6, 30)), 90.0
+        )
+        self.assertEqual(
+            minutes_to_next_outage_start(self.WINDOWS, dt.datetime(2026, 11, 13, 7, 0)), 60.0
+        )
+        self.assertEqual(
+            minutes_to_next_outage_start(self.WINDOWS, dt.datetime(2026, 11, 14, 6, 30)), 90.0
+        )
+
+    def test_no_projection_inside_an_outage_or_when_none_is_due(self):
+        self.assertIsNone(
+            minutes_to_next_outage_start(self.WINDOWS, dt.datetime(2026, 11, 13, 8, 30))
+        )
+        self.assertIsNone(
+            minutes_to_next_outage_start(self.WINDOWS, dt.datetime(2026, 11, 14, 12, 0))
+        )
+
+    def test_projection_subtracts_the_load_until_the_outage_starts(self):
+        projected = projected_soc_at_outage_start(
+            41.0, 1900.0, 30000.0, self.WINDOWS, dt.datetime(2026, 11, 13, 6, 30)
+        )
+
+        # 1.5 h at 1900 W on 30 kWh is 9.5 points.
+        self.assertAlmostEqual(projected, 31.5, places=1)
+
+    def test_projection_is_unavailable_without_a_load_or_capacity(self):
+        now = dt.datetime(2026, 11, 13, 6, 30)
+        self.assertIsNone(projected_soc_at_outage_start(41.0, None, 30000.0, self.WINDOWS, now))
+        self.assertIsNone(projected_soc_at_outage_start(41.0, 1900.0, 0.0, self.WINDOWS, now))

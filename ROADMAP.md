@@ -118,10 +118,22 @@ public-safe: no IDs, serials, domains, or credentials.
 
 ### N3. Use one sunrise target through the night
 
-- Decision taken 2026-11-13: keep the reserve target at 20% and raise
-  `AUTO_TOPUP_SUNRISE_FLOOR_SOC` from 35 to 40, so the late-safety window aims
-  at the normal dry-season threshold for about 23 extra minutes of Utility.
-- Status: chosen, implementing. N1 closed on 2026-11-13 with three
+- Decision taken 2026-11-13, revised the same morning after the SOC path was
+  read: the wider late window was the wrong lever. It charged 4.5 hours before
+  the outage, most of that SOC drained before 08:00, and it made the 06:30
+  preserve skip — which is the charge that lands closest to the outage. On
+  2026-11-13 the late window ended at 60% (03:32), the preserve skipped at 41%
+  against a 40% threshold, and the outage began near 39%; a 90-minute hold would
+  have delivered about 50%.
+- What shipped instead:
+  - `AUTO_TOPUP_SUNRISE_FLOOR_SOC` stays at 35.
+  - `preserve-battery` decides on the projected SOC at the next outage start
+    (`projected_soc_at_outage_start`), not the reading taken now: 41% with 1900 W
+    of load and 90 minutes to the outage projects to 31.5% and switches.
+  - A third morning check at 07:00 (`morning-preserve-late`) gives a 55-minute
+    hold before the 07:55 return. A 07:30 check was rejected: 25 minutes at
+    about 1800 W net is only ~2.5 points.
+- Status: shipped. N1 closed on 2026-11-13 with three
   reviewed nights, which clears the three-comparable-outcome gate for this
   decision. The 2026-11-12 night adds a data point: the last window (02:40 for
   51 minutes) existed only because the late-safety floor raised the target to
