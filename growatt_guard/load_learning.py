@@ -173,6 +173,15 @@ def select_night_load_profile(
         for row in history
         if isinstance(row.get("rate_w"), (int, float)) and _row_day_type(row) == target
     ]
+    banded_nights = {
+        band: sum(
+            1
+            for row in matching
+            if isinstance(row.get("bands"), dict)
+            and isinstance((row["bands"].get(band) or {}).get("rate_w"), (int, float))
+        )
+        for band in NIGHT_BANDS
+    }
     band_rates = {band: _band_average(matching, band) for band in NIGHT_BANDS}
     band_spans = {band: band_hours(local_now, hours, band, tz) for band in NIGHT_BANDS}
     # A night horizon can start before 18:00 or end after 06:00. Those hours are
@@ -187,9 +196,14 @@ def select_night_load_profile(
         "ready": False,
         "day_type": target,
         "matching_nights": len(matching),
+        "banded_nights": banded_nights,
         "bands": {band: {"rate_w": band_rates[band], "hours": round(band_spans[band], 2)} for band in NIGHT_BANDS},
     }
     if not needed or any(band_rates[band] is None for band in needed):
+        return profile
+    # A single banded night is not evidence: each band the horizon needs must
+    # have its own matching nights before the flat average is replaced.
+    if any(banded_nights[band] < min_matching_nights for band in needed):
         return profile
     span = sum(band_spans[band] for band in needed)
     if span <= 0:
@@ -197,8 +211,11 @@ def select_night_load_profile(
     profile["rate_w"] = sum(band_rates[band] * band_spans[band] for band in needed) / span
     profile["ready"] = True
     profile["source"] = (
-        f"{target} bands ({len(matching)} nights; "
-        + ", ".join(f"{band} {band_rates[band]:.0f} W for {band_spans[band]:.1f}h" for band in needed)
+        f"{target} bands ("
+        + ", ".join(
+            f"{band} {band_rates[band]:.0f} W for {band_spans[band]:.1f}h over {banded_nights[band]} nights"
+            for band in needed
+        )
         + ")"
     )
     return profile
