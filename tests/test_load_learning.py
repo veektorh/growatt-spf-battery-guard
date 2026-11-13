@@ -4,7 +4,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from growatt_guard.load_learning import select_night_load_profile, select_overnight_load
+from growatt_guard.load_learning import (
+    select_night_load_profile,
+    select_overnight_load,
+)
 
 
 class OvernightLoadLearningTests(unittest.TestCase):
@@ -174,3 +177,36 @@ class BandedNightLoadTests(unittest.TestCase):
 
         self.assertFalse(result["ready"])
         self.assertIsNone(result["rate_w"])
+
+
+class FallbackRecencyTests(unittest.TestCase):
+    def test_flat_fallback_uses_only_the_most_recent_nights(self):
+        history = [
+            {"rate_w": rate, "day_type": "weekday"}
+            for rate in (625, 900, 1100, 1291, 1436, 1659, 1960, 2046, 2100, 2180)
+        ]
+
+        result = select_overnight_load(
+            history,
+            now=dt.datetime(2026, 11, 13, 20, 0, tzinfo=dt.timezone.utc),
+        )
+
+        # The last seven of ten nights, not the whole retained history.
+        self.assertAlmostEqual(result["rate_w"], 1810.29, places=2)
+        self.assertEqual(result["source"], "weekday history (last 7 of 10 nights)")
+        self.assertEqual(result["matching_nights"], 10)
+
+    def test_fallback_window_also_applies_when_no_day_type_has_enough_nights(self):
+        history = [
+            {"rate_w": rate, "day_type": "weekday" if index < 2 else "weekend"}
+            for index, rate in enumerate((700, 900, 1100, 1300, 1500, 1700, 1900, 2100))
+        ]
+
+        result = select_overnight_load(
+            history,
+            now=dt.datetime(2026, 11, 13, 20, 0, tzinfo=dt.timezone.utc),
+        )
+
+        self.assertFalse(result["ready"])
+        self.assertAlmostEqual(result["rate_w"], 1500.0, places=2)
+        self.assertIn("last 7 of 8 nights", result["source"])

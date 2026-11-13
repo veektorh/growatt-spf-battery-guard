@@ -101,7 +101,7 @@ class Config:
     runtime_alert_clear_minutes: float = 0.0
     growatt_session_ttl_minutes: float = 0.0
     betterstack_heartbeat_url: str = ""
-    auto_topup_sunrise_floor_soc: float = 35.0
+    auto_topup_sunrise_floor_soc: float = 40.0
     auto_topup_sunrise_buffer_soc: float = 38.0
     auto_topup_unusual_soc_threshold: float = 70.0
     panel_kwp: float = 0.0
@@ -350,7 +350,7 @@ def load_config() -> Config:
         runtime_alert_clear_minutes=float(env("RUNTIME_ALERT_CLEAR_MINUTES", "0")),
         growatt_session_ttl_minutes=float(env("GROWATT_SESSION_TTL_MINUTES", "0")),
         betterstack_heartbeat_url=env("BETTERSTACK_HEARTBEAT_URL"),
-        auto_topup_sunrise_floor_soc=float(env("AUTO_TOPUP_SUNRISE_FLOOR_SOC", "35")),
+        auto_topup_sunrise_floor_soc=float(env("AUTO_TOPUP_SUNRISE_FLOOR_SOC", "40")),
         auto_topup_sunrise_buffer_soc=float(env("AUTO_TOPUP_SUNRISE_BUFFER_SOC", "38")),
         auto_topup_unusual_soc_threshold=float(env("AUTO_TOPUP_UNUSUAL_SOC_THRESHOLD", "70")),
         panel_kwp=float(env("PANEL_KWP", "0")),
