@@ -36,6 +36,12 @@
           "command": "preserve-battery"
         },
         {
+          "id": "morning-preserve-late",
+          "name": "Late morning preserve before the outage",
+          "cron": "0 7 * * *",
+          "command": "preserve-battery"
+        },
+        {
           "id": "morning-return-sbu",
           "name": "Return to SBU before morning outage",
           "cron": "55 7 * * *",
@@ -127,6 +133,12 @@
           "id": "morning-preserve-retry",
           "name": "Retry morning preserve if the first Utility switch failed",
           "cron": "40 6 * * *",
+          "command": "preserve-battery"
+        },
+        {
+          "id": "morning-preserve-late",
+          "name": "Late morning preserve before the outage",
+          "cron": "0 7 * * *",
           "command": "preserve-battery"
         },
         {

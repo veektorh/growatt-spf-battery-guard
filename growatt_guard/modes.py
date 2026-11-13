@@ -61,6 +61,7 @@ from growatt_guard.schedule import (
     resolve_effective_schedule_job,
     schedule_job_tokens,
     schedule_job_id,
+    projected_soc_at_outage_start,
     today_schedule_override,
     validate_schedule,
     validate_schedule_overrides,
@@ -431,11 +432,30 @@ def command_preserve_battery(config: Config) -> int:
     threshold = threshold_decision.threshold
     logging.info("Preserve-battery threshold: %.1f%% (%s)", threshold, threshold_decision.reason)
 
-    if soc < threshold:
-        load_metric = extract_first_metric(
-            status, ("outPutPower", "outPutPower1", "activePower", "outPower")
-        )
-        load_w = parse_number(load_metric[0]) if load_metric else None
+    load_metric = extract_first_metric(
+        status, ("outPutPower", "outPutPower1", "activePower", "outPower")
+    )
+    load_w = parse_number(load_metric[0]) if load_metric else None
+    # The outage starts after this check, so the SOC that matters is the one the
+    # load will leave behind, not the reading taken now.
+    try:
+        outage_windows = validate_schedule().get("outage_windows") or []
+    except Exception as exc:  # noqa: BLE001 - the projection is an extra safety net
+        logging.warning("Preserve outage projection unavailable: %s", exc)
+        outage_windows = []
+    projected_soc = projected_soc_at_outage_start(
+        soc,
+        load_w,
+        config.battery_capacity_wh,
+        outage_windows,
+    )
+    projected_note = (
+        f"; projected {projected_soc:.0f}% at the next outage start (load {load_w:.0f} W)"
+        if projected_soc is not None and load_w
+        else ""
+    )
+    decision_soc = soc if projected_soc is None else min(soc, projected_soc)
+    if decision_soc < threshold:
         forecast = None
         if config.weather_enabled:
             try:
@@ -523,7 +543,10 @@ def command_preserve_battery(config: Config) -> int:
                 return 0
             bridge_note = f"{bridge_note}, evidence=hold"
             logging.info("Morning solar bridge retained Utility: %s", evidence_reason)
-        logging.info("Battery SOC %.1f%% from %s is below %.1f%%; switching to Utility.", soc, path, threshold)
+        logging.info(
+            "Battery SOC %.1f%% from %s is below %.1f%%%s; switching to Utility.",
+            soc, path, threshold, projected_note,
+        )
         # Record ownership before the cloud write so an ambiguous response can be reconciled safely.
         # Definite Growatt rejections (success: False) clear that hold so the next preserve retry
         # is not blocked by topup-complete-check holding the mode lock.
@@ -573,7 +596,7 @@ def command_preserve_battery(config: Config) -> int:
             previous_mode=previous_mode,
             action="switch-to-utility",
             result=result,
-            note=f"SOC from {path}{retry_note}; {bridge_note}",
+            note=f"SOC from {path}{projected_note}{retry_note}; {bridge_note}",
         )
         if config.discord_notify_success and not config.dry_run:
             send_discord_embed(config, embed_mode_switch_utility(
@@ -601,7 +624,7 @@ def command_preserve_battery(config: Config) -> int:
                     send_discord_embed(config, embed_mode_not_confirmed("preserve-battery", "Utility first"))
 
     else:
-        logging.info("Battery SOC %.1f%% is not below %.1f%%; leaving SBU as-is.", soc, threshold)
+        logging.info("Battery SOC %.1f%% is not below %.1f%%%s; leaving SBU as-is.", soc, threshold, projected_note)
         append_mode_audit(
             config,
             "preserve-battery",
@@ -611,7 +634,7 @@ def command_preserve_battery(config: Config) -> int:
             previous_mode=previous_mode,
             action="no-change",
             result="skipped",
-            note=f"SOC from {path}",
+            note=f"SOC from {path}{projected_note}",
         )
         if config.discord_notify_skip:
             send_discord_embed(config, embed_preserve_skipped(
