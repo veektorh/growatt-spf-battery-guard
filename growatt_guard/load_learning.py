@@ -8,8 +8,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 MIN_MATCHING_NIGHTS = 3
 # The flat fallback is only used while the bands are unproven, and load drifts:
 # averaging every retained night planned 1463 W on a night that drained near
-# 2100 W. The fallback now reads the most recent matching nights.
-FALLBACK_NIGHT_WINDOW = 7
+# 2100 W. The fallback reads the most recent matching nights, four of them so it
+# clears a load step change (early November ran 591-729 W, the following nights
+# 1436-2046 W) without letting one odd night set the plan.
+FALLBACK_NIGHT_WINDOW = 4
 
 
 def day_type(value: dt.datetime) -> str:
