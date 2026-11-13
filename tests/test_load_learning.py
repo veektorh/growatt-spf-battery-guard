@@ -191,9 +191,9 @@ class FallbackRecencyTests(unittest.TestCase):
             now=dt.datetime(2026, 11, 13, 20, 0, tzinfo=dt.timezone.utc),
         )
 
-        # The last seven of ten nights, not the whole retained history.
-        self.assertAlmostEqual(result["rate_w"], 1810.29, places=2)
-        self.assertEqual(result["source"], "weekday history (last 7 of 10 nights)")
+        # The last four of ten nights, not the whole retained history.
+        self.assertAlmostEqual(result["rate_w"], 2071.5, places=2)
+        self.assertEqual(result["source"], "weekday history (last 4 of 10 nights)")
         self.assertEqual(result["matching_nights"], 10)
 
     def test_fallback_window_also_applies_when_no_day_type_has_enough_nights(self):
@@ -208,5 +208,5 @@ class FallbackRecencyTests(unittest.TestCase):
         )
 
         self.assertFalse(result["ready"])
-        self.assertAlmostEqual(result["rate_w"], 1500.0, places=2)
-        self.assertIn("last 7 of 8 nights", result["source"])
+        self.assertAlmostEqual(result["rate_w"], 1800.0, places=2)
+        self.assertIn("last 4 of 8 nights", result["source"])
