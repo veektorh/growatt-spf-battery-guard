@@ -14,83 +14,6 @@ carries its evidence, the steps, and what "done" means. Remove a task when it
 is finished and record anything it uncovered as a new task. Keep entries
 public-safe: no IDs, serials, domains, or credentials.
 
-### N1. Check the first nights on the learned charge rate
-
-- Status: ready from the morning of 2026-11-11. Read-only.
-- Why: since 2026-11-10 `auto-topup-check` sizes top-ups with the learned
-  charge rate (about 1500 W against 1950 W configured) and a top-up that ends
-  within one SOC point of target is recorded as `topup-target-reached`. Neither
-  has been observed in production yet.
-- Steps, on the VPS runtime checkout:
-  - In `logs/mode_decisions.csv`, read the night's `auto-topup-started` and
-    `topup-complete-check` rows. The start note should show
-    `planned_charge_rate_w` near the learned rate, not 1950.
-  - In `logs/growatt_power_guard.log`, confirm the line
-    `Planning with charge rate ... (learned from N top-ups)`.
-  - Count top-ups per night and compare with the baseline below.
-- Baseline: 7 of the 14 nights before the change had more than one auto top-up
-  (one had four). Evening top-ups gained about 1200 W; late-night ones about
-  1800 W.
-- Progress, 2026-11-11 (1 of 3 nights reviewed, night of 2026-11-10):
-  - Learned rate is in use. The log shows `Planning with charge rate 1513 W
-    (learned from 10 top-ups); configured 1950 W`, and the three starts audited
-    `planned_charge_rate_w` of 1512.7, 1556.5 and 1545.3 instead of 1950.
-  - The near-target rule is not exercised yet. Both completions ended at or
-    above target (61 against 60.64, 50 against 49.46), which the old check
-    accepted too. The new rule only changes an expiry, and the one expiry ended
-    6 points short (58 against 63.97). Keep watching for an expiry that lands
-    within one point below target.
-  - Repeat top-ups did not fall yet. The night had three starts (18:00 for
-    210 min, 21:40 for 31 min, 02:40 for 52 min) against three on 2026-11-09,
-    and planned Utility time rose from 127 to 293 minutes.
-  - The first repeat is a window problem, not a rate problem: the 18:00
-    reserve plan wanted about 274 minutes but was clamped to 210, while the
-    recorded 63.97% completion target is unreachable in 210 minutes at any
-    plausible rate (53.7% at the planned 1512.7 W, 58.8% even at the configured
-    1950 W, 58% at the realized 1877 W). Fixed by sizing the scheduled window
-    from the horizon: `DISCORD_TOPUP_MAX_MINUTES` now caps only a manual
-    `/growatt_topup`, `AUTO_TOPUP_MAX_MINUTES` (default `0`) bounds the
-    schedule, and a bound that binds records the SOC the window can reach.
-  - Count only `auto-topup-started` rows. A morning preserve Utility hold also
-    closes through `topup-complete-check` and appears as a `topup-target-reached`
-    row (07:36 today, `ownership=owned`, target 45%); it is not a top-up start.
-  - Baseline correction: "7 of 14 nights with more than one top-up" reproduces
-    only for 2026-10-21 to 2026-11-03. The 14 nights ending 2026-11-09 have 4,
-    and the two nights before the change had 3 each. Judge the new nights
-    against the 2026-11-09 window.
-- Progress, 2026-11-12 (2 of 3 nights reviewed, night of 2026-11-11):
-  - First night under the horizon-sized window (the fix deployed 2026-11-11
-    11:44 UTC). The 210-minute clamp is gone: plans ran 20, 22, 21 and 85
-    minutes.
-  - The learned rate held all night: `Planning with charge rate 1571 W` rising
-    to `1772 W (learned from 10 top-ups); configured 1950 W`.
-  - The near-target rule is now exercised. Three expiries landed one point
-    below a fractional target and were recorded as `topup-target-reached`
-    rather than misses: 53 against 53.08, 44 against 44.03, 47 against 47.14.
-  - Repeat top-ups did not fall: four starts (21:20, 23:20, 01:20, 02:40)
-    against three on each of the two prior nights. Total Utility minutes fell
-    from 295 to 146.
-  - The mechanism changed. This was a high-SOC night (69% at 20:20), so every
-    check found a deficit too small to justify the 20-minute minimum and the
-    night sawtoothed: skips of 0.3, 9.1 and 11.8 minutes, a 20-minute start at
-    21:20 that reached target, skips of 7.3, 9.7, 12.1 and 14.4 minutes, a
-    22-minute start at 23:20, skips of 4.4, 10.2, 11.5 and 19.4 minutes, then a
-    21-minute start at 01:20 and the 85-minute late-safety window. Each plan
-    aims at exactly the projected sunrise requirement (`target_soc` about one
-    point above the starting SOC), so a completion leaves no headroom and the
-    next checks rebuild the same deficit.
-  - The realized rate is well above the planned rate and varies widely: implied
-    1637 to 2405 W against planned 1571 to 1741 W. One learned rate cannot hold
-    the target tightly, so plan headroom, not only per-band load, is in scope
-    for N2.
-- Remaining: one more night (2026-11-12), then write the verdict and close this
-  task.
-- Tomorrow, 2026-11-13: the night of 2026-11-12 is the third and final one.
-  Read its `auto-topup-started` rows, count them against the 2026-11-09 window
-  (three starts), and write the verdict here.
-- Done when: three nights are reviewed and the result is written here as either
-  "fewer repeat top-ups" or a follow-up task with the numbers.
-
 ### N2. Plan the night with an evening load and an overnight load
 
 - Status: bands and headroom shipped 2026-11-12. Waiting on three nights of
@@ -102,6 +25,19 @@ public-safe: no IDs, serials, domains, or credentials.
   starts each time it crosses `AUTO_TOPUP_MIN_MINUTES`. On 2026-11-11 the same
   regrowth split a high-SOC night into three reserve top-ups plus the
   late-safety window; N1 has the numbers.
+- Baseline, three nights on the learned charge rate (N1, closed 2026-11-13
+  with the verdict "not fewer repeat top-ups"):
+
+  | Night | Starts | Utility minutes | Planned vs implied rate |
+  |---|---|---|---|
+  | 11-10 | 3 | 295 | 1513-1556 W planned |
+  | 11-11 | 4 | 146 | 1571-1741 planned, 1637-2405 implied |
+  | 11-12 | 3 | 202 | 1887/1846/1847 planned, 1385/1888/1732 implied |
+
+  The near-target rule is exercised and correct (completions at 80 against
+  80.62, 60 against 60.15, 53 against 53.08, 44 against 44.03, 47 against
+  47.14). Rate accuracy is the open weakness: the same learned value ran 27%
+  high on one evening window and 6% low on another.
 - Decisions taken 2026-11-12: two bands (evening 18:00-22:00, overnight
   22:00-06:00), banded values stored on the existing nightly row, a fixed
   three-point SOC headroom, and bands before headroom.
@@ -153,7 +89,20 @@ public-safe: no IDs, serials, domains, or credentials.
   target plus headroom (about 6.7 points of drain instead of 3.7), roughly
   doubling the interval between windows. The risk tile reports both
   `target_soc` and `plan_target_soc`.
-- Tomorrow, 2026-11-13, read these three things from the night of 2026-11-12:
+- Night of 2026-11-12 (first with bands and headroom, 1 of 3):
+  - Three starts: 18:20 for 25 min, 22:00 for 123 min, 02:40 for 51 min, so
+    202 Utility minutes against 295 on 2026-11-10 and 146 on 2026-11-11.
+  - Every completion landed at or within a point of target (80/80.62, 72/71.52,
+    60/60.15), and the gaps between windows were 3 h 14 m and 2 h 36 m against
+    the roughly two hours the 2026-11-11 sawtooth re-armed in.
+  - The bands went live mid-night, which exposed a gate bug: readiness counted
+    matching *nights* rather than nights that carry `bands`, so one banded night
+    replaced the flat average. Fixed on 2026-11-13; the source string now names
+    the per-band night count.
+  - The banded overnight rate came out near 2100 W against a flat fallback of
+    1463 W, and the observed drain (72% to 55% in 2 h 36 m on 30 kWh) agrees
+    with the banded figure. The flat average is stale, which is N10.
+- Next reads, from the night of 2026-11-13 onward:
   - `auto-topup-started` count per night, against the 2026-11-09 window's three.
   - The gap between a `topup-complete-check` and the next start. The corrected
     sizing should land about three points above the policy target and stretch
@@ -189,6 +138,23 @@ public-safe: no IDs, serials, domains, or credentials.
   production since it deployed on 2026-11-10.
 - Done when: an audit row with action `topup-complete-deferred` is seen and the
   following scheduled `return-sbu` returned to SBU as planned.
+
+### N10. Stop the flat fallback trusting stale nights
+
+- Status: ready. Changes planning inputs, not mode timing.
+- Why: until a band has three matching nights the planner falls back to
+  `select_overnight_load`, which averages every retained matching night (22
+  weekday rows). On 2026-11-12 that average was 1463 W while the night actually
+  drained near 2100 W, and the same night's banded value agreed with the
+  observed drain. A stale average under-plans the window and is part of why the
+  repeats persist.
+- Steps: weight or window the flat fallback by recency (for example the last
+  seven matching nights), keep `ready` semantics unchanged, and make the source
+  string state the window. The banded path should not need the fallback once
+  three nights exist, so this only governs the first days after a change or a
+  long gap.
+- Done when: the fallback reports a recent-window average with a test showing it
+  tracks the last nights rather than the whole retained history.
 
 ### N6. Finish the dashboard clean-up
 
@@ -297,12 +263,12 @@ closures and add fixtures for any new trustworthy classification signal.
 - Add regression fixtures whenever a production report exposes a new data-shape
   or interpretation bug.
 
-Current concrete steps toward this goal are in Next Up: N1 (review the first
-nights on the learned charge rate), N2 (plan with an evening load and an
-overnight load), and N3 (one sunrise target through the night). The learned
-charge rate went live on 2026-11-10 at the owner's direction, ahead of the
-three-comparable-outcome gate; N1 collects those outcomes after the fact, and
-N3 stays behind the gate.
+Current concrete steps toward this goal are in Next Up: N2 (plan with an evening
+load and an overnight load, now observing in production) and N3 (one sunrise
+target through the night). The learned charge rate went live on 2026-11-10 at
+the owner's direction, ahead of the three-comparable-outcome gate; N1 collected
+those outcomes after the fact and closed on 2026-11-13 with the repeats still
+present, which is why N2 owns them now. N3 stays behind the gate.
 
 ### P2. Notification Quiet Hours And Digest
 
