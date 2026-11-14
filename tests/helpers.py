@@ -84,3 +84,10 @@ def make_config(**overrides):
     }
     values.update(overrides)
     return Config(**values)
+
+
+def render_dashboard_html(*args, **kwargs):
+    """Build the view-model payload from raw inputs, then render it."""
+    from growatt_guard.dashboard import build_dashboard_data_payload, build_dashboard_html
+
+    return build_dashboard_html(build_dashboard_data_payload(*args, **kwargs))

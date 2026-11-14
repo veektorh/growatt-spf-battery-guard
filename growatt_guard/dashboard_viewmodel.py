@@ -9,7 +9,9 @@ from growatt_guard.operational_status import build_sbu_guard_status
 from growatt_guard.audit import build_chart_data, read_mode_audit_rows
 from growatt_guard.daily_generation import build_daily_energy_view, read_daily_generation
 from growatt_guard.growatt_api import (
-    estimate_charge_time, estimate_runtime, format_duration_minutes, resolve_soc,
+    detect_unexpected_grid_bypass, estimate_charge_time, estimate_runtime,
+    extract_battery_status, extract_first_metric, extract_spf_output_source,
+    format_battery_temperature, format_duration_minutes, parse_number, resolve_soc,
 )
 from growatt_guard.dashboard_metrics import (
     _fmt_kwh, _fmt_pct, _fmt_w, _history_with_live, build_dashboard_history_payload,
@@ -18,6 +20,7 @@ from growatt_guard.dashboard_metrics import (
 from growatt_guard.load_learning import resolve_timezone
 from growatt_guard.dashboard_insights import (
     build_dashboard_daily_insights, build_dashboard_data_quality, build_tonight_risk,
+    compute_tonight_safe,
 )
 from growatt_guard.dashboard_planning import (
     _numeric_metric, _project_sunset_soc, _should_use_projected_sunset_start,
@@ -30,10 +33,10 @@ from growatt_guard.state import (
     read_discharge_rate_history, read_growatt_cloud_failure_state, read_pause_state,
     read_utility_hold_state, utc_now,
 )
-from growatt_guard.outage_days import outage_gate_source, today_is_outage_day
+from growatt_guard.outage_days import outage_gate_source, outage_mode_label, today_is_outage_day
 from growatt_guard.schedule import (
-    cron_matches, next_scheduled_runs, schedule_job_id, schedule_job_tokens,
-    today_schedule_override,
+    cron_matches, format_outage_windows, next_scheduled_runs, schedule_job_id,
+    schedule_job_tokens, today_schedule_override,
 )
 
 from growatt_guard.dashboard_render_components import format_duration, _status_badge_class
@@ -43,6 +46,49 @@ def _learned_discharge_load_w() -> float | None:
     history = read_discharge_rate_history()
     rates = [row["rate_w"] for row in history if isinstance(row.get("rate_w"), (int, float))]
     return sum(rates) / len(rates) if len(rates) >= 2 else None
+
+
+def _first_number(status: dict[str, Any], keys: tuple[str, ...]) -> float | None:
+    found = extract_first_metric(status, keys)
+    return parse_number(found[0]) if found else None
+
+
+def _device_view(status: dict[str, Any]) -> dict[str, Any]:
+    """Device readings the renderer shows, read once from the raw status."""
+    resolved = resolve_soc(status)
+    soc_result = resolved.as_tuple()
+    output_source = extract_spf_output_source(status)
+    bypass = detect_unexpected_grid_bypass(status)
+    return {
+        "soc": soc_result[0] if soc_result else None,
+        "soc_bms": resolved.bms if resolved.diverged else None,
+        "output_source": (
+            {"code": output_source[0], "label": output_source[1]} if output_source else None
+        ),
+        "bypass": {"detected": bool(bypass["detected"]), "reason": str(bypass.get("reason") or "")},
+        "battery_status": extract_battery_status(status) or "",
+        "load_percent": _first_number(status, ("loadPercent", "loadPercent1")),
+        "battery_voltage": _first_number(status, ("vBat", "vBat1", "vbat")),
+        "battery_temperature": format_battery_temperature(status),
+    }
+
+
+_PV_FORECAST_VIEW_KEYS = (
+    "panel_kwp",
+    "weather_adjusted",
+    "base_tomorrow_kwh",
+    "weather_adjustment_factor",
+    "weather_adjustment_source",
+    "tomorrow_cloud_cover",
+    "tomorrow_precipitation_mm",
+    "calibration",
+)
+
+
+def _pv_forecast_view(pv_forecast: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not pv_forecast:
+        return None
+    return {key: pv_forecast.get(key) for key in _PV_FORECAST_VIEW_KEYS}
 
 
 def _utility_hold_detail(hold_state: dict[str, Any] | None) -> str:
@@ -112,6 +158,9 @@ def build_dashboard_data_payload(
     min_sbu_return_soc: float = 30.0,
     topup_status: dict[str, Any] | None = None,
     now: dt.datetime | None = None,
+    auto_topup_min_minutes: float = 0.0,
+    tonight_floor_soc: float = 35.0,
+    tonight_comfortable_soc: float = 45.0,
 ) -> dict[str, Any]:
     now = now or dt.datetime.now().astimezone()
     live_metrics = extract_dashboard_metrics(status, now=now)
@@ -207,6 +256,14 @@ def build_dashboard_data_payload(
         energy_outlook=energy_outlook,
         threshold_decision=threshold_decision,
     )
+    _projected_sunrise = risk.get("projected_sunrise_soc")
+    tonight_safe = compute_tonight_safe(
+        projected_sunrise_soc=_projected_sunrise if isinstance(_projected_sunrise, (int, float)) else None,
+        hours_to_sunset=hours_to_sunset,
+        floor_soc=tonight_floor_soc,
+        comfortable_soc=tonight_comfortable_soc,
+    )
+    active_profile = str(schedule.get("active_profile") or "").strip()
     assistant_summary = build_dashboard_assistant_summary(
         home_status,
         daily_insights,
@@ -228,6 +285,7 @@ def build_dashboard_data_payload(
             ),
         },
         "live": live_metrics,
+        "device": _device_view(status),
         "sources": sources,
         "quality": {"data": data_quality},
         "insights": {"daily": daily_insights, "daily_mix": daily_mix},
@@ -235,6 +293,13 @@ def build_dashboard_data_payload(
             "tonight_risk": risk,
             "outlook": energy_outlook,
             "forecast_calibration": energy_outlook.get("forecast_calibration"),
+            "tonight_safe": tonight_safe,
+            "pv_forecast": _pv_forecast_view(pv_forecast),
+            "hours_to_sunrise": hours_to_sunrise,
+            "hours_to_sunset": hours_to_sunset,
+            "battery_charge_rate_w": battery_charge_rate_w,
+            "reserve_floor_soc": battery_bms_cutoff_soc,
+            "auto_topup_min_minutes": auto_topup_min_minutes,
         },
         "assistant": {
             "status": home_status,
@@ -260,6 +325,7 @@ def build_dashboard_data_payload(
             "topup_status": topup_status or {"active": False, "warnings": []},
             "today_override_note": str(today_override.get("note", "")).strip() or "none",
             "today_skipped_jobs": today_override.get("skip", []) if isinstance(today_override.get("skip", []), list) else [],
+            "today_skip_all": bool(today_override.get("skip_all")),
             "recent_decisions": recent_decisions,
             "chart_data": chart_data,
             "utility_hold_detail": _utility_hold_detail(hold_state),
@@ -268,7 +334,18 @@ def build_dashboard_data_payload(
         "schedule": {
             "timezone": schedule.get("timezone", ""),
             "active_profile": schedule.get("active_profile"),
+            "profile_label": str(schedule.get("profile_label") or active_profile or "single schedule"),
             "profile_description": schedule.get("profile_description", ""),
+            "profile_outages_text": format_outage_windows(schedule.get("outage_windows") or []),
+            "profiles": [
+                {
+                    "name": name,
+                    "label": str(body.get("label") or name),
+                    "active": name == active_profile,
+                }
+                for name, body in (schedule.get("profiles") or {}).items()
+            ],
+            "outage_days_label": outage_mode_label(schedule=schedule),
             "outages": schedule.get("outage_windows", []),
             "next_action": next_action,
             "today": [

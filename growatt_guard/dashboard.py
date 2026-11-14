@@ -166,125 +166,80 @@ def format_duration(seconds: float | None) -> str:
     return f"{hours} {unit} {remaining_minutes} minutes"
 
 
-def build_dashboard_html(
-    status: dict[str, Any],
-    schedule: dict[str, Any],
-    overrides: dict[str, Any],
-    threshold_decision: Any,
-    stale_after_minutes: float = 30,
-    battery_capacity_wh: float = 0.0,
-    battery_bms_cutoff_soc: float = 25.0,
-    hours_to_sunrise: float | None = None,
-    battery_charge_rate_w: float = 0.0,
-    auto_topup_target_soc: float = 0.0,
-    auto_topup_solar_skip_min_margin_minutes: float = 60.0,
-    auto_topup_headroom_soc: float = 0.0,
-    auto_topup_min_minutes: float = 0.0,
-    auto_topup_max_minutes: float = 0.0,
-    metrics_history: list[dict[str, Any]] | None = None,
-    hours_to_sunset: float | None = None,
-    tonight_floor_soc: float = 35.0,
-    tonight_comfortable_soc: float = 45.0,
-    utility_hold_state: dict[str, Any] | None = None,
-    pv_forecast: dict[str, Any] | None = None,
-    min_sbu_return_soc: float = 30.0,
-    dashboard_data: dict[str, Any] | None = None,
-) -> str:
-    if dashboard_data is None:
-        # The renderer reads nothing itself: every state file and audit read
-        # belongs to the view-model payload.
-        dashboard_data = build_dashboard_data_payload(
-            status,
-            schedule,
-            overrides,
-            threshold_decision,
-            stale_after_minutes=stale_after_minutes,
-            battery_capacity_wh=battery_capacity_wh,
-            battery_bms_cutoff_soc=battery_bms_cutoff_soc,
-            hours_to_sunrise=hours_to_sunrise,
-            battery_charge_rate_w=battery_charge_rate_w,
-            auto_topup_target_soc=auto_topup_target_soc,
-            auto_topup_solar_skip_min_margin_minutes=auto_topup_solar_skip_min_margin_minutes,
-            auto_topup_headroom_soc=auto_topup_headroom_soc,
-            metrics_history=metrics_history,
-            hours_to_sunset=hours_to_sunset,
-            pv_forecast=pv_forecast,
-            min_sbu_return_soc=min_sbu_return_soc,
-        )
+def build_dashboard_html(dashboard_data: dict[str, Any]) -> str:
+    """Render the dashboard from the view-model payload alone.
+
+    Every reading, state file, schedule detail and config value the page shows
+    arrives through ``build_dashboard_data_payload``; the renderer only formats.
+    """
     generated_at_iso = str(dashboard_data["generated_at"])
     generated_at = dt.datetime.fromisoformat(generated_at_iso)
     now = generated_at.replace(tzinfo=None)
     live_metrics = dict(dashboard_data["live"])
     history_payload = dashboard_data["history"]
     metric_history_json = json.dumps(history_payload)
-    resolved = resolve_soc(status)
-    soc_result = resolved.as_tuple()
+    device = dashboard_data["device"]
+    planner = dashboard_data["planner"]
+    schedule_view = dashboard_data["schedule"]
+    automation = dashboard_data["automation"]
+    threshold = dashboard_data["threshold"]
+    soc_value = device.get("soc")
     # Keep the primary SOC label short so glance/ring cards stay compact.
     # Surface BMS disagreement in muted context, not the hero value.
     soc_note = ""
-    if soc_result:
-        soc = f"{soc_result[0]:g}%"
-        if resolved.diverged and resolved.bms is not None:
-            soc_note = f"BMS {resolved.bms:g}%"
+    if soc_value is not None:
+        soc = f"{soc_value:g}%"
+        if device.get("soc_bms") is not None:
+            soc_note = f"BMS {device['soc_bms']:g}%"
     else:
         soc = "Not found"
-    output_source = extract_spf_output_source(status)
-    mode = f"{output_source[1]} [{output_source[0]}]" if output_source else "Not found"
-    bypass = detect_unexpected_grid_bypass(status)
-    bypass_detected = bool(bypass["detected"])
-    bypass_reason = str(bypass.get("reason") or "")
-    bat_status = extract_battery_status(status) or "—"
-    _load = extract_first_metric(status, ("loadPercent", "loadPercent1"))
-    _n = parse_number(_load[0]) if _load else None
+    output_source = device.get("output_source")
+    mode = f"{output_source['label']} [{output_source['code']}]" if output_source else "Not found"
+    bypass_detected = bool(device["bypass"]["detected"])
+    bypass_reason = str(device["bypass"].get("reason") or "")
+    bat_status = str(device.get("battery_status") or "") or "—"
+    _n = device.get("load_percent")
     load_pct = f"{_n:.0f}%" if _n is not None else "—"
     runtime = dashboard_data["runtime"]
     est_runtime = runtime["display"]
     runtime_note = runtime["note"]
-    _vbat = extract_first_metric(status, ("vBat", "vBat1", "vbat"))
-    _vbat_n = parse_number(_vbat[0]) if _vbat else None
+    _vbat_n = device.get("battery_voltage")
     vbat = f"{_vbat_n:g} V" if _vbat_n is not None else "—"
-    battery_temp = format_battery_temperature(status)
+    battery_temp = str(device.get("battery_temperature") or "—")
+    hours_to_sunrise = planner.get("hours_to_sunrise")
     sunrise_display = "—"
     if hours_to_sunrise is not None and hours_to_sunrise > 0:
         sunrise_display = format_duration_minutes(hours_to_sunrise * 60)
-    pause_state = dashboard_data["automation"].get("pause_state")
-    pause = str(dashboard_data["automation"]["pause"])
-    outage = outage_mode_label(schedule=schedule)
-    profile = str(schedule.get("active_profile") or "").strip()
-    profile_label = str(schedule.get("profile_label") or profile or "single schedule")
-    profile_description = str(schedule.get("profile_description") or "").strip()
-    profile_outages = format_outage_windows(schedule.get("outage_windows") or [])
-    profile_buttons_html = ""
-    schedule_profiles = schedule.get("profiles") or {}
-    if schedule_profiles:
-        buttons: list[str] = []
-        for profile_name, body in schedule_profiles.items():
-            label = str(body.get("label") or profile_name)
-            is_active = profile_name == profile
-            suffix = " · active" if is_active else ""
-            disabled = " disabled" if is_active else ""
-            buttons.append(
-                f'<button type="button" class="pill profile-button" '
-                f'data-profile="{esc(profile_name)}"{disabled}>'
-                f"{esc(label + suffix)}</button>"
-            )
-        profile_buttons_html = "".join(buttons)
+    battery_bms_cutoff_soc = float(planner.get("reserve_floor_soc") or 0.0)
+    battery_charge_rate_w = float(planner.get("battery_charge_rate_w") or 0.0)
+    auto_topup_min_minutes = float(planner.get("auto_topup_min_minutes") or 0.0)
+    pv_forecast = planner.get("pv_forecast")
+    pause_state = automation.get("pause_state")
+    pause = str(automation["pause"])
+    outage = str(schedule_view.get("outage_days_label") or "")
+    profile = str(schedule_view.get("active_profile") or "").strip()
+    profile_label = str(schedule_view.get("profile_label") or profile or "single schedule")
+    profile_description = str(schedule_view.get("profile_description") or "").strip()
+    profile_outages = str(schedule_view.get("profile_outages_text") or "")
+    profile_buttons_html = "".join(
+        f'<button type="button" class="pill profile-button" '
+        f'data-profile="{esc(item["name"])}"{" disabled" if item["active"] else ""}>'
+        f'{esc(item["label"] + (" · active" if item["active"] else ""))}</button>'
+        for item in schedule_view.get("profiles") or []
+    )
     profile_line = f"Outage days: {outage}" + (f" · Profile: {profile}" if profile else "")
-    alert = str(dashboard_data["automation"]["emergency_alert"])
-    cloud_streak = int(dashboard_data["automation"].get("cloud_failure_streak") or 0)
-    today_override = today_schedule_override(overrides, now.date())
-    override_note = str(today_override.get("note", "")).strip() or "none"
-    skipped = ", ".join(today_override.get("skip", [])) if isinstance(today_override.get("skip", []), list) else ""
-    last_actions = dashboard_data["automation"]["recent_decisions"]
-    sbu_guard = dashboard_data["automation"]["sbu_return_guard"]
-    topup_status = dashboard_data["automation"].get("topup_status") or {"active": False}
-    next_runs = next_scheduled_runs(schedule, now=now, limit=8)
-    next_action = dashboard_data["schedule"]["next_action"]
-    stale_minutes_text = f"{stale_after_minutes:g}"
+    alert = str(automation["emergency_alert"])
+    cloud_streak = int(automation.get("cloud_failure_streak") or 0)
+    override_note = str(automation.get("today_override_note") or "none")
+    skipped = ", ".join(automation.get("today_skipped_jobs") or [])
+    last_actions = automation["recent_decisions"]
+    sbu_guard = automation["sbu_return_guard"]
+    topup_status = automation.get("topup_status") or {"active": False}
+    next_action = schedule_view["next_action"]
+    stale_minutes_text = f"{dashboard_data['freshness']['stale_after_minutes']:g}"
 
-    today_jobs = _today_job_rows(schedule, today_override, now.date())
-    schedule_timeline = build_dashboard_schedule_timeline(schedule, today_override, now=now)
-    upcoming_overrides = dashboard_data["schedule"].get("upcoming_overrides") or []
+    schedule_timeline = schedule_view["timeline"]
+    upcoming_overrides = schedule_view.get("upcoming_overrides") or []
     chart_data_json = json.dumps(dashboard_data["automation"]["chart_data"])
     energy_history = dashboard_data.get("energy_history") or {}
     energy_history_json = json.dumps(energy_history)
@@ -344,13 +299,7 @@ def build_dashboard_html(
         )
 
     # Tonight Safe headline (only shown after evening cutoff).
-    _tonight_proj = tonight_risk.get("projected_sunrise_soc")
-    tonight_safe = compute_tonight_safe(
-        projected_sunrise_soc=_tonight_proj if isinstance(_tonight_proj, (int, float)) else None,
-        hours_to_sunset=hours_to_sunset,
-        floor_soc=tonight_floor_soc,
-        comfortable_soc=tonight_comfortable_soc,
-    )
+    tonight_safe = planner.get("tonight_safe") or {}
     tonight_safe_alert: tuple[str, str, str] | None = None
     if tonight_safe.get("show"):
         _ts_level = tonight_safe.get("level", "watch")
@@ -368,7 +317,6 @@ def build_dashboard_html(
     # Utility hold status (shown when owned/adopted hold is active).
     utility_hold_detail = str(dashboard_data["automation"].get("utility_hold_detail") or "")
 
-    soc_value = soc_result[0] if soc_result else None
     soc_gauge_value = max(0.0, min(100.0, float(soc_value))) if isinstance(soc_value, (int, float)) else 0.0
     if isinstance(soc_value, (int, float)) and soc_value < battery_bms_cutoff_soc + 5:
         soc_health = "Critical"
@@ -410,8 +358,8 @@ def build_dashboard_html(
     data_quality = dashboard_data["quality"]["data"]
     daily_insights = dashboard_data["insights"]["daily"]
     energy_outlook = dashboard_data["planner"]["outlook"]
-    threshold_display = _fmt_g(getattr(threshold_decision, "threshold", None), "%")
-    threshold_reason = str(getattr(threshold_decision, "reason", "") or "Weather signal is unavailable.")
+    threshold_display = _fmt_g(threshold.get("value"), "%")
+    threshold_reason = str(threshold.get("reason") or "Weather signal is unavailable.")
     home_status = dashboard_data["assistant"]["status"]
     recommendations = dashboard_data["assistant"]["recommendations"]
 
@@ -469,7 +417,7 @@ def build_dashboard_html(
         )
         _weather_sensitive_pv = True
     _kwp = pv_forecast.get("panel_kwp", 0) if pv_forecast else 0
-    _weather_category = str(getattr(threshold_decision, "weather_category", "") or "").strip().lower()
+    _weather_category = str(threshold.get("weather_category") or "").strip().lower()
     _has_weather_signal = _weather_category not in {"", "disabled", "unavailable", "not configured", "unknown"}
     if isinstance(_kwp, (int, float)) and _kwp > 0:
         _forecast_source = _tomorrow_pv_detail + f" {_fmt_g(float(_kwp))} kWp system."
@@ -548,7 +496,7 @@ def build_dashboard_html(
     )
     dashboard_health_ok = alert == "clear" and cloud_streak == 0 and sbu_guard["state"] != "misconfigured"
     alerts: list[tuple[str, str, str]] = []
-    if today_override.get("skip_all"):
+    if automation.get("today_skip_all"):
         alerts.append((
             "badge-warn",
             "Automation skipped",
@@ -639,7 +587,7 @@ def build_dashboard_html(
         soc_health,
         soc_health_class,
         _meter(
-            soc_gauge_value if soc_result else None,
+            soc_gauge_value if soc_value is not None else None,
             "battery",
             battery_bms_cutoff_soc,
             f"floor {reserve_floor_display}",
