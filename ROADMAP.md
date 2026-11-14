@@ -141,39 +141,25 @@ public-safe: no IDs, serials, domains, or credentials.
   checks over three nights show fewer repeat top-ups than the 2026-11-09
   baseline.
 
-### N3. Use one sunrise target through the night
+### N12. Review a week of mornings with the outage-start preserve
 
-- Decision taken 2026-11-13, revised the same morning after the SOC path was
-  read: the wider late window was the wrong lever. It charged 4.5 hours before
-  the outage, most of that SOC drained before 08:00, and it made the 06:30
-  preserve skip — which is the charge that lands closest to the outage. On
-  2026-11-13 the late window ended at 60% (03:32), the preserve skipped at 41%
-  against a 40% threshold, and the outage began near 39%; a 90-minute hold would
-  have delivered about 50%.
-- What shipped instead:
-  - `AUTO_TOPUP_SUNRISE_FLOOR_SOC` stays at 35.
-  - `preserve-battery` decides on the projected SOC at the next outage start
-    (`projected_soc_at_outage_start`), not the reading taken now: 41% with 1900 W
-    of load and 90 minutes to the outage projects to 31.5% and switches.
-  - A third morning check at 07:00 (`morning-preserve-late`) gives a 55-minute
-    hold before the 07:55 return. A 07:30 check was rejected: 25 minutes at
-    about 1800 W net is only ~2.5 points.
-- Status: shipped. N1 closed on 2026-11-13 with three
-  reviewed nights, which clears the three-comparable-outcome gate for this
-  decision. The 2026-11-12 night adds a data point: the last window (02:40 for
-  51 minutes) existed only because the late-safety floor raised the target to
-  35%, and the morning then sat at 41% against a 40% threshold, so the preserve
-  correctly skipped.
-- Why: with `AUTO_TOPUP_TARGET_SOC` unset the reserve plan aims to reach
-  sunrise at the BMS cutoff (20%). Inside the last four hours the late-safety
-  plan raises that to `AUTO_TOPUP_SUNRISE_FLOOR_SOC` (35%), which starts a 60 to
-  80 minute top-up at about 02:40. At 06:30 the morning preserve then wants its
-  threshold (45% on a rainy day) for the 08:00 outage and only reached 43% on
-  2026-11-10, while on 2026-11-13 a 40% threshold was met at 41%.
-- Options: set `AUTO_TOPUP_TARGET_SOC=35` (config only; moves charging earlier
-  into the evening, when the measured charge rate is lower), or derive the
-  target from the next morning's preserve threshold on outage days.
-- Done when: one option is chosen with the owner, trialled, and reviewed.
+- Status: waiting on five outage-day mornings, from 2026-11-14. Read-only. A
+  change it leads to alters inverter mode timing and needs the owner's go-ahead.
+- Why: N3 closed on 2026-11-14 with the owner's agreement that #85 is the fix,
+  and that neither `AUTO_TOPUP_TARGET_SOC=35` nor a target taken from the next
+  morning's preserve threshold is needed yet. #85 makes `preserve-battery`
+  decide on `projected_soc_at_outage_start` instead of the live reading, and
+  adds the 07:00 `morning-preserve-late` check with a 55-minute hold before the
+  07:55 return. The case it targets: on 2026-11-13 the 02:40 late-safety window
+  ended at 60%, the 06:30 preserve skipped at 41% against a 40% threshold, and
+  the outage began near 39%.
+- Read per morning: the 06:30 and 07:00 preserve rows (`switch` or `skip`, with
+  live and projected SOC), the SOC at the 07:55 return, and the SOC when the
+  outage starts. Compare that SOC with the day's preserve threshold.
+- Done when: five outage-day mornings are read. If the outage still starts below
+  the threshold on two or more of them, reopen the sunrise-target options
+  (`AUTO_TOPUP_TARGET_SOC=35`, or a target from the next morning's preserve
+  threshold) as a new task; otherwise record the result and remove this one.
 
 ### N5. Confirm the preserve-window deferral in production
 
@@ -275,11 +261,12 @@ closures and add fixtures for any new trustworthy classification signal.
   or interpretation bug.
 
 Current concrete steps toward this goal are in Next Up: N2 (plan with an evening
-load and an overnight load, now observing in production) and N3 (one sunrise
-target through the night). The learned charge rate went live on 2026-11-10 at
+load and an overnight load, now observing in production) and N12 (a week of
+mornings with the outage-start preserve, which replaced N3). The learned charge rate went live on 2026-11-10 at
 the owner's direction, ahead of the three-comparable-outcome gate; N1 collected
 those outcomes after the fact and closed on 2026-11-13 with the repeats still
-present, which is why N2 owns them now. N3 stays behind the gate.
+present, which is why N2 owns them now. A sunrise-target change returns only
+if N12 shows outages still starting below the preserve threshold.
 
 ### P2. Notification Quiet Hours And Digest
 
