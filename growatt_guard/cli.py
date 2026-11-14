@@ -22,6 +22,7 @@ from growatt_guard.notifications import notify_failure
 from growatt_guard.paths import DATA_HOME
 from growatt_guard.pvoutput import command_pvoutput_upload
 from growatt_guard.pvoutput_backfill import command_pvoutput_backfill
+from growatt_guard.energy_history_import import command_import_energy_history
 from growatt_guard.schedule import command_validate_schedule
 from growatt_guard.state import OUTAGE_MODES
 from growatt_guard.schedule_overrides import command_outage_profile, command_schedule_override
@@ -339,6 +340,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Preview JSON path (default: data/reports/pvoutput-backfill-preview.json).",
     )
 
+    energy_import_parser = subparsers.add_parser(
+        "import-energy-history",
+        help="Preview or fill past days' load and Utility in the daily ledger from a Growatt chart export.",
+    )
+    energy_import_parser.add_argument(
+        "--input",
+        required=True,
+        help='JSON of {"YYYY-MM": charts} from the Growatt website month chart (ppv, elocalLoad, pacToUser).',
+    )
+    energy_import_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Write the fills after backing up the ledger; without it the command only previews.",
+    )
+
     charge_rate_parser = subparsers.add_parser(
         "estimate-charge-rate",
         help="Read SOC before and after a wait while charging to estimate BATTERY_CHARGE_RATE_W.",
@@ -520,6 +536,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
                 args.output,
                 args.input,
             )
+        if command == "import-energy-history":
+            return command_import_energy_history(args.input, args.apply)
         if command == "estimate-charge-rate":
             return app.command_estimate_charge_rate(config, args.wait_seconds)
         if command == "auto-topup-check":

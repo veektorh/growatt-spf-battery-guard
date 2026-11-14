@@ -585,12 +585,30 @@ already contained every date. This is normally a one-time import: future days
 are finalized automatically from late-evening observability samples. The
 fallback uploader reserves eight hourly API requests for normal live uploads.
 
+The ledger records load and Utility only from the day it started capturing them
+(2026-11-12), and the Growatt app API has no per-day storage history. To fill
+earlier days, log in to the Growatt website and, from that logged-in browser,
+POST each month to `/panel/storage/getStorage6000EnergyMonthChart` with `date`
+(`YYYY-MM`), `plantId` and `storageSn`. Save the `obj.charts` objects as
+`{"YYYY-MM": charts, ...}` and import them, preview first:
+
+```bash
+.deploy/current/growatt-guard import-energy-history --input /path/to/energy-months.json
+.deploy/current/growatt-guard import-energy-history --input /path/to/energy-months.json --apply
+```
+
+It fills `load_wh` and `utility_wh` only where a day has none, never changes
+`generated_wh` or recorded values, reports solar disagreements, skips today, and
+copies the ledger to `daily_generation.jsonl.bak-<timestamp>` before writing.
+It makes no Growatt calls; the website login stays manual so automation never
+adds logins to the account.
+
 Two durable ledgers sit beside it, both seeded automatically from the retained
 metric history and both included in `backup-state`:
 
 | File | Contents | Written by |
 |---|---|---|
-| `history/daily_generation.jsonl` | one finalized PV total per completed day | observability refresh, `pvoutput-backfill` |
+| `history/daily_generation.jsonl` | one finalized PV total per completed day, plus load, Utility, charge and discharge where recorded | observability refresh, `pvoutput-backfill`, `import-energy-history` |
 | `history/bypass_daily.jsonl` | episodes, samples, minutes, and at-full grid kWh per completed day | observability refresh |
 
 `solar-reconcile` runs nightly at 00:20 and reconciles the last seven finalized
