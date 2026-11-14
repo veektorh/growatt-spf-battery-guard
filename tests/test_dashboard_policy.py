@@ -9,7 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from helpers import make_config
+from helpers import make_config, render_dashboard_html
 from growatt_power_guard import (
     DeviceRef,
     GrowattGuardError,
@@ -29,7 +29,6 @@ from growatt_guard.dashboard import (
     build_dashboard_data_quality,
     build_dashboard_energy_reconciliation,
     build_dashboard_history_payload,
-    build_dashboard_html,
     build_dashboard_next_action,
     build_tonight_risk,
     build_dashboard_schedule_timeline,
@@ -212,7 +211,7 @@ class DashboardTests(unittest.TestCase):
         }
         schedule = {"timezone": "Africa/Lagos", "jobs": []}
 
-        html = build_dashboard_html(status, schedule, {"dates": {}}, ThresholdDecision(50, "test threshold"))
+        html = render_dashboard_html(status, schedule, {"dates": {}}, ThresholdDecision(50, "test threshold"))
 
         self.assertIn("Grid Bypass", html)
         self.assertIn("Bypass: Detected", html)
@@ -228,7 +227,7 @@ class DashboardTests(unittest.TestCase):
         }
         schedule = {"timezone": "Africa/Lagos", "jobs": []}
 
-        html = build_dashboard_html(status, schedule, {"dates": {}}, ThresholdDecision(50, "test threshold"))
+        html = render_dashboard_html(status, schedule, {"dates": {}}, ThresholdDecision(50, "test threshold"))
         metrics = extract_dashboard_metrics(status)
 
         self.assertFalse(metrics["bypass_detected"])

@@ -159,33 +159,16 @@ public-safe: no IDs, serials, domains, or credentials.
 - Done when: an audit row with action `topup-complete-deferred` is seen and the
   following scheduled `return-sbu` returned to SBU as planned.
 
-### N6. Finish the dashboard clean-up
+### N11. See a live alert row on the dashboard Now tab
 
-- Status: ready. No inverter writes.
-- Why: the four-tab dashboard shipped on 2026-11-10 but `build_dashboard_html`
-  is still one function of about 950 lines that reads the audit log and state
-  files itself, so `dashboard.json` lacks automation history, recent decisions,
-  upcoming overrides, and runtime.
-- Steps, each a separate small PR:
-  - Done 2026-11-12: the renderer reads nothing. Pause, alert, cloud streak,
-    PVOutput, audit rows and discharge-rate reads moved into
-    `dashboard_viewmodel.py`, and the payload now carries automation history,
-    recent decisions, upcoming overrides, runtime, the learned load and the
-    Utility-hold detail. Rendered HTML was byte-identical to the previous code
-    with empty and with populated state. Still open in this step:
-    `build_dashboard_html` takes raw status, schedule and config scalars, so a
-    payload-only signature remains.
-  - Done 2026-11-12: one top-up estimate. The "Topup to Sunrise" row reads the
-    planner's minutes instead of a second estimate built from a different load
-    and horizon, and the manual `DISCORD_TOPUP_MAX_MINUTES` cap no longer
-    shortens it.
-  - Done 2026-11-12: the grid label comes from the payload, so a night on
-    battery reads "No meaningful grid draw" instead of "Solar covering entire
-    load".
-  - With live data, look once at the Automation tab history chart and decisions
-    table, and at an alert row on the Now tab when one applies. The chart and
-    table are confirmed against the live payload on 2026-11-12 (7-day series,
-    8 decisions); the alert row still needs a live alert to observe.
+- Status: waiting for a natural occurrence. Read-only.
+- Why: N6 closed on 2026-11-14 with the renderer reading only the
+  `dashboard.json` payload. The Automation tab history chart and decisions table
+  were confirmed against live data on 2026-11-12, but no alert row (top-up
+  running, Tonight Safe, cloud streak, pause, bypass) has been seen on the
+  rebuilt Now tab yet.
+- Done when: one alert row is seen on the live Now tab and its text matches the
+  matching `dashboard.json` field (`automation.*` or `planner.tonight_safe`).
 
 ## Current Baseline
 

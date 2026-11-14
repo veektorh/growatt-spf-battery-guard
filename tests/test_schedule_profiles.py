@@ -11,7 +11,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from helpers import make_config
+from helpers import make_config, render_dashboard_html
 import growatt_power_guard  # noqa: F401 — ensures app_module() resolves GrowattGuardError
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.schedule import (
@@ -27,7 +27,6 @@ from growatt_guard.schedule import (
 from growatt_guard.schedule_profiles import command_profiles, command_set_profile
 from growatt_guard.schedule_views import build_schedule_preview_payload
 from growatt_guard.dashboard_service import make_dashboard_handler
-from growatt_guard.dashboard import build_dashboard_html
 from growatt_guard.weather import ThresholdDecision
 
 
@@ -460,7 +459,7 @@ class DashboardProfileToggleTests(unittest.TestCase):
             },
         }
 
-        html = build_dashboard_html(
+        html = render_dashboard_html(
             status, schedule, {"dates": {}}, ThresholdDecision(50, "test")
         )
 

@@ -7,7 +7,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from helpers import make_config
+from helpers import make_config, render_dashboard_html
 from growatt_power_guard import (
     DeviceRef,
     GrowattGuardError,
@@ -43,7 +43,9 @@ from growatt_guard.dashboard_service import dashboard_asset_for_path
 
 class DashboardTests(unittest.TestCase):
     def test_dashboard_writes_html(self):
-        config = make_config()
+        # Distinct min and max: the service once passed the renderer's
+        # arguments by position and the max landed in the min's slot.
+        config = make_config(auto_topup_min_minutes=20, auto_topup_max_minutes=180)
         status = {
             "device": {"capacity": "50%"},
             "storage_params": {
@@ -187,6 +189,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("summary", dashboard_json["assistant"])
         self.assertIn("recommendations", dashboard_json["assistant"])
         self.assertIn("topup_status", dashboard_json["automation"])
+        self.assertEqual(dashboard_json["planner"]["auto_topup_min_minutes"], 20)
+        self.assertEqual(dashboard_json["device"]["soc"], 50)
 
         self.assertIsNotNone(html_asset)
         self.assertIsNotNone(json_asset)
@@ -218,7 +222,7 @@ class DashboardTests(unittest.TestCase):
         ), patch("growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value=None), patch(
             "growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None
         ), patch("growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]):
-            html = build_dashboard_html(
+            html = render_dashboard_html(
                 status,
                 schedule,
                 {"dates": {}},
@@ -255,7 +259,7 @@ class DashboardTests(unittest.TestCase):
         ), patch("growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value=None), patch(
             "growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None
         ), patch("growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]):
-            html = build_dashboard_html(status, schedule, {"dates": {}}, Threshold(), metrics_history=[])
+            html = render_dashboard_html(status, schedule, {"dates": {}}, Threshold(), metrics_history=[])
             metrics = extract_dashboard_metrics(status)
             sources = extract_dashboard_metric_sources(status)
 
@@ -619,10 +623,7 @@ class DashboardTests(unittest.TestCase):
         for active in patches:
             active.start()
         try:
-            html = build_dashboard_html(
-                status, schedule, {"dates": {}}, ThresholdDecision(50, "test"),
-                30, 10000, 20, None, 1950, 0, 60, dashboard_data=payload,
-            )
+            html = build_dashboard_html(payload)
         finally:
             for active in patches:
                 active.stop()
@@ -658,10 +659,7 @@ class DashboardTests(unittest.TestCase):
                 status, schedule, {"dates": {}}, ThresholdDecision(50, "test"),
                 battery_capacity_wh=10000, battery_bms_cutoff_soc=20, now=now,
             )
-            html = build_dashboard_html(
-                status, schedule, {"dates": {}}, ThresholdDecision(50, "test"),
-                30, 10000, 20, None, 1950, 0, 60, dashboard_data=payload,
-            )
+            html = build_dashboard_html(payload)
 
         months = {row["month"]: row for row in payload["energy_history"]["months"]}
         self.assertEqual(months["2026-10"]["utility_kwh"], 4.0)
@@ -699,7 +697,7 @@ class DashboardTests(unittest.TestCase):
             "growatt_guard.dashboard_viewmodel.build_chart_data",
             return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
         ):
-            html = build_dashboard_html(
+            html = render_dashboard_html(
                 status,
                 schedule,
                 {"dates": {}},
@@ -746,7 +744,7 @@ class DashboardTests(unittest.TestCase):
                 "growatt_guard.dashboard_viewmodel.build_chart_data",
                 return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
             ):
-                return build_dashboard_html(
+                return render_dashboard_html(
                     status,
                     schedule,
                     {"dates": {}},
@@ -759,10 +757,10 @@ class DashboardTests(unittest.TestCase):
                     **overrides,
                 )
 
-        # 2000 W load, 1000 W charge, no usable SOC and 11h horizon wants 7h 20m;
-        # the manual /growatt_topup limit must not shorten the scheduled estimate.
+        # 2000 W load, 1000 W charge, no usable SOC and 11h horizon wants 7h 20m.
+        # The manual /growatt_topup limit cannot shorten it: the payload never
+        # carries AUTO_TOPUP_MAX_MINUTES.
         self.assertIn("7h 20m", render())
-        self.assertIn("7h 20m", render(auto_topup_max_minutes=180))
 
     def test_dashboard_grid_label_distinguishes_night_from_solar_cover(self):
         schedule = {"timezone": "Africa/Lagos", "jobs": []}
@@ -782,7 +780,7 @@ class DashboardTests(unittest.TestCase):
             ), patch("growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]), patch(
                 "growatt_guard.dashboard_viewmodel.build_chart_data", return_value={"labels": []}
             ):
-                return build_dashboard_html(
+                return render_dashboard_html(
                     status, schedule, {"dates": {}}, ThresholdDecision(50, "test"),
                     battery_capacity_wh=10000, battery_bms_cutoff_soc=20,
                 )
@@ -825,7 +823,7 @@ class DashboardTests(unittest.TestCase):
             "growatt_guard.dashboard_viewmodel.build_chart_data",
             return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
         ):
-            html = build_dashboard_html(status, schedule, {"dates": {}}, ThresholdDecision(50, "fixed threshold"))
+            html = render_dashboard_html(status, schedule, {"dates": {}}, ThresholdDecision(50, "fixed threshold"))
 
         self.assertIn("verified-sbu", html)
         self.assertNotIn("auto-topup-started", html)
@@ -855,7 +853,7 @@ class DashboardTests(unittest.TestCase):
             "growatt_guard.dashboard_viewmodel.build_chart_data",
             return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
         ):
-            html = build_dashboard_html(
+            html = render_dashboard_html(
                 status,
                 schedule,
                 {"dates": {}},
@@ -904,7 +902,7 @@ class DashboardTests(unittest.TestCase):
             "growatt_guard.dashboard_viewmodel.build_chart_data",
             return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
         ):
-            html = build_dashboard_html(
+            html = render_dashboard_html(
                 status,
                 schedule,
                 {"dates": {}},
@@ -945,7 +943,7 @@ class DashboardTests(unittest.TestCase):
             "growatt_guard.dashboard_viewmodel.build_chart_data",
             return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
         ):
-            html = build_dashboard_html(
+            html = render_dashboard_html(
                 status,
                 schedule,
                 {"dates": {}},
@@ -983,7 +981,7 @@ class DashboardTests(unittest.TestCase):
             "growatt_guard.dashboard_viewmodel.build_chart_data",
             return_value={"labels": [], "preserve_checks": [], "utility_switches": [], "watchdog_repairs": []},
         ):
-            html = build_dashboard_html(
+            html = render_dashboard_html(
                 status,
                 schedule,
                 {"dates": {}},

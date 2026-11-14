@@ -132,24 +132,11 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
         pv_forecast=pv_forecast,
         min_sbu_return_soc=config.min_sbu_return_soc,
         topup_status=topup_status,
-    )
-    html_content = build_dashboard_html(
-        status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes,
-        config.battery_capacity_wh, config.battery_bms_cutoff_soc,
-        hrs_to_sunrise, config.battery_charge_rate_w,
-        config.auto_topup_target_soc,
-        config.auto_topup_solar_skip_min_margin_minutes,
-        config.auto_topup_min_minutes,
-        config.auto_topup_max_minutes,
-        metrics_history,
-        hours_to_sunset=hrs_to_sunset,
+        auto_topup_min_minutes=config.auto_topup_min_minutes,
         tonight_floor_soc=config.auto_topup_sunrise_floor_soc,
         tonight_comfortable_soc=45.0,
-        utility_hold_state=read_utility_hold_state(),
-        pv_forecast=pv_forecast,
-        min_sbu_return_soc=config.min_sbu_return_soc,
-        dashboard_data=json_payload,
     )
+    html_content = build_dashboard_html(json_payload)
     # Atomic write: temp file in same directory then rename to avoid serving
     # a partially written file when the browser auto-refreshes mid-write.
     tmp = tempfile.NamedTemporaryFile(
