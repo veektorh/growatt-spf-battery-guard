@@ -373,7 +373,17 @@ def build_dashboard_data_payload(
         "history": build_dashboard_history_payload(
             metric_history, now=now, tz=resolve_timezone(schedule.get("timezone"))
         ),
-        "energy_history": build_daily_energy_view(read_daily_generation(), today=now.date()),
+        "energy_history": {
+            **build_daily_energy_view(read_daily_generation(), today=now.date()),
+            # Today is not in the ledger until it finalizes after midnight; the
+            # Energy Trend chart shows these live counters as a day in progress.
+            "today": {
+                "date": now.date().isoformat(),
+                "solar_kwh": _numeric_metric(live_metrics.get("pv_today_kwh")),
+                "load_kwh": _numeric_metric(live_metrics.get("load_today_kwh")),
+                "utility_kwh": _numeric_metric(live_metrics.get("grid_today_kwh")),
+            },
+        },
     }
 
 

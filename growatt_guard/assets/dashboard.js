@@ -24,7 +24,11 @@
       function niceMax(value) {
         const steps = [1, 2, 4, 5, 6, 8, 10, 20, 30, 40, 50, 60, 80, 100];
         for (let i = 0; i < steps.length; i++) if (value <= steps[i]) return steps[i];
-        return Math.ceil(value / 50) * 50;
+        /* Above 100, round up to 1, 2, 2.5 or 5 times a power of ten so the midline stays readable. */
+        const scale = Math.pow(10, Math.floor(Math.log10(value)));
+        const mults = [1, 2, 2.5, 5, 10];
+        for (let i = 0; i < mults.length; i++) if (value <= mults[i] * scale) return mults[i] * scale;
+        return 10 * scale;
       }
 
       function tipHtml(title, rows) {
@@ -135,10 +139,14 @@
           s += '<line class="' + (t === 0 ? "axisline" : "gridline") + '" x1="' + m.l + '" x2="' + (W - m.r) + '" y1="' + y(t) + '" y2="' + y(t) + '"/>';
           s += '<text x="' + (m.l - 6) + '" y="' + (y(t) + 4) + '" text-anchor="end">' + t + "</text>";
         });
+        /* Narrow bands (a month of days on a phone) label every few bars instead of overlapping. */
+        const labelEvery = Math.max(1, Math.ceil(22 / band));
         labels.forEach(function (label, i) {
           const cx = m.l + band * i + band / 2;
           const emphasis = options.emphasizeLast && i === n - 1 ? ' style="fill:var(--ink);font-weight:500"' : "";
-          s += '<text x="' + cx + '" y="' + (H - 4) + '" text-anchor="middle"' + emphasis + ">" + esc(label) + "</text>";
+          if (i % labelEvery === 0) {
+            s += '<text x="' + cx + '" y="' + (H - 4) + '" text-anchor="middle"' + emphasis + ">" + esc(label) + "</text>";
+          }
           if (options.mode === "stack") {
             const bw = Math.min(26, band * 0.5);
             const live = series.filter(function (se) { return isNum(se.values[i]) && se.values[i] > 0; });
@@ -205,6 +213,154 @@
         return { short: short, long: long };
       }
 
+      /* ---------- Energy Trend: one chart, grouped by day, month or year ---------- */
+      const energyHistory = readJson("energy-history-data", {});
+      const ledgerDays = (energyHistory.days || []).filter(function (row) {
+        return row && /^\d{4}-\d{2}-\d{2}$/.test(String(row.date));
+      });
+      const liveToday = energyHistory.today;
+      const todayDate = liveToday && /^\d{4}-\d{2}-\d{2}$/.test(String(liveToday.date)) ? String(liveToday.date) : null;
+      const ledgerByDate = {};
+      ledgerDays.forEach(function (row) { ledgerByDate[row.date] = row; });
+      /* Today's live counters stand in for the ledger row that finalizes after midnight. */
+      if (todayDate && !ledgerByDate[todayDate] &&
+          [liveToday.solar_kwh, liveToday.load_kwh, liveToday.utility_kwh].some(isNum)) {
+        const row = { date: todayDate, solar_kwh: liveToday.solar_kwh, load_kwh: liveToday.load_kwh, utility_kwh: liveToday.utility_kwh, live: true };
+        ledgerDays.push(row);
+        ledgerByDate[todayDate] = row;
+      }
+      const currentMonth = /^\d{4}-\d{2}$/.test(String(energyHistory.month || ""))
+        ? String(energyHistory.month)
+        : generatedAt.toISOString().slice(0, 7);
+      const TREND_VIEWS = ["day", "month", "year"];
+      const trend = { view: "day", period: null };
+      try {
+        const saved = localStorage.getItem("energy-trend-view");
+        if (TREND_VIEWS.indexOf(saved) >= 0) trend.view = saved;
+      } catch (e) {}
+
+      const sumOrNull = function (values) {
+        const nums = values.filter(isNum);
+        return nums.length ? nums.reduce(function (a, b) { return a + b; }, 0) : null;
+      };
+      const pad2 = function (v) { return String(v).padStart(2, "0"); };
+      const monthName = function (ym, style) {
+        return new Date(ym + "-01T12:00").toLocaleDateString("en-GB", { month: style, year: "numeric" });
+      };
+
+      /* The periods a view can step through: months for Day, years for Month, one span for Year. */
+      function trendPeriods(view) {
+        const seen = {};
+        ledgerDays.forEach(function (row) {
+          seen[view === "day" ? row.date.slice(0, 7) : row.date.slice(0, 4)] = true;
+        });
+        seen[view === "day" ? currentMonth : currentMonth.slice(0, 4)] = true;
+        return view === "year" ? ["all"] : Object.keys(seen).sort();
+      }
+
+      function trendSeries(view, period) {
+        const metric = function (rows, key) { return sumOrNull(rows.map(function (row) { return row[key]; })); };
+        const buckets = [];
+        if (view === "day") {
+          const parts = period.split("-"), count = new Date(Number(parts[0]), Number(parts[1]), 0).getDate();
+          for (let d = 1; d <= count; d++) {
+            const date = period + "-" + pad2(d), row = ledgerByDate[date];
+            buckets.push({
+              label: String(d),
+              title: new Date(date + "T12:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) +
+                (row && row.live ? " · so far today" : ""),
+              rows: row ? [row] : []
+            });
+          }
+        } else if (view === "month") {
+          for (let mo = 1; mo <= 12; mo++) {
+            const ym = period + "-" + pad2(mo);
+            const rows = ledgerDays.filter(function (row) { return row.date.slice(0, 7) === ym; });
+            buckets.push({
+              label: new Date(ym + "-01T12:00").toLocaleDateString("en-GB", { month: "short" }),
+              title: monthName(ym, "long") + (rows.length ? " · " + rows.length + (rows.length === 1 ? " day" : " days") : "") +
+                (ym === currentMonth ? " so far" : ""),
+              rows: rows
+            });
+          }
+        } else {
+          trendPeriods("month").forEach(function (year) {
+            const rows = ledgerDays.filter(function (row) { return row.date.slice(0, 4) === year; });
+            buckets.push({
+              label: year,
+              title: year + (rows.length ? " · " + rows.length + (rows.length === 1 ? " day" : " days") : "") +
+                (year === currentMonth.slice(0, 4) ? " so far" : ""),
+              rows: rows
+            });
+          });
+        }
+        const all = [].concat.apply([], buckets.map(function (b) { return b.rows; }));
+        return {
+          labels: buckets.map(function (b) { return b.label; }),
+          titles: buckets.map(function (b) { return b.title; }),
+          solar: buckets.map(function (b) { return metric(b.rows, "solar_kwh"); }),
+          utility: buckets.map(function (b) { return metric(b.rows, "utility_kwh"); }),
+          load: buckets.map(function (b) { return metric(b.rows, "load_kwh"); }),
+          totals: { solar: metric(all, "solar_kwh"), utility: metric(all, "utility_kwh"), load: metric(all, "load_kwh") },
+          periodLabel: view === "day" ? monthName(period, "short") : (view === "month" ? period : "All years")
+        };
+      }
+
+      function drawEnergyTrend() {
+        const panel = document.getElementById("energy-trend");
+        if (!panel) return;
+        const periods = trendPeriods(trend.view);
+        if (periods.indexOf(trend.period) < 0) trend.period = periods[periods.length - 1];
+        const at = periods.indexOf(trend.period);
+        const data = trendSeries(trend.view, trend.period);
+        panel.querySelectorAll("[data-trend-view]").forEach(function (button) {
+          button.setAttribute("aria-pressed", button.dataset.trendView === trend.view ? "true" : "false");
+        });
+        panel.querySelector("[data-trend-step='-1']").disabled = at <= 0;
+        panel.querySelector("[data-trend-step='1']").disabled = at >= periods.length - 1;
+        panel.querySelector("[data-trend-period]").textContent = data.periodLabel;
+        ["solar", "utility", "load"].forEach(function (key) {
+          const el = panel.querySelector("[data-trend-total='" + key + "']");
+          if (el) el.textContent = fmtKwh(data.totals[key]);
+        });
+        const firstMeasured = ledgerDays.find(function (row) { return isNum(row.load_kwh) || isNum(row.utility_kwh); });
+        const note = panel.querySelector("[data-trend-note]");
+        if (note) {
+          note.textContent = "Past days come from the finalized daily ledger; today is live so far." + (firstMeasured
+            ? " Load and Utility are recorded from " + new Date(firstMeasured.date + "T12:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) + "."
+            : " Load and Utility are not recorded yet.");
+        }
+        drawBarChart("energy-trend-chart", data.labels, [
+          { name: "Solar", c: "solar", values: data.solar },
+          { name: "Utility", c: "grid-c", values: data.utility },
+          { name: "Load", c: "load-c", values: data.load }
+        ], {
+          label: "Solar, Utility and load energy for " + data.periodLabel + ", grouped by " + trend.view + ", in kWh",
+          mode: "group", titles: data.titles,
+          yMax: niceMax(Math.max(1, maxOf([data.solar, data.utility, data.load])))
+        });
+      }
+
+      (function () {
+        const panel = document.getElementById("energy-trend");
+        if (!panel) return;
+        panel.querySelectorAll("[data-trend-view]").forEach(function (button) {
+          button.addEventListener("click", function () {
+            trend.view = button.dataset.trendView;
+            trend.period = null;
+            try { localStorage.setItem("energy-trend-view", trend.view); } catch (e) {}
+            drawEnergyTrend();
+          });
+        });
+        panel.querySelectorAll("[data-trend-step]").forEach(function (button) {
+          button.addEventListener("click", function () {
+            const periods = trendPeriods(trend.view);
+            const at = periods.indexOf(trend.period) + Number(button.dataset.trendStep);
+            if (at >= 0 && at < periods.length) { trend.period = periods[at]; drawEnergyTrend(); }
+          });
+        });
+      })();
+
       function drawCharts() {
         const powerMax = Math.max(1, niceMax(maxOf([power.pv_w, power.load_w, power.grid_w]) / 1000)) * 1000;
         drawLineChart("power-trend-chart", power.labels || [], [
@@ -245,32 +401,7 @@
           emphasizeLast: true, yMax: niceMax(Math.max(1, maxOf([supplyTotals, daily.load_kwh]))),
           tick: { name: "Load", values: daily.load_kwh || [] }
         });
-        const energyHistory = readJson("energy-history-data", {});
-        const monthDays = energyHistory.month_days || [];
-        if (monthDays.length) {
-          const monthOf = String(energyHistory.month || "");
-          const monthName = monthOf
-            ? new Date(monthOf + "-01T12:00").toLocaleDateString("en-GB", { month: "long", year: "numeric" })
-            : "This month";
-          const solar = monthDays.map(function (row) { return row.solar_kwh; });
-          const utility = monthDays.map(function (row) { return row.utility_kwh; });
-          const load = monthDays.map(function (row) { return row.load_kwh; });
-          const supply = solar.map(function (v, i) {
-            return (isNum(v) ? v : 0) + (isNum(utility[i]) ? utility[i] : 0);
-          });
-          drawBarChart("month-energy-chart", monthDays.map(function (row) { return String(row.day); }), [
-            { name: "Solar", c: "solar", values: solar },
-            { name: "Utility", c: "grid-c", values: utility }
-          ], {
-            label: "Daily solar and Utility supply with load for " + monthName + ", in kWh",
-            mode: "stack", emphasizeLast: false,
-            titles: monthDays.map(function (row) {
-              return new Date(row.date + "T12:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-            }),
-            yMax: niceMax(Math.max(1, maxOf([supply, load]))),
-            tick: { name: "Load", values: load }
-          });
-        }
+        drawEnergyTrend();
         drawBarChart("battery-energy-chart", days.short, [
           { name: "Charge", c: "battery", values: daily.charge_kwh || [] },
           { name: "Discharge", c: "neutral-mark", values: daily.discharge_kwh || [] }
@@ -329,6 +460,34 @@
         resizeTimer = window.setTimeout(drawCharts, 120);
       });
       showTab();
+    })();
+    (function () {
+      /* ---------- reload a tab the browser kept frozen in the background ----------
+         Phones and home-screen apps freeze background tabs and show them again
+         without reloading, and the meta refresh timer is paused while frozen, so
+         a returning tab could show a days-old page (even an older design) until
+         the timer ran out. Reload when the tab comes back and is older than one
+         refresh interval. If the server's copy is just as old (the dashboard has
+         stopped regenerating), the reload returns the same generated time and
+         the session marker stops a second reload for it. */
+      const generatedAt = new Date(document.body.dataset.generatedAt || "");
+      if (Number.isNaN(generatedAt.getTime())) return;
+      const meta = document.querySelector('meta[http-equiv="refresh"]');
+      const refreshMs = (parseInt(meta ? meta.content : "", 10) || 300) * 1000;
+      const stamp = document.body.dataset.generatedAt;
+      function reloadIfOld() {
+        if (document.visibilityState !== "visible") return;
+        if (Date.now() - generatedAt.getTime() <= refreshMs) return;
+        try {
+          if (sessionStorage.getItem("dash-reloaded-for") === stamp) return;
+          sessionStorage.setItem("dash-reloaded-for", stamp);
+        } catch (e) {
+          return; /* without a marker a stale server could loop; the meta refresh still applies */
+        }
+        location.reload();
+      }
+      document.addEventListener("visibilitychange", reloadIfOld);
+      window.addEventListener("pageshow", function (event) { if (event.persisted) reloadIfOld(); });
     })();
     (function () {
       /* ---------- data freshness: badge, age text and the stale alert ---------- */

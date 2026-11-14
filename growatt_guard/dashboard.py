@@ -139,14 +139,6 @@ def esc(value: Any) -> str:
     return html.escape(str(value), quote=True)
 
 
-def _month_label(month: str) -> str:
-    try:
-        parsed = dt.date.fromisoformat(f"{month}-01")
-    except ValueError:
-        return str(month)
-    return parsed.strftime("%b %Y")
-
-
 def format_duration(seconds: float | None) -> str:
     if seconds is None:
         return "unknown"
@@ -243,22 +235,6 @@ def build_dashboard_html(dashboard_data: dict[str, Any]) -> str:
     chart_data_json = json.dumps(dashboard_data["automation"]["chart_data"])
     energy_history = dashboard_data.get("energy_history") or {}
     energy_history_json = json.dumps(energy_history)
-    month_rows_html = "\n".join(
-        "<tr>"
-        + f'<td class="t">{esc(_month_label(row["month"]))}</td>'
-        + f'<td class="r">{esc(_fmt_kwh(row["solar_kwh"]))}</td>'
-        + f'<td class="r">{esc(_fmt_kwh(row["load_kwh"]))}</td>'
-        + f'<td class="r">{esc(_fmt_kwh(row["utility_kwh"]))}</td>'
-        + f'<td class="r">{row["days"]}{"" if row["complete"] else "*"}</td>'
-        + "</tr>"
-        for row in reversed(energy_history.get("months") or [])
-    ) or '<tr><td colspan="5" class="muted">No completed days recorded yet.</td></tr>'
-    energy_metrics_note = (
-        "Load and Utility totals start on the day the ledger began recording them, "
-        "so earlier months show a dash."
-        if any(row.get("load_kwh") is None for row in (energy_history.get("months") or []))
-        else "Every month here carries solar, load and Utility totals."
-    )
     pv_power_display = _fmt_w(live_metrics.get("pv_w"))
     grid_power_display = _fmt_w(live_metrics.get("grid_w"))
     load_power_display = _fmt_w(live_metrics.get("load_w"))
@@ -841,6 +817,30 @@ def build_dashboard_html(dashboard_data: dict[str, Any]) -> str:
     </section>
 
     <section class="tab-panel" id="tab-energy" data-tab-panel="energy" aria-label="Energy">
+      <article class="panel" id="energy-trend">
+        <div class="eyebrow">
+          <h2>Energy Trend</h2>
+          <div class="trend-controls">
+            <div class="stepper">
+              <button type="button" data-trend-step="-1" aria-label="Previous period">&#8249;</button>
+              <span data-trend-period aria-live="polite">--</span>
+              <button type="button" data-trend-step="1" aria-label="Next period">&#8250;</button>
+            </div>
+            <div class="segmented" role="group" aria-label="Group energy by">
+              <button type="button" data-trend-view="day" aria-pressed="true">Day</button>
+              <button type="button" data-trend-view="month" aria-pressed="false">Month</button>
+              <button type="button" data-trend-view="year" aria-pressed="false">Year</button>
+            </div>
+          </div>
+        </div>
+        <div class="legend">
+          <span><i class="seg-solar"></i>Solar <b data-trend-total="solar">--</b></span>
+          <span><i class="seg-grid"></i>Utility <b data-trend-total="utility">--</b></span>
+          <span><i class="seg-load"></i>Load <b data-trend-total="load">--</b></span>
+        </div>
+        <div class="chart" id="energy-trend-chart"></div>
+        <p class="muted small" data-trend-note>Past days come from the finalized daily ledger; today is live so far.</p>
+      </article>
       <div class="two">
         <article class="panel">
           <div class="eyebrow"><h2>Today's Balance</h2>{_inline_badge('Data ' + quality_display, quality_badge_class)}</div>
@@ -871,25 +871,6 @@ def build_dashboard_html(dashboard_data: dict[str, Any]) -> str:
           <div class="chart" id="forecast-accuracy-chart"></div>
         </article>
       </div>
-      <article class="panel">
-        <div class="eyebrow">
-          <h2>This Month by Day</h2>
-          <div class="legend">
-            <span><i class="seg-solar"></i>Solar</span>
-            <span><i class="seg-grid"></i>Utility</span>
-            <span><i class="line seg-ink"></i>Load</span>
-          </div>
-        </div>
-        <div class="chart" id="month-energy-chart"></div>
-      </article>
-      <article class="panel">
-        <div class="eyebrow"><h2>Month by Month</h2><span class="muted small">* month in progress</span></div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Month</th><th class="r">Solar</th><th class="r">Load</th><th class="r">Utility</th><th class="r">Days</th></tr></thead>
-          <tbody>{month_rows_html}</tbody>
-        </table></div>
-        <p class="muted small">{esc(energy_metrics_note)}</p>
-      </article>
       <article class="panel">
         <div class="eyebrow"><h2>Energy Outlook</h2>{_inline_badge('Confidence: ' + str(energy_outlook_view['confidence']), 'badge-neutral')}</div>
         <div class="table-wrap"><table><tbody>{outlook_rows_html}</tbody></table></div>

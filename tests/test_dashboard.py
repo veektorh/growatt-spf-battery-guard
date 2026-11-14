@@ -630,7 +630,7 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("Growatt Dashboard", html)
 
-    def test_dashboard_renders_month_by_month_energy_from_the_ledger(self):
+    def test_dashboard_energy_trend_carries_every_ledger_day(self):
         status = {
             "device": {"capacity": "58%"},
             "storage_params": {
@@ -664,10 +664,20 @@ class DashboardTests(unittest.TestCase):
         months = {row["month"]: row for row in payload["energy_history"]["months"]}
         self.assertEqual(months["2026-10"]["utility_kwh"], 4.0)
         self.assertEqual(months["2026-11"]["solar_kwh"], 43.0)
-        self.assertIn("Month by Month", html)
-        self.assertIn('<td class="t">Oct 2026</td><td class="r">28.0 kWh</td><td class="r">21.0 kWh</td><td class="r">4.0 kWh</td><td class="r">1</td>', html)
-        self.assertIn('<td class="t">Nov 2026</td><td class="r">43.0 kWh</td><td class="r">22.0 kWh</td><td class="r">0.0 kWh</td><td class="r">2*</td>', html)
-        self.assertIn('id="month-energy-chart"', html)
+        self.assertEqual(
+            [row["date"] for row in payload["energy_history"]["days"]],
+            ["2026-10-31", "2026-11-01", "2026-11-02"],
+        )
+        self.assertEqual(payload["energy_history"]["today"]["date"], "2026-11-03")
+        # One Energy Trend chart replaces the month table and the month-by-day chart.
+        self.assertIn('id="energy-trend-chart"', html)
+        for view in ("day", "month", "year"):
+            self.assertIn(f'data-trend-view="{view}"', html)
+        self.assertIn('data-trend-step="-1"', html)
+        self.assertNotIn("Month by Month", html)
+        self.assertNotIn('id="month-energy-chart"', html)
+        history = html.split('<script id="energy-history-data" type="application/json">', 1)[1].split("</script>", 1)[0]
+        self.assertEqual(json.loads(history)["days"][0]["solar_kwh"], 28.0)
 
     def test_dashboard_topup_estimate_shows_short_topup_skip(self):
         status = {

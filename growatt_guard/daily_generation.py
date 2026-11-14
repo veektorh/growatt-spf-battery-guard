@@ -306,7 +306,7 @@ def build_daily_energy_view(
     today: dt.date | None = None,
     months: int = 12,
 ) -> dict[str, Any]:
-    """Month totals plus the current month's per-day solar, load and Utility energy.
+    """Month totals plus every finalized day's solar, load and Utility energy.
 
     Load and Utility only exist from the day the ledger started recording them, so a
     month reports ``None`` for a metric whose days carry no reading instead of zero.
@@ -332,14 +332,15 @@ def build_daily_energy_view(
             }
         )
 
-    month_days = [
+    # Every finalized day, oldest first: the dashboard's Energy Trend chart
+    # groups these into days of a month, months of a year, and years.
+    days = [
         {
             "date": str(row["date"]),
-            "day": int(str(row["date"])[8:10]),
             "solar_kwh": _kwh(int(row["generated_wh"])),
             "load_kwh": _kwh(row.get("load_wh")),
             "utility_kwh": _kwh(row.get("utility_wh")),
         }
-        for row in by_month.get(current_month, [])
+        for row in sorted(rows, key=lambda item: str(item["date"]))
     ]
-    return {"month": current_month, "months": month_rows, "month_days": month_days}
+    return {"month": current_month, "months": month_rows, "days": days}
