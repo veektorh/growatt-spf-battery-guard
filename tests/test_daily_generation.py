@@ -179,7 +179,9 @@ class DailyEnergyViewTests(unittest.TestCase):
         self.assertTrue(by_month["2026-10"]["complete"])
         self.assertFalse(by_month["2026-11"]["complete"])
         self.assertEqual(by_month["2026-11"]["utility_kwh"], 0.0)
+        self.assertEqual([row["date"] for row in view["days"]], [row["date"] for row in rows])
         self.assertEqual(
-            view["month_days"],
-            [{"date": "2026-11-01", "day": 1, "solar_kwh": 22.0, "load_kwh": 18.0, "utility_kwh": 0.0}],
+            view["days"][-1],
+            {"date": "2026-11-01", "solar_kwh": 22.0, "load_kwh": 18.0, "utility_kwh": 0.0},
         )
+        self.assertIsNone(view["days"][0]["load_kwh"])

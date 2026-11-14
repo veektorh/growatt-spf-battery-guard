@@ -209,3 +209,15 @@
       .top-actions { margin-left: 0; justify-content: flex-start; }
       td.health-label { width: auto; white-space: normal; }
     }
+
+    /* Energy Trend: period stepper and Day / Month / Year switch */
+    .trend-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .stepper, .segmented { display: inline-flex; align-items: stretch; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); overflow: hidden; }
+    .stepper button, .segmented button { font: inherit; font-size: 13px; color: var(--ink-2); background: transparent; border: 0; padding: 5px 12px; cursor: pointer; min-height: 32px; }
+    .stepper button { padding: 5px 10px; font-size: 16px; line-height: 1; }
+    .stepper button:disabled { opacity: .35; cursor: default; }
+    .stepper span { display: inline-flex; align-items: center; justify-content: center; min-width: 92px; padding: 0 6px; font-size: 13px; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; border-left: 1px solid var(--line-soft); border-right: 1px solid var(--line-soft); }
+    .segmented button + button { border-left: 1px solid var(--line-soft); }
+    .segmented button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+    .stepper button:not(:disabled):hover, .segmented button[aria-pressed="false"]:hover { color: var(--accent); }
+    #energy-trend-chart { height: 240px; }
