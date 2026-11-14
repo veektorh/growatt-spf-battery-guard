@@ -436,10 +436,17 @@ class DischargeRateAverageTests(unittest.TestCase):
                     state_mod.append_discharge_rate_reading(
                         1600, recorded_at=overnight, aggregate_nightly=True, tz=fixed_now.tzinfo
                     )
+            # The check records its live reading on the wall clock; pin it to the
+            # test's evening so the result does not depend on the day it runs.
             with patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", dr_file), patch(
                 "growatt_guard.topup.select_night_load_profile",
                 side_effect=lambda history, **kwargs: real_profile(history, now=fixed_now, **kwargs),
-            ), patch("growatt_guard.topup.resolve_timezone", return_value=fixed_now.tzinfo):
+            ), patch("growatt_guard.topup.resolve_timezone", return_value=fixed_now.tzinfo), patch(
+                "growatt_guard.topup.append_discharge_rate_reading",
+                side_effect=lambda rate, **kwargs: state_mod.append_discharge_rate_reading(
+                    rate, recorded_at=fixed_now, **kwargs
+                ),
+            ):
                 result = self._run_check(cfg, tmpdir, discharge_w=2500.0, prior_readings=[])
 
         # 2.67 h of 2500 W evening load plus 2.33 h of 1600 W overnight load over a
