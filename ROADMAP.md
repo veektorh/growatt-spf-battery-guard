@@ -33,6 +33,7 @@ public-safe: no IDs, serials, domains, or credentials.
   | 11-10 | 3 | 295 | 1513-1556 W planned |
   | 11-11 | 4 | 146 | 1571-1741 planned, 1637-2405 implied |
   | 11-12 | 3 | 202 | 1887/1846/1847 planned, 1385/1888/1732 implied |
+  | 11-13 | 2 | 165 | 1851/1856 planned, 2000/2160 implied (after N1 closed) |
 
   The near-target rule is exercised and correct (completions at 80 against
   80.62, 60 against 60.15, 53 against 53.08, 44 against 44.03, 47 against
@@ -101,7 +102,31 @@ public-safe: no IDs, serials, domains, or credentials.
     the per-band night count.
   - The banded overnight rate came out near 2100 W against a flat fallback of
     1463 W, and the observed drain (72% to 55% in 2 h 36 m on 30 kWh) agrees
-    with the banded figure. The flat average is stale, which is N10.
+    with the banded figure. The stale flat average was fixed by #83 and #84,
+    which read the fallback from the four most recent nights.
+- Night of 2026-11-13 (2 of 3; still planned on the flat fallback):
+  - Two starts, the first night under three: 18:00 for 90 min (reserve, 82% to
+    92% against a 91.76% target, `topup-target-reached`) and 02:40 for 75 min
+    (late-safety, 41% to 50% against 49.71%). 165 Utility minutes.
+  - The gap between windows was 7 h 10 m, against 3 h 14 m and 2 h 36 m on
+    2026-11-12 and about two hours on 2026-11-11. The headroom change is doing
+    its job: the evening window no longer re-arms through the night.
+  - `planned_load_w` was 1878 W in the evening (the four-night fallback) and
+    1414.5 W at 02:40, while the night's recorded bands were 1796 W evening and
+    2240 W overnight. Both windows still reached target because the charge rate
+    came in high (implied 2000 W and 2160 W against about 1850 W planned).
+  - The 05:20 check skipped a 4.4-minute top-up at 40%.
+- When the bands can go live: readiness counts banded nights of the *same day
+  type*, and `day_type` treats Saturday and Sunday as weekend. Two weekday nights
+  carry `bands` (2026-11-12 and 11-13). Each check records its sample before it
+  plans, so the night of 2026-11-16 becomes the third banded night as it runs:
+  its evening band counts from 18:00, but a horizon before 22:00 also needs the
+  overnight band, which reaches three nights only with the first sample after
+  22:00. The first banded plan can therefore come at the 22:00 check on
+  2026-11-16, and the evening of 2026-11-17 is the first whole night on bands.
+  Weekend nights have no banded rows yet. They need three (the nights of 11-14,
+  11-15 and 11-21), so the earliest weekend banded plan is after 22:00 on
+  2026-11-21.
 - Next reads, from the night of 2026-11-13 onward:
   - `auto-topup-started` count per night, against the 2026-11-09 window's three.
   - The gap between a `topup-complete-check` and the next start. The corrected
