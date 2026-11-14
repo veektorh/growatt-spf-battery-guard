@@ -7,8 +7,10 @@ returns one value per day for PV (``ppv``), load (``elocalLoad``) and grid impor
 (``pacToUser``). Save those responses as ``{"YYYY-MM": charts, ...}`` and import them here.
 
 The import only fills ``load_wh`` and ``utility_wh`` where a ledger day has none. It never
-changes ``generated_wh`` or a value the ledger already recorded, reports days where the
-export's solar disagrees with the ledger, and backs the ledger up before writing.
+changes a value the ledger already recorded, reports days where the export's solar
+disagrees with the ledger, and backs the ledger up before writing. ``generated_wh``
+changes only with the explicit ``correct_solar`` option, and then only on the reported
+days, keeping the old value in ``previous_wh`` as ``solar-reconcile`` does.
 """
 from __future__ import annotations
 
@@ -126,23 +128,39 @@ def build_import_plan(
     return plan
 
 
-def apply_import_plan(plan: ImportPlan, *, path: Path | None = None, now: dt.datetime | None = None) -> Path | None:
-    """Write the fills, after copying the ledger aside. Returns the backup path."""
-    if not plan.fills:
+def apply_import_plan(
+    plan: ImportPlan,
+    *,
+    correct_solar: bool = False,
+    path: Path | None = None,
+    now: dt.datetime | None = None,
+) -> Path | None:
+    """Write the fills (and, if asked, the solar corrections) after copying the ledger aside.
+
+    Returns the backup path, or None when there is nothing to write.
+    """
+    corrections = {date: export_wh for date, _, export_wh in plan.solar_mismatches} if correct_solar else {}
+    if not plan.fills and not corrections:
         return None
+    moment = now or dt.datetime.now(dt.timezone.utc)
     target = path or DAILY_GENERATION_FILE
     rows = read_daily_generation(target)
-    stamp = (now or dt.datetime.now(dt.timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    stamp = moment.strftime("%Y%m%dT%H%M%SZ")
     backup = target.with_name(f"{target.name}.bak-{stamp}")
     shutil.copy2(target, backup)
     for row in rows:
-        fill = plan.fills.get(str(row["date"]))
-        if not fill:
-            continue
-        for ledger_field, value in fill.items():
-            if row.get(ledger_field) is None:
-                row[ledger_field] = value
-        row["energy_import_source"] = IMPORT_SOURCE
+        date = str(row["date"])
+        fill = plan.fills.get(date)
+        if fill:
+            for ledger_field, value in fill.items():
+                if row.get(ledger_field) is None:
+                    row[ledger_field] = value
+            row["energy_import_source"] = IMPORT_SOURCE
+        if date in corrections:
+            row["previous_wh"] = int(row["generated_wh"])
+            row["generated_wh"] = corrections[date]
+            row["source"] = IMPORT_SOURCE
+            row["corrected_at"] = moment.isoformat()
     _write_daily_generation(rows, target)
     return backup
 
@@ -154,6 +172,7 @@ def _kwh(wh: int) -> str:
 def command_import_energy_history(
     input_path: str,
     apply: bool = False,
+    correct_solar: bool = False,
     *,
     today: dt.date | None = None,
     ledger_path: Path | None = None,
@@ -174,8 +193,9 @@ def command_import_energy_history(
         load = sum(fill.get("load_wh", 0) for fill in plan.fills.values())
         utility = sum(fill.get("utility_wh", 0) for fill in plan.fills.values())
         print(f"  {first} to {last}: load {_kwh(load)}, Utility {_kwh(utility)}")
+    outcome = "corrected to the export" if correct_solar else "ledger kept; --correct-solar replaces it"
     for date, ledger_wh, export_wh in plan.solar_mismatches:
-        print(f"Solar differs on {date}: ledger {_kwh(ledger_wh)}, export {_kwh(export_wh)} (ledger kept)")
+        print(f"Solar differs on {date}: ledger {_kwh(ledger_wh)}, export {_kwh(export_wh)} ({outcome})")
     for date, ledger_field, existing, value in plan.kept:
         print(f"Recorded {ledger_field} kept on {date}: ledger {_kwh(existing)}, export {_kwh(value)}")
     if plan.not_in_ledger:
@@ -186,9 +206,10 @@ def command_import_energy_history(
     if not apply:
         print("Preview only; re-run with --apply to write.")
         return 0
-    backup = apply_import_plan(plan, path=ledger_path)
+    backup = apply_import_plan(plan, correct_solar=correct_solar, path=ledger_path)
     if backup is None:
         print("Nothing to write.")
         return 0
-    print(f"Filled {len(plan.fills)} days. Ledger backup: {backup}")
+    corrected = len(plan.solar_mismatches) if correct_solar else 0
+    print(f"Filled {len(plan.fills)} days, corrected solar on {corrected}. Ledger backup: {backup}")
     return 0

@@ -598,8 +598,11 @@ POST each month to `/panel/storage/getStorage6000EnergyMonthChart` with `date`
 ```
 
 It fills `load_wh` and `utility_wh` only where a day has none, never changes
-`generated_wh` or recorded values, reports solar disagreements, skips today, and
-copies the ledger to `daily_generation.jsonl.bak-<timestamp>` before writing.
+recorded values, reports solar disagreements, skips today, and copies the ledger
+to `daily_generation.jsonl.bak-<timestamp>` before writing. Add `--correct-solar`
+to also replace `generated_wh` on the reported days; the old value is kept in
+`previous_wh`. PVOutput keeps its own copy, so correct it separately with
+`pvoutput-backfill --overwrite-conflicts`.
 It makes no Growatt calls; the website login stays manual so automation never
 adds logins to the account.
 
