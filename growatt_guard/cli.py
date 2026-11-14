@@ -354,6 +354,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Write the fills after backing up the ledger; without it the command only previews.",
     )
+    energy_import_parser.add_argument(
+        "--correct-solar",
+        action="store_true",
+        help="Also replace generated_wh with the export's value on the days the preview reports as different.",
+    )
 
     charge_rate_parser = subparsers.add_parser(
         "estimate-charge-rate",
@@ -537,7 +542,7 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
                 args.input,
             )
         if command == "import-energy-history":
-            return command_import_energy_history(args.input, args.apply)
+            return command_import_energy_history(args.input, args.apply, args.correct_solar)
         if command == "estimate-charge-rate":
             return app.command_estimate_charge_rate(config, args.wait_seconds)
         if command == "auto-topup-check":

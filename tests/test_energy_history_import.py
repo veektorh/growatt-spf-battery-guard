@@ -102,6 +102,39 @@ class EnergyHistoryImportTests(unittest.TestCase):
         self.assertEqual(row["energy_import_source"], "growatt-web-chart")
         self.assertEqual(len(backups), 1)
 
+    def test_correct_solar_replaces_only_reported_days_and_keeps_the_old_value(self):
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            ledger = self._ledger(tmp, [
+                {"date": "2026-08-28", "generated_wh": 10100, "load_wh": 18300, "utility_wh": 4700, "source": "growatt-observability"},
+                {"date": "2026-08-30", "generated_wh": 16000, "load_wh": 22800, "utility_wh": 0, "source": "growatt-observability"},
+            ])
+            export = tmp / "export.json"
+            values = [0.0] * 31
+            ppv, load, grid = list(values), list(values), list(values)
+            ppv[27], load[27], grid[27] = 16.5, 18.3, 4.7
+            ppv[29], load[29], grid[29] = 16.05, 22.8, 0.0
+            export.write_text(json.dumps({"2026-08": _charts(ppv, load, grid)}), encoding="utf-8")
+
+            with redirect_stdout(StringIO()) as preview:
+                command_import_energy_history(str(export), today=dt.date(2026, 11, 14), ledger_path=ledger)
+            self.assertIn("--correct-solar replaces it", preview.getvalue())
+            self.assertEqual(read_daily_generation(ledger)[0]["generated_wh"], 10100)
+
+            with redirect_stdout(StringIO()):
+                command_import_energy_history(
+                    str(export), apply=True, correct_solar=True, today=dt.date(2026, 11, 14), ledger_path=ledger
+                )
+            rows = {row["date"]: row for row in read_daily_generation(ledger)}
+
+        self.assertEqual(rows["2026-08-28"]["generated_wh"], 16500)
+        self.assertEqual(rows["2026-08-28"]["previous_wh"], 10100)
+        self.assertEqual(rows["2026-08-28"]["source"], "growatt-web-chart")
+        self.assertIn("corrected_at", rows["2026-08-28"])
+        # 16.0 against 16.05 is within one rounding step, so that day is left alone.
+        self.assertEqual(rows["2026-08-30"]["generated_wh"], 16000)
+        self.assertNotIn("previous_wh", rows["2026-08-30"])
+
 
 if __name__ == "__main__":
     unittest.main()
