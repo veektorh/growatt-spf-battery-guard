@@ -194,12 +194,14 @@ from growatt_guard.outage_days import (
     today_is_outage_day,
 )
 from growatt_guard.pause import (
+    LOCK_SKIP_ACTION,
     command_clear_login_cooldown,
     command_clear_stale_lock,
     command_pause,
     command_pause_status,
     command_resume,
     ensure_not_paused,
+    record_lock_skip,
     run_with_command_lock,
 )
 from growatt_guard.schedule import (
