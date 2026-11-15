@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import datetime as dt
 import logging
 
+from growatt_guard.audit import append_mode_audit
 from growatt_guard.config import Config
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.notifications import send_discord_message
@@ -35,6 +37,39 @@ def ensure_not_paused(config: Config, command: str) -> bool:
     return True
 
 
+LOCK_SKIP_ACTION = "lock-skip"
+
+
+def _lock_age_minutes(created_at: object) -> float | None:
+    try:
+        created = dt.datetime.fromisoformat(str(created_at))
+    except (TypeError, ValueError):
+        return None
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=dt.timezone.utc)
+    return max((dt.datetime.now(dt.timezone.utc) - created).total_seconds() / 60.0, 0.0)
+
+
+def record_lock_skip(config: Config, command: str, state: dict) -> None:
+    """Audit a job that gave way to the command already holding the lock.
+
+    A scheduled job skipped for the lock leaves no other audit evidence, so the
+    morning review cannot tell a deferral from a check that never fired.
+    """
+    holder = str(state.get("command") or "unknown")
+    created_at = state.get("created_at")
+    note = f"held_by={holder}"
+    age_minutes = _lock_age_minutes(created_at)
+    if age_minutes is not None:
+        note += f" age_min={age_minutes:.2f}"
+    if created_at:
+        note += f" held_since={created_at}"
+    try:
+        append_mode_audit(config, command, action=LOCK_SKIP_ACTION, result="skipped", note=note)
+    except OSError:
+        logging.exception("Could not record the lock skip for `%s`.", command)
+
+
 def run_with_command_lock(config: Config, command: str, action) -> int:
     token = acquire_command_lock(command)
     if token is None:
@@ -43,6 +78,7 @@ def run_with_command_lock(config: Config, command: str, action) -> int:
         created_at = state.get("created_at", "unknown time")
         message = f"Skipped `{command}` because `{locked_command}` is already running since {created_at}."
         logging.warning(message)
+        record_lock_skip(config, command, state)
         if config.discord_notify_skip:
             send_discord_message(config, message)
         print(message)

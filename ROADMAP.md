@@ -155,7 +155,14 @@ public-safe: no IDs, serials, domains, or credentials.
   the outage began near 39%.
 - Read per morning: the 06:30 and 07:00 preserve rows (`switch` or `skip`, with
   live and projected SOC), the SOC at the 07:55 return, and the SOC when the
-  outage starts. Compare that SOC with the day's preserve threshold.
+  outage starts. Compare that SOC with the day's preserve threshold. When a
+  top-up holds the lock at 07:00 the row is `lock-skip` with `held_by` and
+  `age_min` in its note (N13); read that as a deferral, not a missing check.
+- Mornings read so far: 2026-11-14 and 11-15. Both kept the 06:30 preserve
+  (`switch`, projected 19% and 29% at the outage start against thresholds 45
+  and 40) and both deferred the 07:00 check to the threshold top-up's hold. The
+  08:01 watchdog reading on each morning was 45% and 40%, exactly the day's
+  threshold, so neither outage started below it.
 - Done when: five outage-day mornings are read. If the outage still starts below
   the threshold on two or more of them, reopen the sunrise-target options
   (`AUTO_TOPUP_TARGET_SOC=35`, or a target from the next morning's preserve
@@ -180,6 +187,32 @@ public-safe: no IDs, serials, domains, or credentials.
   rebuilt Now tab yet.
 - Done when: one alert row is seen on the live Now tab and its text matches the
   matching `dashboard.json` field (`automation.*` or `planner.tonight_safe`).
+
+### N13. Record the 07:00 preserve check when a top-up holds the lock
+
+- Status: evidence change shipped 2026-11-15; waiting for the next outage-day
+  morning to confirm the production row. No mode timing changed. Letting the
+  07:00 check proceed against a live top-up is still a separate decision for
+  the owner.
+- Why: on both outage-day mornings since #85 deployed (2026-11-14 and 11-15)
+  `morning-preserve-late` produced no audit row. The 06:30 `morning-preserve`
+  starts a threshold top-up, and at 07:00 the per-minute
+  `topup-complete-check` holds `mode_command.lock`, so `run_with_command_lock`
+  warns and returns without writing to `mode_decisions.csv`. The warning's
+  `created_at` is UTC (06:00:05Z) against a UTC+1 log line (07:00:05), so this
+  is a same-second collision, not a stale lock: `COMMAND_LOCK_STALE_SECONDS` is
+  45 minutes and is not being reached.
+- Consequence: N12 asks for the 06:30 and 07:00 preserve rows per morning and
+  cannot read the second one. On 2026-11-15 the top-up ended at 07:06 with SOC
+  40 against a preserve threshold of 40, so `return-sbu` did not defer; the
+  inverter sat on SBU from 07:06 until the 08:00 outage, which started at 40%,
+  equal to the threshold rather than below it.
+- Shipped: `run_with_command_lock` now calls `record_lock_skip`, which appends a
+  `lock-skip` audit row for the command that gave way, with `result=skipped` and
+  a note carrying `held_by`, `age_min`, and `held_since`. No Growatt call is
+  made on that path, so the row costs nothing and cannot change mode.
+- Done when: an outage-day morning carries a 07:00 `lock-skip` row on the audit
+  trail, and N12 can read the 07:00 outcome from it.
 
 ## Current Baseline
 

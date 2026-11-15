@@ -6,9 +6,11 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from helpers import make_config
+from growatt_guard.audit import read_mode_audit_rows
 from growatt_guard.discord_control import MAX_PAUSE_HOURS
 from growatt_power_guard import (
     GrowattGuardError,
+    LOCK_SKIP_ACTION,
     LOCKED_COMMANDS,
     acquire_command_lock,
     command_clear_stale_lock,
@@ -61,13 +63,23 @@ class PauseTests(unittest.TestCase):
         config = make_config(discord_notify_skip=False)
         with TemporaryDirectory() as tmpdir, patch("growatt_guard.state.STATE_DIR", Path(tmpdir)), patch(
             "growatt_guard.state.COMMAND_LOCK_FILE", Path(tmpdir) / "mode_command.lock"
+        ), patch("growatt_guard.audit.LOG_DIR", Path(tmpdir)), patch(
+            "growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
         ), redirect_stdout(StringIO()) as stdout:
             token = acquire_command_lock("preserve-battery")
             self.assertIsNotNone(token)
             self.assertEqual(run_with_command_lock(config, "return-sbu", lambda: 99), 0)
             release_command_lock(token or "")
+            rows = read_mode_audit_rows()
 
         self.assertIn("already running", stdout.getvalue())
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["command"], "return-sbu")
+        self.assertEqual(rows[0]["action"], LOCK_SKIP_ACTION)
+        self.assertEqual(rows[0]["result"], "skipped")
+        self.assertIn("held_by=preserve-battery", rows[0]["note"])
+        self.assertIn("age_min=", rows[0]["note"])
+        self.assertIn("held_since=", rows[0]["note"])
 
     def test_clear_stale_lock_no_lock_file(self):
         config = make_config()
