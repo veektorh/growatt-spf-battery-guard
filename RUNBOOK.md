@@ -1,5 +1,22 @@
 # Growatt Automation Runbook
 
+## Which tree to run
+
+Production runs the deployed release, not this checkout: cron calls
+`~/automation/.deploy/current/growatt-guard` with `GROWATT_GUARD_HOME=<release>`
+and `GROWATT_GUARD_DATA_DIR=~/automation`. On the VPS, run a command against
+what is actually live with:
+
+```bash
+GROWATT_GUARD_HOME=$PWD/.deploy/current GROWATT_GUARD_DATA_DIR=$PWD \
+  .deploy/current/growatt-guard <command>
+```
+
+The `.venv/bin/python growatt_power_guard.py <command>` form used below reads
+this checkout's source and writes to the same data root, so use it for local
+work rather than to inspect what production is running. The deployed commit is
+whatever `.deploy/current/RELEASE` names.
+
 ## Current Schedule
 
 ```text

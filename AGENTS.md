@@ -103,22 +103,38 @@ Expected matches should be placeholders in `.env.example`, README/RUNBOOK exampl
 
 ## Deployment Notes
 
-The VPS normally updates from GitHub:
+Merging to `main` deploys production: `.github/workflows/deploy-production.yml`
+runs on CI completion for `main` and calls the VPS deploy script with the
+verified SHA. The script installs a release under
+`~/automation/.deploy/releases/<sha>` and repoints `~/automation/.deploy/current`
+at it; cron runs `.deploy/current/growatt-guard` with
+`GROWATT_GUARD_HOME=<release>` and `GROWATT_GUARD_DATA_DIR=~/automation`.
+
+A release holds no source tree — only `.venv`, `growatt-guard`, `schedule.json`,
+`DATA_ROOT`, and `RELEASE` — so the checkout's
+`.venv/bin/python growatt_power_guard.py` form does not exist there and runs
+stale source if used. Verify a deploy with the console script:
 
 ```bash
 cd ~/automation
-git pull
-.venv/bin/python growatt_power_guard.py validate-schedule
-.venv/bin/python growatt_power_guard.py health-check
+cat .deploy/current/RELEASE
+GROWATT_GUARD_HOME=$PWD/.deploy/current GROWATT_GUARD_DATA_DIR=$PWD \
+  .deploy/current/growatt-guard validate-schedule
+GROWATT_GUARD_HOME=$PWD/.deploy/current GROWATT_GUARD_DATA_DIR=$PWD \
+  .deploy/current/growatt-guard health-check
 ```
 
-After changing `schedule.json`, reinstall cron on the VPS:
+After changing `schedule.json`, reinstall cron from the running release so the
+installed jobs match what shipped:
 
 ```bash
 cd ~/automation
-.venv/bin/python growatt_power_guard.py validate-schedule
-./install_cloud_cron.sh
+GROWATT_GUARD_RUNTIME_ROOT=$PWD/.deploy/current ./install_cloud_cron.sh
 ```
+
+Merge one PR at a time. A deploy queued for a SHA that `main` has advanced past
+fails the release guard ("does not match requested release") and deploys
+nothing; retrigger CI for the current head instead of forcing the old run.
 
 After changing dashboard service/proxy scripts, review `RUNBOOK.md` and the installer scripts together.
 
