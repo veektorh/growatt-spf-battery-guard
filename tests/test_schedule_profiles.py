@@ -510,5 +510,71 @@ class ShippedScheduleTests(unittest.TestCase):
                 )
 
 
+class ShippedEstate18hTests(unittest.TestCase):
+    """estate-18h must bracket every cut of the 18 Nov 2026 notice."""
+
+    WEDNESDAY = dt.date(2026, 11, 18)
+    SATURDAY = dt.date(2026, 11, 21)
+
+    def _profile(self) -> dict:
+        return load_schedule_document()["profiles"]["estate-18h"]
+
+    @staticmethod
+    def _fires(jobs: list[dict], date: dt.date, command: str) -> list[dt.datetime]:
+        fires: list[dt.datetime] = []
+        for job in jobs:
+            if str(job.get("command")) != command:
+                continue
+            cron = str(job["cron"])
+            for minute in range(24 * 60):
+                when = dt.datetime.combine(date, dt.time(0, 0)) + dt.timedelta(minutes=minute)
+                if cron_matches(cron, when):
+                    fires.append(when)
+        return sorted(fires)
+
+    def test_rationed_hours_match_the_notice(self):
+        profile = self._profile()
+        for date, cut_hours in ((self.WEDNESDAY, 6), (self.SATURDAY, 4)):
+            windows = outages_for_date(profile["outages"], date)
+            self.assertTrue(windows, f"estate-18h declares no cut for {date}")
+            cut_minutes = sum(
+                (dt.time.fromisoformat(window["end"]).hour * 60
+                 + dt.time.fromisoformat(window["end"]).minute)
+                - (dt.time.fromisoformat(window["start"]).hour * 60
+                   + dt.time.fromisoformat(window["start"]).minute)
+                for window in windows
+            )
+            self.assertEqual(cut_minutes, cut_hours * 60, f"{date} supply is not 24-{cut_hours}h")
+
+    def test_every_cut_is_bracketed_by_its_mode_jobs(self):
+        profile = self._profile()
+        jobs = profile["jobs"]
+        for date in (self.WEDNESDAY, self.SATURDAY):
+            preserves = self._fires(jobs, date, "preserve-battery")
+            returns = self._fires(jobs, date, "return-sbu")
+            watchdogs = self._fires(jobs, date, "watchdog-sbu")
+            windows = outages_for_date(profile["outages"], date)
+            for window in windows:
+                start = dt.datetime.combine(date, dt.time.fromisoformat(window["start"]))
+                end = dt.datetime.combine(date, dt.time.fromisoformat(window["end"]))
+                label = f"{date} {window['start']}-{window['end']}"
+                self.assertTrue(
+                    any(start - dt.timedelta(minutes=240) <= f < start for f in preserves),
+                    f"{label} has no preserve job in the 4h before the cut",
+                )
+                self.assertTrue(
+                    any(dt.timedelta(0) < start - r <= dt.timedelta(minutes=10) for r in returns),
+                    f"{label} has no return-sbu in the 10 min before the cut",
+                )
+                self.assertTrue(
+                    any(dt.timedelta(0) <= w - start <= dt.timedelta(minutes=5) for w in watchdogs),
+                    f"{label} has no watchdog-sbu in the 5 min after the cut starts",
+                )
+                self.assertFalse(
+                    any(start <= p < end for p in preserves),
+                    f"{label} imports grid with a preserve job after the cut started",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -214,6 +214,142 @@
           "command": "watchdog-sbu"
         }
       ]
+    },
+    "estate-18h": {
+      "label": "18h weekday / 20h weekend",
+      "description": "Estate rationing from 2026-11-18: weekdays 18h supply (cuts 08:00-11:00 and 15:00-18:00); weekends (Saturday and Sunday) 20h supply (cuts 08:00-11:00 and 17:00-18:00).",
+      "outages": [
+        {
+          "days": "weekdays",
+          "start": "08:00",
+          "end": "11:00"
+        },
+        {
+          "days": "weekdays",
+          "start": "15:00",
+          "end": "18:00"
+        },
+        {
+          "days": "weekends",
+          "start": "08:00",
+          "end": "11:00"
+        },
+        {
+          "days": "weekends",
+          "start": "17:00",
+          "end": "18:00"
+        }
+      ],
+      "jobs": [
+        {
+          "id": "morning-preserve-early",
+          "name": "Preserve early before the 3h 08:00 outage",
+          "cron": "0 6 * * *",
+          "command": "preserve-battery"
+        },
+        {
+          "id": "morning-preserve",
+          "name": "Preserve battery before the 08:00 outage",
+          "cron": "30 6 * * *",
+          "command": "preserve-battery"
+        },
+        {
+          "id": "morning-preserve-retry",
+          "name": "Retry morning preserve if the first Utility switch failed",
+          "cron": "40 6 * * *",
+          "command": "preserve-battery"
+        },
+        {
+          "id": "morning-preserve-late",
+          "name": "Late morning preserve before the outage",
+          "cron": "0 7 * * *",
+          "command": "preserve-battery"
+        },
+        {
+          "id": "morning-return-sbu",
+          "name": "Return to SBU before the 08:00 outage",
+          "cron": "55 7 * * *",
+          "command": "return-sbu"
+        },
+        {
+          "id": "morning-watchdog",
+          "name": "Verify SBU after the 08:00 outage starts",
+          "cron": "1 8 * * *",
+          "command": "watchdog-sbu"
+        },
+        {
+          "id": "afternoon-preserve-early",
+          "name": "Weekday: preserve as soon as estate power returns at 11:00",
+          "cron": "5 11 * * 1-5",
+          "command": "preserve-battery"
+        },
+        {
+          "id": "afternoon-preserve-mid",
+          "name": "Weekday: mid-window preserve during the 11:00-15:00 supply block",
+          "cron": "5 12 * * 1-5",
+          "command": "preserve-battery"
+        },
+        {
+          "id": "afternoon-preserve-late",
+          "name": "Weekday: preserve while there is still time to charge",
+          "cron": "5 13 * * 1-5",
+          "command": "preserve-battery"
+        },
+        {
+          "id": "afternoon-preserve",
+          "name": "Weekday: final preserve check before the 15:00 outage",
+          "cron": "5 14 * * 1-5",
+          "command": "preserve-battery"
+        },
+        {
+          "id": "afternoon-return-sbu",
+          "name": "Weekday: return to SBU before the 15:00 outage",
+          "cron": "55 14 * * 1-5",
+          "command": "return-sbu"
+        },
+        {
+          "id": "afternoon-watchdog",
+          "name": "Weekday: verify SBU after the 15:00 outage starts",
+          "cron": "1 15 * * 1-5",
+          "command": "watchdog-sbu"
+        },
+        {
+          "id": "weekend-preserve-early",
+          "name": "Weekend: preserve as soon as estate power returns at 11:00",
+          "cron": "5 11 * * 0,6",
+          "command": "preserve-battery"
+        },
+        {
+          "id": "weekend-preserve-mid",
+          "name": "Weekend: mid-window preserve during the 11:00-17:00 supply block",
+          "cron": "5 13 * * 0,6",
+          "command": "preserve-battery"
+        },
+        {
+          "id": "weekend-preserve-late",
+          "name": "Weekend: preserve while there is still time to charge",
+          "cron": "5 15 * * 0,6",
+          "command": "preserve-battery"
+        },
+        {
+          "id": "weekend-preserve-final",
+          "name": "Weekend: final preserve check before the 17:00 outage",
+          "cron": "5 16 * * 0,6",
+          "command": "preserve-battery"
+        },
+        {
+          "id": "weekend-return-sbu",
+          "name": "Weekend: return to SBU before the 17:00 outage",
+          "cron": "55 16 * * 0,6",
+          "command": "return-sbu"
+        },
+        {
+          "id": "weekend-watchdog",
+          "name": "Weekend: verify SBU after the 17:00 outage starts",
+          "cron": "1 17 * * 0,6",
+          "command": "watchdog-sbu"
+        }
+      ]
     }
   },
   "jobs": [
