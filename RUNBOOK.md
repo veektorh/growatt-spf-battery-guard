@@ -136,7 +136,7 @@ proxy. Cron installs every profile's variants as
 After editing profile outage windows or job times, run `validate-schedule` and
 reinstall cron.
 
-Both profiles have weekend cuts, so run `set-outage-days auto` and let the
+Every profile has weekend cuts, so run `set-outage-days auto` and let the
 active profile decide. `estate-current` has a weekend morning cut only: its
 afternoon jobs carry `* * 1-5` because the outage-day gate is per day, not per
 window. `set-profile` warns when a manual `all`/`weekdays` mode contradicts the

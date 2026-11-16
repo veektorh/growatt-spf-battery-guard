@@ -196,6 +196,24 @@ public-safe: no IDs, serials, domains, or credentials.
 - Done when: one alert row is seen on the live Now tab and its text matches the
   matching `dashboard.json` field (`automation.*` or `planner.tonight_safe`).
 
+### N13. Switch to `estate-18h` once the 2026-11-18 rationing notice is confirmed
+
+- Status: profile defined and tested, switch pending the owner's confirmation.
+  Read-only until then. Changes inverter mode timing on switch.
+- Why: the estate is considering 18h weekday / 20h weekend supply from Wednesday
+  2026-11-18 — weekday cuts 08:00-11:00 and 15:00-18:00, weekend cuts
+  08:00-11:00 and 17:00-18:00. The arithmetic agrees with the stated hours
+  (24 - 6h = 18h weekday, 24 - 4h = 20h weekend), so the windows are cuts, not
+  powered blocks.
+- Steps: after deploy, run `./install_cloud_cron.sh` from the running release
+  so the profile's 18 job variants are installed, then
+  `set-profile estate-18h --reason "…"` and keep `set-outage-days auto`.
+  `schedule-preview --days 8` must show the 15:00 cut on Wednesday and the
+  17:00 cut on Saturday.
+- Done when: `profiles` reports `estate-18h` active, `health-check` reports the
+  installed count across 3 profiles, and the first Wednesday 15:00 cut shows
+  `afternoon-return-sbu` then `afternoon-watchdog` audit rows.
+
 ## Current Baseline
 
 The following capabilities are implemented and should be preserved:
