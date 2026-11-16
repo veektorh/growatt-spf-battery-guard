@@ -1,6 +1,6 @@
 # Growatt Guard Roadmap
 
-Last reviewed: 2026-11-10
+Last reviewed: 2026-11-16
 
 This is the working backlog for Growatt Guard. Priorities favor inverter safety,
 low Growatt API pressure, trustworthy decisions, and clear operations before
@@ -117,16 +117,15 @@ public-safe: no IDs, serials, domains, or credentials.
     came in high (implied 2000 W and 2160 W against about 1850 W planned).
   - The 05:20 check skipped a 4.4-minute top-up at 40%.
 - When the bands can go live: readiness counts banded nights of the *same day
-  type*, and `day_type` treats Saturday and Sunday as weekend. Two weekday nights
-  carry `bands` (2026-11-12 and 11-13). Each check records its sample before it
-  plans, so the night of 2026-11-16 becomes the third banded night as it runs:
-  its evening band counts from 18:00, but a horizon before 22:00 also needs the
-  overnight band, which reaches three nights only with the first sample after
-  22:00. The first banded plan can therefore come at the 22:00 check on
-  2026-11-16, and the evening of 2026-11-17 is the first whole night on bands.
-  Weekend nights have no banded rows yet. They need three (the nights of 11-14,
-  11-15 and 11-21), so the earliest weekend banded plan is after 22:00 on
-  2026-11-21.
+  type*, and `day_type` treats Saturday and Sunday as weekend. Two weekday
+  nights carry `bands` (2026-11-12 and 11-13) and two weekend nights do
+  (2026-11-14 and 11-15, confirmed in `state/discharge_rate_history.json` on
+  2026-11-16). The night of 2026-11-16 becomes the third weekday banded night
+  as it runs: its evening band counts from 18:00, and the 22:00 check records
+  its first overnight-band sample before planning, so the first banded plan can
+  come at the 22:00 check on 2026-11-16 and the evening of 2026-11-17 is the
+  first whole weekday night on bands. Weekend needs one more night (11-21), so
+  the earliest weekend banded plan is after 22:00 on 2026-11-21.
 - Next reads, from the night of 2026-11-13 onward:
   - `auto-topup-started` count per night, against the 2026-11-09 window's three.
   - The gap between a `topup-complete-check` and the next start. The corrected
@@ -143,8 +142,9 @@ public-safe: no IDs, serials, domains, or credentials.
 
 ### N12. Review a week of mornings with the outage-start preserve
 
-- Status: waiting on five outage-day mornings, from 2026-11-14. Read-only. A
-  change it leads to alters inverter mode timing and needs the owner's go-ahead.
+- Status: three of five outage-day mornings read (2026-11-14, 11-15, 11-16).
+  Read-only. A change it leads to alters inverter mode timing and needs the
+  owner's go-ahead.
 - Why: N3 closed on 2026-11-14 with the owner's agreement that #85 is the fix,
   and that neither `AUTO_TOPUP_TARGET_SOC=35` nor a target taken from the next
   morning's preserve threshold is needed yet. #85 makes `preserve-battery`
@@ -157,12 +157,20 @@ public-safe: no IDs, serials, domains, or credentials.
   live and projected SOC), the SOC at the 07:55 return, and the SOC when the
   outage starts. Compare that SOC with the day's preserve threshold. When a
   top-up holds the lock at 07:00 the row is `lock-skip` with `held_by` and
-  `age_min` in its note (N13); read that as a deferral, not a missing check.
+  `age_min` in its note; read that as a deferral, not a missing check.
 - Mornings read so far: 2026-11-14 and 11-15. Both kept the 06:30 preserve
   (`switch`, projected 19% and 29% at the outage start against thresholds 45
   and 40) and both deferred the 07:00 check to the threshold top-up's hold. The
   08:01 watchdog reading on each morning was 45% and 40%, exactly the day's
   threshold, so neither outage started below it.
+- 2026-11-16 (third morning): the 06:30 preserve switched at SOC 34 against a
+  40 threshold (projected 23% at the outage start), the 06:40 completion check
+  and the 07:00 check both gave way as `lock-skip` rows (the first production
+  confirmation of the #93 evidence change; the top-up held the lock and
+  completed at 07:16 with SOC 40 against its 40 target), and the 07:55 return
+  skipped because the inverter was already on SBU. The 08:01 watchdog read 39%
+  against the 40 threshold: the first morning the outage started below the
+  preserve threshold, by one point.
 - Done when: five outage-day mornings are read. If the outage still starts below
   the threshold on two or more of them, reopen the sunrise-target options
   (`AUTO_TOPUP_TARGET_SOC=35`, or a target from the next morning's preserve
@@ -187,32 +195,6 @@ public-safe: no IDs, serials, domains, or credentials.
   rebuilt Now tab yet.
 - Done when: one alert row is seen on the live Now tab and its text matches the
   matching `dashboard.json` field (`automation.*` or `planner.tonight_safe`).
-
-### N13. Record the 07:00 preserve check when a top-up holds the lock
-
-- Status: evidence change shipped 2026-11-15; waiting for the next outage-day
-  morning to confirm the production row. No mode timing changed. Letting the
-  07:00 check proceed against a live top-up is still a separate decision for
-  the owner.
-- Why: on both outage-day mornings since #85 deployed (2026-11-14 and 11-15)
-  `morning-preserve-late` produced no audit row. The 06:30 `morning-preserve`
-  starts a threshold top-up, and at 07:00 the per-minute
-  `topup-complete-check` holds `mode_command.lock`, so `run_with_command_lock`
-  warns and returns without writing to `mode_decisions.csv`. The warning's
-  `created_at` is UTC (06:00:05Z) against a UTC+1 log line (07:00:05), so this
-  is a same-second collision, not a stale lock: `COMMAND_LOCK_STALE_SECONDS` is
-  45 minutes and is not being reached.
-- Consequence: N12 asks for the 06:30 and 07:00 preserve rows per morning and
-  cannot read the second one. On 2026-11-15 the top-up ended at 07:06 with SOC
-  40 against a preserve threshold of 40, so `return-sbu` did not defer; the
-  inverter sat on SBU from 07:06 until the 08:00 outage, which started at 40%,
-  equal to the threshold rather than below it.
-- Shipped: `run_with_command_lock` now calls `record_lock_skip`, which appends a
-  `lock-skip` audit row for the command that gave way, with `result=skipped` and
-  a note carrying `held_by`, `age_min`, and `held_since`. No Growatt call is
-  made on that path, so the row costs nothing and cannot change mode.
-- Done when: an outage-day morning carries a 07:00 `lock-skip` row on the audit
-  trail, and N12 can read the 07:00 outcome from it.
 
 ## Current Baseline
 
