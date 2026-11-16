@@ -1,10 +1,10 @@
 {
   "timezone": "Africa/Lagos",
-  "active_profile": "estate-current",
+  "active_profile": "estate-19h",
   "profiles": {
-    "estate-current": {
+    "estate-19h": {
       "label": "19h weekday / 21.5h weekend",
-      "description": "Current estate cuts: weekdays 08:00-10:30 and 15:30-18:00; weekends (Saturday and Sunday) 08:00-10:30.",
+      "description": "Estate cuts: weekdays 08:00-10:30 and 15:30-18:00; weekends (Saturday and Sunday) 08:00-10:30.",
       "outages": [
         {
           "days": "weekdays",
