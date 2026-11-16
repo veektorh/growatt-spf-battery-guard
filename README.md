@@ -448,12 +448,12 @@ edit `schedule.json` and does not need a cron reinstall.
 ```json
 {
   "timezone": "Africa/Lagos",
-  "active_profile": "estate-current",
+  "active_profile": "estate-19h",
   "jobs": [
     {"id": "daily-summary", "cron": "0 21 * * *", "command": "daily-summary"}
   ],
   "profiles": {
-    "estate-current": {
+    "estate-19h": {
       "label": "19h weekday / 21.5h weekend",
       "description": "Weekday cuts and a weekend morning cut",
       "outages": [
@@ -476,7 +476,7 @@ against the active profile.
 
 | Key | Label | Weekday cuts | Weekend cuts | Afternoon mode jobs |
 |---|---|---|---|---|
-| `estate-current` | 19h weekday / 21.5h weekend | 08:00-10:30, 15:30-18:00 | 08:00-10:30 (Sat and Sun) | weekday preserve 12:30/13:30/14:00/14:30, return 15:25, watchdog 15:31 |
+| `estate-19h` | 19h weekday / 21.5h weekend | 08:00-10:30, 15:30-18:00 | 08:00-10:30 (Sat and Sun) | weekday preserve 12:30/13:30/14:00/14:30, return 15:25, watchdog 15:31 |
 | `estate-16h` | 16h weekday / 18h weekend | 08:00-12:00, 14:00-18:00 | 08:00-11:00, 15:00-18:00 | weekday preserve 12:05/12:35/13:15, return 13:55, watchdog 14:01; weekend preserve 11:05/12:35/14:15, return 14:55, watchdog 15:01 |
 | `estate-18h` | 18h weekday / 20h weekend | 08:00-11:00, 15:00-18:00 | 08:00-11:00, 17:00-18:00 | weekday preserve 11:05/12:05/13:05/14:05, return 14:55, watchdog 15:01; weekend preserve 11:05/13:05/15:05/16:05, return 16:55, watchdog 17:01 |
 
@@ -504,7 +504,7 @@ refresh. Keep the dashboard behind the basic-auth proxy: the toggle is a write
 endpoint, and `serve-dashboard` binds to `127.0.0.1` by default.
 
 The outage-day gate follows the active profile: `set-outage-days auto` skips
-`preserve-battery` on days the profile declares no cuts. `estate-current` has
+`preserve-battery` on days the profile declares no cuts. `estate-19h` has
 weekend morning cuts only, so its weekday-only afternoon jobs are also scoped
 by cron (`* * 1-5`) — the gate is per day, not per window. `return-sbu` and
 `watchdog-sbu` are never gated — they cannot import grid
@@ -514,7 +514,7 @@ manual overrides for ad-hoc cuts; `outage-status` names the authority in force.
 For the full checklist when the estate publishes a new schedule, see
 [RUNBOOK.md](RUNBOOK.md#adding-or-changing-an-estate-schedule).
 
-### Current schedule (`estate-current`)
+### Current schedule (`estate-19h`)
 
 Estate power is unavailable during these windows:
 
@@ -598,7 +598,7 @@ schedules without profiles; `auto` is the profile-driven mode.
 .venv/bin/python growatt_power_guard.py schedule-preview --days 14
 .venv/bin/python growatt_power_guard.py profiles
 .venv/bin/python growatt_power_guard.py set-profile estate-16h --reason "estate notice"
-.venv/bin/python growatt_power_guard.py run-scheduled --profile estate-current morning-preserve --dry-plan
+.venv/bin/python growatt_power_guard.py run-scheduled --profile estate-19h morning-preserve --dry-plan
 ```
 
 ## Run On A Cloud VPS

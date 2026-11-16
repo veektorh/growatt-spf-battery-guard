@@ -474,12 +474,12 @@ class DashboardProfileToggleTests(unittest.TestCase):
 
 
 class ShippedScheduleTests(unittest.TestCase):
-    """The shipped estate-current profile must cover every declared cut and no more."""
+    """The shipped estate-19h profile must cover every declared cut and no more."""
 
     SATURDAY = dt.date(2026, 11, 14)
 
     def _current_profile(self) -> dict:
-        return load_schedule_document()["profiles"]["estate-current"]
+        return load_schedule_document()["profiles"]["estate-19h"]
 
     def test_morning_jobs_cover_the_weekend_cut(self):
         jobs = {job["id"]: job for job in self._current_profile()["jobs"]}
@@ -498,7 +498,7 @@ class ShippedScheduleTests(unittest.TestCase):
     def test_no_job_runs_on_a_weekend_afternoon(self):
         profile = self._current_profile()
         weekend_windows = outages_for_date(profile["outages"], self.SATURDAY)
-        self.assertTrue(weekend_windows, "estate-current must declare the weekend 08:00-10:30 cut")
+        self.assertTrue(weekend_windows, "estate-19h must declare the weekend 08:00-10:30 cut")
         weekend_end = max(window["end"] for window in weekend_windows)
         self.assertEqual(weekend_end, "10:30")
         for job in profile["jobs"]:
