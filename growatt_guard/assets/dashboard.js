@@ -192,6 +192,7 @@
       const power = history.power || {}, socHistory = history.soc || {}, daily = history.daily || {};
       const automation = readJson("chart-data", {});
       const forecasts = readJson("forecast-history-data", []);
+      const loadProfile = readJson("load-profile-data", {});
       const generatedAt = new Date(document.body.dataset.generatedAt || Date.now());
       const maxOf = function (lists) {
         return Math.max.apply(null, [0].concat(lists.map(function (list) {
@@ -424,6 +425,23 @@
             return forecastDate(row, { weekday: "long", day: "numeric", month: "short" }) + (row.weather_category ? " · " + row.weather_category : "");
           }),
           yMax: niceMax(Math.max(1, maxOf([predicted, actual])))
+        });
+        const loadHours = [];
+        for (let h = 0; h < 24; h++) loadHours.push(loadProfile[String(h)] || {});
+        const toKw = function (key) {
+          return loadHours.map(function (row) { return isNum(row[key]) ? row[key] / 1000 : null; });
+        };
+        const fmtKw = function (v) { return isNum(v) ? v.toFixed(2) + " kW" : "--"; };
+        const loadMedian = toKw("median_w"), loadHigh = toKw("high_w");
+        drawBarChart("load-profile-chart", loadHours.map(function (_, h) { return String(h).padStart(2, "0"); }), [
+          { name: "Typical", c: "load-c", values: loadMedian }
+        ], {
+          label: "Typical household load for each hour of the day, with the 80th percentile, in kW", mode: "stack",
+          titles: loadHours.map(function (row, h) {
+            return String(h).padStart(2, "0") + ":00 · " + (row.days || 0) + " days" + (row.ready ? "" : " (learning)");
+          }),
+          fmt: fmtKw, yMax: niceMax(Math.max(1, maxOf([loadHigh]))),
+          tick: { name: "High", values: loadHigh }
         });
         const counts = [automation.preserve_checks, automation.utility_switches, automation.watchdog_repairs];
         drawBarChart("history-chart", (automation.labels || []).map(function (l) { return String(l).slice(0, 3); }), [

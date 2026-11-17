@@ -222,3 +222,82 @@ def _render_health_rows(rows: list[tuple[Any, Any, Any, str]]) -> str:
         )
         for label, detail, badge_text, badge_class in rows
     )
+
+
+def _clock_hhmm(value: Any) -> str:
+    text = str(value or "")
+    return text[11:16] if len(text) >= 16 else "?"
+
+
+def _clock_range(after: Any, by: Any) -> str:
+    """An edge bracketed by two readings: the last on one side, the first on the other."""
+    if not after:
+        return f"by {_clock_hhmm(by)}"
+    return f"{_clock_hhmm(after)}–{_clock_hhmm(by)}"
+
+
+def _supply_strip_text(current: dict[str, Any] | None) -> str:
+    """Short estate-supply state for the Now tab strip."""
+    if not current:
+        return "no reading yet"
+    if current.get("on"):
+        return "On"
+    if current.get("off_after") and current.get("off_by"):
+        return f"Off since {_clock_range(current.get('off_after'), current.get('off_by'))}"
+    if current.get("off_by"):
+        # No on-reading before this cut in the history: only its first off reading is known.
+        return f"Off, seen at {_clock_hhmm(current.get('off_by'))}"
+    return "Off"
+
+
+def _render_supply_rows(events: list[dict[str, Any]], limit: int = 14) -> str:
+    """Observed-supply table rows, newest first."""
+    rows: list[str] = []
+    for event in list(reversed(events))[:limit]:
+        kind = str(event.get("kind", ""))
+        scheduled = str(event.get("scheduled") or "")
+        scheduled_html = esc(scheduled) if scheduled else '<span class="badge badge-warn">unscheduled</span>'
+        if kind in ("no-cut", "no-data"):
+            detail = "supply stayed on" if kind == "no-cut" else "no readings"
+            rows.append(
+                "<tr>"
+                f'<td class="t">{esc(event.get("date", ""))}</td>'
+                f"<td>{scheduled_html}</td>"
+                f'<td colspan="3" class="muted">{esc(detail)}</td>'
+                "</tr>"
+            )
+            continue
+        back = "still off" if event.get("ongoing") else _clock_range(event.get("end_after"), event.get("end_by"))
+        soc = event.get("soc_at_start")
+        soc_text = f"{soc:g}%" if isinstance(soc, (int, float)) else "—"
+        rows.append(
+            "<tr>"
+            f'<td class="t">{esc(event.get("date", ""))}</td>'
+            f"<td>{scheduled_html}</td>"
+            f"<td>{esc(_clock_range(event.get('start_after'), event.get('start_by')))}</td>"
+            f"<td>{esc(back)}</td>"
+            f'<td class="r">{esc(soc_text)}</td>'
+            "</tr>"
+        )
+    return "\n".join(rows)
+
+
+def _load_profile_night_text(profile: dict[str, Any] | None) -> str:
+    """One line comparing tonight's hourly-profile energy with the band planner."""
+    if not profile:
+        return "Not enough history yet."
+    night = profile.get("night") or {}
+    start = _clock_hhmm(night.get("start"))
+    parts: list[str] = []
+    hourly = night.get("hourly")
+    if hourly:
+        parts.append(
+            f"hourly profile {hourly['median_wh'] / 1000:.1f} kWh "
+            f"(likely {hourly['low_wh'] / 1000:.1f}–{hourly['high_wh'] / 1000:.1f})"
+        )
+    else:
+        parts.append("hourly profile still learning")
+    bands = night.get("bands")
+    if bands:
+        parts.append(f"band planner {bands['energy_wh'] / 1000:.1f} kWh")
+    return f"Night from {start} for {night.get('hours', 12)}h: " + " · ".join(parts) + "."
