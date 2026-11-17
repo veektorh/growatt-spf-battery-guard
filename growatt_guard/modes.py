@@ -243,9 +243,18 @@ def _record_preserve_utility_hold(
     if config.dry_run:
         return
     max_expiry = _preserve_hold_expiry()
+    # A preserve switch can be decided on the projected outage-start SOC while the
+    # live reading already sits at the threshold. A hold targeting the threshold
+    # would then satisfy its own completion test on the next minute check and hand
+    # the inverter back to SBU before the outage starts, so size that window with
+    # the headroom the nightly windows already use.
+    target_soc = threshold
+    if soc >= threshold:
+        headroom_soc = max(0.0, float(config.auto_topup_headroom_soc))
+        target_soc = threshold + headroom_soc
     write_utility_hold_state(
         "owned",
-        threshold,
+        target_soc,
         max_expiry,
         start_soc=soc,
         reason=f"Morning preservation; {format_bridge_audit_note(bridge_decision)}",
@@ -254,7 +263,7 @@ def _record_preserve_utility_hold(
     logging.info(
         "Preserve-battery Utility hold recorded until %s with target SOC %.1f%%.",
         max_expiry.isoformat(),
-        threshold,
+        target_soc,
     )
 
 
@@ -544,8 +553,8 @@ def command_preserve_battery(config: Config) -> int:
             bridge_note = f"{bridge_note}, evidence=hold"
             logging.info("Morning solar bridge retained Utility: %s", evidence_reason)
         logging.info(
-            "Battery SOC %.1f%% from %s is below %.1f%%%s; switching to Utility.",
-            soc, path, threshold, projected_note,
+            "Battery SOC deciding the switch is %.1f%% (live %.1f%% from %s) against %.1f%%%s; switching to Utility.",
+            decision_soc, soc, path, threshold, projected_note,
         )
         # Record ownership before the cloud write so an ambiguous response can be reconciled safely.
         # Definite Growatt rejections (success: False) clear that hold so the next preserve retry
@@ -602,7 +611,7 @@ def command_preserve_battery(config: Config) -> int:
             send_discord_embed(config, embed_mode_switch_utility(
                 soc, previous_mode, threshold, threshold_decision.weather_category, threshold_decision.reason,
             ))
-        print(f"SOC {soc:g}% < {threshold:g}%; Utility command result: {result}")
+        print(f"SOC {decision_soc:g}% at the outage start < {threshold:g}%; Utility command result: {result}")
         print(f"Threshold reason: {threshold_decision.reason}")
         if not config.dry_run:
             confirmed = _confirm_mode_switch(api, config, device, "utility")
