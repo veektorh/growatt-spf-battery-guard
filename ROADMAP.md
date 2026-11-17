@@ -348,6 +348,42 @@ public-safe: no IDs, serials, domains, or credentials.
   profile (scaled by the learned drain-to-load ratio) into the night plan in a
   separate mode-timing PR, or to keep the bands and remove this task.
 
+### N18. Hold the battery overnight instead of cycling grid energy through it
+
+- Status: waiting on N16. Read-only until then; any change alters inverter
+  mode timing and needs the owner's go-ahead.
+- Why: every estate cut is in the daytime (08:00-10:30 and 15:30-18:00 on the
+  current profiles), so the grid is normally on all night, yet the guard runs
+  the house from the battery overnight and tops it up from the grid. Nine days
+  of snapshots (to 2026-11-17): SOC peaks at 88-99% near 15:00, is about 79% at
+  18:00 (median), and bottoms at 32-38% near 06:30; the battery discharges
+  19-28 kWh a day, about one full usable cycle of the 24 kWh above the 20%
+  floor. About 13 kWh of stored solar sits above the 35% sunrise floor at
+  18:00 against a night of about 21 kWh, so roughly 8 kWh a night goes grid ->
+  battery -> house instead of grid -> house. That costs the round-trip loss
+  (about 10-15%, the same size as N17's drain-to-load gap: about 1 kWh a night,
+  30 kWh a month) and about a quarter cycle a day of wear (90-100 cycles a
+  year). On 2026-11-17 the 18:00 top-up charged from 62% toward 83%.
+- What it buys today: cover for an unscheduled cut at night or before sunrise.
+  Until N16 there was no record of whether that happens.
+- Idea: stay on SBU after 18:00 while the battery is above the level the
+  morning needs (the preserve threshold plus the drain to the 08:00 cut), then
+  run the house from Utility with the battery idle until the morning preserve.
+- Steps:
+  1. From N16, count night and pre-sunrise cuts over at least a week. If they
+     are rare, continue; if not, record that and close this task.
+  2. Read-only: find how the SPF's charger source priority is reported in the
+     status payload and whether Utility mode charges the battery under the
+     current setting. Today's top-ups rely on that charging, so "hold" may need
+     a second setting (or accept charging at the configured rate) — establish
+     which before designing anything.
+  3. Shadow: for each night, compute the hold point and the grid energy the
+     hold plan would have used against what the top-ups used, from the audit
+     and snapshot history, without changing any mode.
+- Done when: a week of shadow nights is recorded with the expected saving and
+  the unscheduled-cut risk, and the owner decides to build it as a separate
+  mode-timing PR or to keep the current plan and remove this task.
+
 ## Current Baseline
 
 The following capabilities are implemented and should be preserved:
