@@ -1,5 +1,6 @@
 from __future__ import annotations
 import datetime as dt
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,8 @@ from growatt_guard.dashboard_metrics import (
     extract_dashboard_metric_sources, extract_dashboard_metrics,
 )
 from growatt_guard.load_learning import resolve_timezone
+from growatt_guard.load_profile import build_load_profile_report
+from growatt_guard.supply_history import build_supply_report, supply_on
 from growatt_guard.dashboard_insights import (
     build_dashboard_daily_insights, build_dashboard_data_quality, build_tonight_risk,
     compute_tonight_safe,
@@ -46,6 +49,56 @@ def _learned_discharge_load_w() -> float | None:
     history = read_discharge_rate_history()
     rates = [row["rate_w"] for row in history if isinstance(row.get("rate_w"), (int, float))]
     return sum(rates) / len(rates) if len(rates) >= 2 else None
+
+
+DASHBOARD_SUPPLY_DAYS = 7
+
+
+def _supply_view(
+    metric_history: list[dict[str, Any]],
+    schedule: dict[str, Any],
+    now: dt.datetime,
+    tz: dt.tzinfo | None,
+) -> dict[str, Any] | None:
+    """Observed cuts for the last week, plus the supply state at the latest reading."""
+    try:
+        report = build_supply_report(
+            metric_history,
+            schedule.get("outage_windows") or [],
+            now=now,
+            tz=tz,
+            days=DASHBOARD_SUPPLY_DAYS,
+        )
+    except Exception:  # noqa: BLE001 - a supply view failure must not break the dashboard
+        logging.exception("Could not build the observed supply view")
+        return None
+    latest = next((row for row in reversed(metric_history) if supply_on(row) is not None), None)
+    current: dict[str, Any] | None = None
+    if latest is not None:
+        current = {"on": supply_on(latest), "at": latest.get("timestamp"), "grid_v": latest.get("grid_v")}
+        ongoing = next(
+            (event for event in reversed(report["events"]) if event.get("ongoing")),
+            None,
+        )
+        if not current["on"] and ongoing is not None:
+            current["off_after"] = ongoing.get("start_after")
+            current["off_by"] = ongoing.get("start_by")
+            current["soc_at_start"] = ongoing.get("soc_at_start")
+    report["current"] = current
+    return report
+
+
+def _load_profile_view(
+    metric_history: list[dict[str, Any]],
+    now: dt.datetime,
+    tz: dt.tzinfo | None,
+) -> dict[str, Any] | None:
+    """Shadow hour-of-day load profile and tonight's comparison with the band planner."""
+    try:
+        return build_load_profile_report(metric_history, read_discharge_rate_history(), now=now, tz=tz)
+    except Exception:  # noqa: BLE001 - a shadow view failure must not break the dashboard
+        logging.exception("Could not build the hourly load profile view")
+        return None
 
 
 def _first_number(status: dict[str, Any], keys: tuple[str, ...]) -> float | None:
@@ -163,6 +216,7 @@ def build_dashboard_data_payload(
     tonight_comfortable_soc: float = 45.0,
 ) -> dict[str, Any]:
     now = now or dt.datetime.now().astimezone()
+    site_tz = resolve_timezone(schedule.get("timezone"))
     live_metrics = extract_dashboard_metrics(status, now=now)
     metric_history = _history_with_live(metrics_history or [], live_metrics)
     today_override = today_schedule_override(overrides, now.date())
@@ -300,7 +354,9 @@ def build_dashboard_data_payload(
             "battery_charge_rate_w": battery_charge_rate_w,
             "reserve_floor_soc": battery_bms_cutoff_soc,
             "auto_topup_min_minutes": auto_topup_min_minutes,
+            "load_profile": _load_profile_view(metric_history, now, site_tz),
         },
+        "supply": _supply_view(metric_history, schedule, now, site_tz),
         "assistant": {
             "status": home_status,
             "summary": assistant_summary,

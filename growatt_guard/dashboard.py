@@ -91,6 +91,9 @@ from growatt_guard.dashboard_render_components import (
     _render_balance_bar,
     _render_health_rows,
     _render_insight_rows,
+    _load_profile_night_text,
+    _render_supply_rows,
+    _supply_strip_text,
     _render_recommendations,
     _render_timeline_rows,
     _status_badge_class,
@@ -682,6 +685,23 @@ def build_dashboard_html(dashboard_data: dict[str, Any]) -> str:
         ]
     )
 
+    # ---- Observed supply and hourly load (read-only views) ------------------
+    supply = dashboard_data.get("supply") or {}
+    supply_strip = _supply_strip_text(supply.get("current"))
+    supply_rows_html = _render_supply_rows(supply.get("events") or []) or (
+        '<tr><td colspan="5" class="muted">No grid-voltage readings yet.</td></tr>'
+    )
+    supply_since = str(supply.get("since") or "")
+    supply_note = (
+        f"From the grid voltage in each dashboard reading since {supply_since[:16].replace('T', ' ')}; "
+        "each edge is the pair of readings either side of it."
+        if supply_since
+        else "Recorded from the grid voltage in each dashboard reading."
+    )
+    load_profile = planner.get("load_profile")
+    load_profile_json = _json_for_script(load_profile.get("hours") if isinstance(load_profile, dict) else {})
+    load_profile_night = _load_profile_night_text(load_profile if isinstance(load_profile, dict) else None)
+
     # ---- System tab ----------------------------------------------------------
     pvoutput_badge, pvoutput_badge_class, pvoutput_detail = _pvoutput_status(
         dashboard_data["pvoutput"], now,
@@ -813,6 +833,7 @@ def build_dashboard_html(dashboard_data: dict[str, Any]) -> str:
         <div title="{esc(next_action_detail)}"><span>Next Automation</span> <b>{esc(next_job_when)}</b> {esc(next_job_name)}</div>
         <div><span>Outages</span> <b>{esc(profile_outages)}</b></div>
         <div><span>Profile</span> <b>{esc(profile_label)}</b></div>
+        <div><span>Estate Supply</span> <b>{esc(supply_strip)}</b></div>
       </div>
     </section>
 
@@ -855,6 +876,17 @@ def build_dashboard_html(dashboard_data: dict[str, Any]) -> str:
           <p class="muted small">Same-time comparison against recent local history, without extra Growatt calls.</p>
         </article>
       </div>
+      <article class="panel">
+        <div class="eyebrow">
+          <h2>Load by Hour, kW</h2>
+          <div class="legend">
+            <span><i class="seg-load"></i>Typical (median)</span>
+            <span><i class="line seg-ink"></i>High (80th percentile)</span>
+          </div>
+        </div>
+        <div class="chart" id="load-profile-chart"></div>
+        <p class="muted small">{esc(load_profile_night)} Shadow view: the night planner does not use it yet.</p>
+      </article>
       <div class="two">
         <article class="panel">
           <div class="eyebrow">
@@ -910,6 +942,14 @@ def build_dashboard_html(dashboard_data: dict[str, Any]) -> str:
           </div>
         </form>
       </dialog>
+      <article class="panel" id="observed-supply">
+        <div class="eyebrow"><h2>Observed Supply</h2>{_inline_badge(supply_strip, "badge-ok" if supply_strip == "On" else "badge-neutral")}</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Date</th><th>Scheduled</th><th>Went off</th><th>Came back</th><th class="r">SOC at cut</th></tr></thead>
+          <tbody>{supply_rows_html}</tbody>
+        </table></div>
+        <p class="muted small">{esc(supply_note)}</p>
+      </article>
       <div class="two">
         <article class="panel">
           <div class="eyebrow">
@@ -982,6 +1022,7 @@ def build_dashboard_html(dashboard_data: dict[str, Any]) -> str:
     <script id="energy-history-data" type="application/json">{energy_history_json}</script>
     <script id="metric-history-data" type="application/json">{metric_history_json}</script>
     <script id="forecast-history-data" type="application/json">{forecast_history_json}</script>
+    <script id="load-profile-data" type="application/json">{load_profile_json}</script>
   </main>
   </div>
   <script>{DASHBOARD_JS}</script>

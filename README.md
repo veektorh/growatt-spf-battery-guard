@@ -299,7 +299,8 @@ supply actually went off and came back, set against the active profile's
 scheduled outage windows, with the SOC on either side of each cut start. Edges
 are shown as the pair of snapshots that bracket them, so their precision is the
 dashboard refresh interval. It reads local history only and makes no Growatt
-call:
+call. The dashboard shows the current state in the Now tab strip (Estate
+Supply) and the last week as the Observed Supply table on the Automation tab:
 
 ```bash
 .venv/bin/python growatt_power_guard.py supply-history --days 3
@@ -313,7 +314,8 @@ the median of each day's mean `load_w` over the retained snapshot history (about
 eight days), with the 20th-80th percentile as the likely range. An hour needs
 three days. It also projects the 18:00-06:00 night from those hours and prints
 it beside the band planner's learned evening and overnight rates. The planner
-does not use it; see ROADMAP N17.
+does not use it; see ROADMAP N17. The dashboard's Energy tab shows it as the
+Load by Hour chart with the same night comparison underneath.
 
 ```bash
 .venv/bin/python growatt_power_guard.py load-profile
