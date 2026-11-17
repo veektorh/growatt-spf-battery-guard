@@ -216,13 +216,22 @@ public-safe: no IDs, serials, domains, or credentials.
     completion check closed it as `topup-target-reached actual_min=1,
     start_soc=40, end_soc=40, target_soc=40` before returning to SBU at 07:01:06.
     The designed 55-minute hold lasted 57 seconds; see N14 for the cause.
-  - So the inverter went back to SBU at 40% with a projected 35% at the 08:00
-    outage start, which makes two mornings in a row below the threshold, and
-    this one was self-inflicted rather than a slow drain.
+  - The 07:55 return found the inverter already on SBU and skipped (`no-change`);
+    the 08:01 watchdog read 39% against the 40 threshold (`verified-sbu`), so the
+    outage started one point below it — two mornings in a row, since 11-16 was
+    also 39 against 40.
+  - The projection was pessimistic by four points (35 projected against 39
+    read), the same over-planning N2 sees in the band. The shortfall is not a
+    target problem: the 06:30 window reached the 40% threshold at 06:52 and the
+    load took two points off before 08:00. What would have covered that gap is
+    the 07:00 hold, which is why N14 comes first.
 - Done when: five outage-day mornings are read. If the outage still starts below
   the threshold on two or more of them, reopen the sunrise-target options
   (`AUTO_TOPUP_TARGET_SOC=35`, or a target from the next morning's preserve
   threshold) as a new task; otherwise record the result and remove this one.
+  Two of the four mornings read are already one point below (11-16 and 11-17),
+  but 11-17 lost its 07:00 hold to N14 rather than to a target shortfall, so fix
+  N14 and read the fifth morning before reopening those options.
 
 ### N5. Confirm the preserve-window deferral in production
 
