@@ -335,6 +335,30 @@ public-safe: no IDs, serials, domains, or credentials.
   precision, consider a durable ledger beside `bypass_daily.jsonl` rather than
   more polling.
 
+### N17. Decide whether the night plan should use the hourly load profile
+
+- Status: `load-profile` shipped 2026-11-17 as a shadow view. Read-only until a
+  decision; wiring it into `command_auto_topup_check` changes inverter mode
+  timing and needs the owner's go-ahead. Follows N2.
+- Why: N2's two bands still smooth over a clear shape. Eight days of snapshots
+  (to 2026-11-17) give medians of about 1370 W at 18:00, 1620 W at 19:00,
+  2020-2170 W from 20:00 to 22:59, then 1630-1800 W until 06:00. The idea comes
+  from Epilykos's consumption forecast (same hour over recent days, median and
+  20th-80th percentile); the code here is our own.
+- Caveat found on the first run: for a weekday night the hourly profile gives
+  21.2 kWh (average 1769 W, likely 18.5-25.5 kWh) and the band planner 23.8 kWh
+  (evening 1903 W, overnight 2019 W over 21 nights). `load_w` is the inverter's
+  AC output, while the planner learns from battery drain, which also carries
+  conversion and standby losses; the 11% gap is about that size. Any switch
+  must first learn that ratio from nights where both are recorded.
+- Steps: run `load-profile` on the VPS each morning for a week, beside the
+  previous night's actual drain (`discharge_rate_history.json`). Record, per
+  night, hourly-profile kWh, band kWh, and actual kWh. Snapshots mix weekday and
+  weekend days; check whether weekend hours differ enough to split them.
+- Done when: a week is recorded and the owner decides either to wire the hourly
+  profile (scaled by the learned drain-to-load ratio) into the night plan in a
+  separate mode-timing PR, or to keep the bands and remove this task.
+
 ## Current Baseline
 
 The following capabilities are implemented and should be preserved:
@@ -382,6 +406,8 @@ The following capabilities are implemented and should be preserved:
   and withholds tuning recommendations until three comparable outcomes exist.
 - Observed estate supply from the recorded grid voltage (`supply-history`),
   set against the scheduled outage windows.
+- A shadow hour-of-day load profile (`load-profile`) compared with the band
+  planner's night energy.
 - A separate morning-preservation scorecard that models the observed no-Utility
   SOC path, fails closed on incomplete metric windows, and gates the opt-in
   hourly-irradiance solar bridge behind three comparable post-change shadow
