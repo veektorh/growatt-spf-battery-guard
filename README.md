@@ -306,6 +306,20 @@ call:
 .venv/bin/python growatt_power_guard.py supply-history --json
 ```
 
+### Hourly Load Profile
+
+`load-profile` is a shadow view of the house load by hour of day: for each hour,
+the median of each day's mean `load_w` over the retained snapshot history (about
+eight days), with the 20th-80th percentile as the likely range. An hour needs
+three days. It also projects the 18:00-06:00 night from those hours and prints
+it beside the band planner's learned evening and overnight rates. The planner
+does not use it; see ROADMAP N17.
+
+```bash
+.venv/bin/python growatt_power_guard.py load-profile
+.venv/bin/python growatt_power_guard.py load-profile --json
+```
+
 ### Low Runtime Alert
 
 Send a Discord alert when estimated battery runtime drops below a threshold:
