@@ -271,32 +271,39 @@ public-safe: no IDs, serials, domains, or credentials.
   installed count across 3 profiles, and the first Wednesday 15:00 cut shows
   `afternoon-return-sbu` then `afternoon-watchdog` audit rows.
 
-### N14. Keep a projection-triggered preserve hold past its first completion check
+### N14. Confirm a projection-triggered preserve hold survives its first check
 
-- Status: found 2026-11-17 on the fourth N12 morning. The fix changes inverter
-  mode timing and needs the owner's go-ahead.
+- Status: fix merged 2026-11-17; waiting for the next projection-triggered
+  morning. Read-only now.
 - Why: `_record_preserve_utility_hold` writes the hold with the default
   `completion_policy="soc"` and `target_soc=threshold`, and
   `topup-complete-check` closes any `soc` hold whose reading is at or above the
   target. #85 lets `preserve-battery` switch on
   `projected_soc_at_outage_start`, so the switch can now happen while the live
-  SOC is already at the threshold — and then the hold satisfies its own
+  SOC is already at the threshold — and then the hold satisfied its own
   completion test on the next check, one minute later.
 - Evidence, 2026-11-17: 07:00:07 threshold 40.0%, live SOC 40.0%, projected 35%
   at the 08:00 outage start, "Preserve-battery Utility hold recorded until
   2026-11-17T06:55:00+00:00 with target SOC 40.0%"; 07:01:03 "Topup SOC target
   reached: 40% >= 40%" → `topup-target-reached actual_min=1, start_soc=40,
   end_soc=40, target_soc=40`; 07:01:06 `return-sbu`. The 06:30 window on the
-  same morning was unaffected because it started at 38 against a 40 target.
-- Steps: when the switch was decided on the projection and the live SOC is not
-  below the threshold, record a `completion_policy="time"` hold with
-  `target_soc=None`, the shape `_defer_completion_to_scheduled_return` already
-  uses, so the hold survives to the scheduled `return-sbu`; keep the `soc`
-  policy when `start_soc < threshold`, which is what stops the 06:30 window at
-  the threshold. The decision line also says the reading "is below 40.0%" when
-  it equals the threshold; quote `decision_soc` instead.
-- Done when: a projection-triggered 07:00 preserve holds Utility to the 07:55
-  return, and a live-below-threshold preserve still completes at the threshold.
+  same morning was unaffected because it started at 38 against a 40 target. The
+  outage still started at 39% because the lost hold was the only thing covering
+  the two points of drain between 06:52 and 08:00.
+- What changed: when the live reading is already at or above the threshold, the
+  preserve hold targets `threshold + AUTO_TOPUP_HEADROOM_SOC` so its own
+  completion test cannot fire on the next minute check; a live-below switch
+  still targets the threshold and still stops the 06:30 window there. The
+  decision log and the switch print now quote the deciding SOC instead of
+  claiming a reading equal to the threshold is below it.
+- Why not `completion_policy="time"`: the time path in
+  `_command_topup_complete_check_locked` does not wait on `max_expiry`. It falls
+  through to `_defer_completion_to_scheduled_return`, which returns to SBU as
+  soon as the reading is at or above the threshold, so the hold would have died
+  at the same minute with an extra resume and a legacy-topup log.
+- Done when: a projection-triggered 07:00 preserve stays open past its first
+  minute check and closes at the headroom target or the 07:55 return, and a
+  live-below preserve still completes at the threshold.
 
 ### N15. Read the command-lock state without a torn read
 

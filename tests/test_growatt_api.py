@@ -235,6 +235,71 @@ class IdempotencyTests(unittest.TestCase):
         self.assertEqual(result, 0)
         mock_set.assert_called_once()
 
+    def _run_preserve_with_hold(self, status: dict, config, tmpdir: str, projection: float, threshold: float = 40.0):
+        from growatt_guard.modes import command_preserve_battery
+        from growatt_guard.state import read_utility_hold_state
+        from growatt_guard.weather import ThresholdDecision
+        from contextlib import redirect_stdout
+        from io import StringIO
+
+        hold_file = Path(tmpdir) / "utility_hold.json"
+        with self._audit_patch(tmpdir)[0], self._audit_patch(tmpdir)[1], \
+             patch("growatt_guard.state.UTILITY_HOLD_FILE", hold_file), \
+             patch("growatt_guard.modes.load_context", return_value=(None, DeviceRef("p", "s", "storage", {}), status)), \
+             patch("growatt_guard.modes.choose_preserve_threshold", return_value=ThresholdDecision(threshold, "normal", "normal threshold")), \
+             patch("growatt_guard.modes.projected_soc_at_outage_start", return_value=projection), \
+             patch("growatt_guard.modes.set_mode", return_value={"success": True}), \
+             patch("growatt_guard.modes.verify_mode_switch", return_value=True), \
+             patch("growatt_guard.modes.ensure_not_paused", return_value=False), \
+             redirect_stdout(StringIO()):
+            result = command_preserve_battery(config)
+            hold = read_utility_hold_state()
+        return result, hold
+
+    def test_projection_triggered_preserve_hold_targets_threshold_plus_headroom(self):
+        from tempfile import TemporaryDirectory
+
+        # Live 40% on a 40% threshold: only the 35% projection justifies the
+        # switch, so a hold targeting 40% would clear its own completion check on
+        # the next minute and drop the preserve the outage still needs.
+        config = make_config(
+            low_battery_soc=40,
+            battery_capacity_wh=30000,
+            dry_run=False,
+            auto_topup_headroom_soc=3,
+        )
+        status = {
+            "device": {"capacity": "40 %"},
+            "storage_params": {"storageBean": {"outputConfig": "0", "outPutPower": 1900}},
+        }
+        with TemporaryDirectory() as tmpdir:
+            result, hold = self._run_preserve_with_hold(status, config, tmpdir, 35.0)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(hold["completion_policy"], "soc")
+        self.assertEqual(hold["start_soc"], 40.0)
+        self.assertEqual(hold["target_soc"], 43.0)
+
+    def test_live_below_threshold_preserve_hold_targets_the_threshold(self):
+        from tempfile import TemporaryDirectory
+
+        config = make_config(
+            low_battery_soc=40,
+            battery_capacity_wh=30000,
+            dry_run=False,
+            auto_topup_headroom_soc=3,
+        )
+        status = {
+            "device": {"capacity": "38 %"},
+            "storage_params": {"storageBean": {"outputConfig": "0", "outPutPower": 1900}},
+        }
+        with TemporaryDirectory() as tmpdir:
+            result, hold = self._run_preserve_with_hold(status, config, tmpdir, 30.0)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(hold["start_soc"], 38.0)
+        self.assertEqual(hold["target_soc"], 40.0)
+
     def test_preserve_battery_skips_when_the_projection_clears_the_threshold(self):
         from tempfile import TemporaryDirectory
 
