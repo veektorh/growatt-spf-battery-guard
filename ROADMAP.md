@@ -1,6 +1,6 @@
 # Growatt Guard Roadmap
 
-Last reviewed: 2026-11-16
+Last reviewed: 2026-11-17
 
 This is the working backlog for Growatt Guard. Priorities favor inverter safety,
 low Growatt API pressure, trustworthy decisions, and clear operations before
@@ -16,8 +16,9 @@ public-safe: no IDs, serials, domains, or credentials.
 
 ### N2. Plan the night with an evening load and an overnight load
 
-- Status: bands and headroom shipped 2026-11-12. Waiting on three nights of
-  observation. Changes inverter mode timing.
+- Status: bands and headroom shipped 2026-11-12; banded planning went live at
+  the 22:00 check on 2026-11-16 (night 1 of 3 read). Changes inverter mode
+  timing.
 - Why: the planner uses one flat learned load (about 1450 W). On 2026-11-09
   every live reading was higher: about 2400 to 2700 W at 19:00 to 20:30, about
   1800 W at 21:00 to 22:30, and 1500 to 1650 W after midnight. The shortfall
@@ -116,6 +117,31 @@ public-safe: no IDs, serials, domains, or credentials.
     2240 W overnight. Both windows still reached target because the charge rate
     came in high (implied 2000 W and 2160 W against about 1850 W planned).
   - The 05:20 check skipped a 4.4-minute top-up at 40%.
+- Night of 2026-11-16 (1 of 3 on bands; the split went live mid-night):
+  - Two starts. 18:00 for 208 min (reserve, 56% to 78% against a 78.27% target,
+    implied 1895 W against 1934.9 W planned, `planned_load_w=1819`, still the
+    flat four-night fallback: `Planning with 1819 W from learned 1819 W (weekday
+    history (last 4 of 21 nights)) and live 1457 W`). Then 22:00 for 41 min
+    (76% to 80% against 80.29%, implied 1719 W against 1908.4 W planned,
+    `planned_load_w=2175.86`).
+  - The 22:00 window is the first banded plan: `Planning with 2176 W from
+    learned 2176 W (weekday bands (overnight 2176 W for 8.6h over 3 nights))
+    and live 1731 W`. The running row for the night supplies the third weekday
+    overnight band, and 251 Utility minutes against 295, 146, 202 and 165 on the
+    four previous nights.
+  - The 31-minute gap between the 21:29 completion and the 22:00 start is the
+    band switch, not a re-arm: the 18:00 plan sized to 78.27% on the flat
+    1819 W, and the banded 2176 W overnight raised the target to 80.29%. The
+    window it asked for landed (41 planned, 42 actual).
+  - Nothing re-armed after 22:42. The 02:40 to 04:20 checks skipped as short
+    (9.4 min down to 1.2 min against the 20-minute minimum) and the 04:40 to
+    05:20 checks needed nothing at SOC 49 and 45 against the sunrise floor, so
+    the last top-up row of the night is the 04:20 short skip.
+  - The band over-plans the drain: live `bat_w` held 1650 to 1780 W all night
+    against a planned 2019 to 2084 W, and the 02:40 to 05:20 drain (60% to 45%
+    on 30 kWh) implies about 1690 W. That is N1's rate-accuracy weakness on the
+    load side instead of the charge side, and it is why the 22:00 window asked
+    for 41 minutes and still landed at 80%.
 - When the bands can go live: readiness counts banded nights of the *same day
   type*, and `day_type` treats Saturday and Sunday as weekend. Two weekday
   nights carry `bands` (2026-11-12 and 11-13) and two weekend nights do
@@ -123,9 +149,11 @@ public-safe: no IDs, serials, domains, or credentials.
   2026-11-16). The night of 2026-11-16 becomes the third weekday banded night
   as it runs: its evening band counts from 18:00, and the 22:00 check records
   its first overnight-band sample before planning, so the first banded plan can
-  come at the 22:00 check on 2026-11-16 and the evening of 2026-11-17 is the
-  first whole weekday night on bands. Weekend needs one more night (11-21), so
-  the earliest weekend banded plan is after 22:00 on 2026-11-21.
+  come at the 22:00 check on 2026-11-16. It did: that check planned on
+  `weekday bands (overnight 2176 W for 8.6h over 3 nights)`, so the evening of
+  2026-11-17 is the first whole weekday night on bands. Weekend needs one more
+  night (11-21), so the earliest weekend banded plan is after 22:00 on
+  2026-11-21.
 - Next reads, from the night of 2026-11-13 onward:
   - `auto-topup-started` count per night, against the 2026-11-09 window's three.
   - The gap between a `topup-complete-check` and the next start. The corrected
@@ -134,7 +162,13 @@ public-safe: no IDs, serials, domains, or credentials.
   - `planned_load_w` on each start: it stays the flat average until three
     matching nights carry `bands`, so a banded value is the signal that the
     evening/overnight split is live. `state/discharge_rate_history.json` shows
-    whether the newest rows have `bands`.
+    whether the newest rows have `bands`. This read is now answered: the 22:00
+    start on 2026-11-16 planned on bands.
+  - Whether the band should keep a learned figure that runs about 20% above the
+    live `bat_w` it plans against. Two independent signals agree the band is
+    high (the night's own samples and the 02:40 to 05:20 drain), so the next
+    three nights decide whether the split needs a live-load cap the way the
+    flat average has `_LIVE_LOAD_UPLIFT_CAP_FACTOR`.
 - Done when: banded planning is in use in production (audit `planned_load_w`
   reflects the horizon-weighted load), the headroom change is in, and N1-style
   checks over three nights show fewer repeat top-ups than the 2026-11-09
@@ -142,9 +176,9 @@ public-safe: no IDs, serials, domains, or credentials.
 
 ### N12. Review a week of mornings with the outage-start preserve
 
-- Status: three of five outage-day mornings read (2026-11-14, 11-15, 11-16).
-  Read-only. A change it leads to alters inverter mode timing and needs the
-  owner's go-ahead.
+- Status: four of five outage-day mornings read (2026-11-14, 11-15, 11-16,
+  11-17). Read-only. A change it leads to alters inverter mode timing and needs
+  the owner's go-ahead.
 - Why: N3 closed on 2026-11-14 with the owner's agreement that #85 is the fix,
   and that neither `AUTO_TOPUP_TARGET_SOC=35` nor a target taken from the next
   morning's preserve threshold is needed yet. #85 makes `preserve-battery`
@@ -171,6 +205,20 @@ public-safe: no IDs, serials, domains, or credentials.
   skipped because the inverter was already on SBU. The 08:01 watchdog read 39%
   against the 40 threshold: the first morning the outage started below the
   preserve threshold, by one point.
+- 2026-11-17 (fourth morning): the 06:30 preserve switched at SOC 38 against 40
+  (projected 30% at the outage start), the 06:40 retry gave way as
+  `lock-skip held_by=unknown` (no `age_min`, so the lock state was read before it
+  was written, see N15), and the window completed at 06:52 with SOC 40 against
+  its 40 target (22 min, implied 1640 W against 1787 W planned).
+  - The 07:00 `morning-preserve-late` switched on the projection alone: live SOC
+    40.0% against a 40.0% threshold, `decision_soc` = min(40, projected 35) = 35.
+    The hold was recorded "until 06:55Z with target SOC 40.0%", and the 07:01
+    completion check closed it as `topup-target-reached actual_min=1,
+    start_soc=40, end_soc=40, target_soc=40` before returning to SBU at 07:01:06.
+    The designed 55-minute hold lasted 57 seconds; see N14 for the cause.
+  - So the inverter went back to SBU at 40% with a projected 35% at the 08:00
+    outage start, which makes two mornings in a row below the threshold, and
+    this one was self-inflicted rather than a slow drain.
 - Done when: five outage-day mornings are read. If the outage still starts below
   the threshold on two or more of them, reopen the sunrise-target options
   (`AUTO_TOPUP_TARGET_SOC=35`, or a target from the next morning's preserve
@@ -213,6 +261,45 @@ public-safe: no IDs, serials, domains, or credentials.
 - Done when: `profiles` reports `estate-18h` active, `health-check` reports the
   installed count across 3 profiles, and the first Wednesday 15:00 cut shows
   `afternoon-return-sbu` then `afternoon-watchdog` audit rows.
+
+### N14. Keep a projection-triggered preserve hold past its first completion check
+
+- Status: found 2026-11-17 on the fourth N12 morning. The fix changes inverter
+  mode timing and needs the owner's go-ahead.
+- Why: `_record_preserve_utility_hold` writes the hold with the default
+  `completion_policy="soc"` and `target_soc=threshold`, and
+  `topup-complete-check` closes any `soc` hold whose reading is at or above the
+  target. #85 lets `preserve-battery` switch on
+  `projected_soc_at_outage_start`, so the switch can now happen while the live
+  SOC is already at the threshold — and then the hold satisfies its own
+  completion test on the next check, one minute later.
+- Evidence, 2026-11-17: 07:00:07 threshold 40.0%, live SOC 40.0%, projected 35%
+  at the 08:00 outage start, "Preserve-battery Utility hold recorded until
+  2026-11-17T06:55:00+00:00 with target SOC 40.0%"; 07:01:03 "Topup SOC target
+  reached: 40% >= 40%" → `topup-target-reached actual_min=1, start_soc=40,
+  end_soc=40, target_soc=40`; 07:01:06 `return-sbu`. The 06:30 window on the
+  same morning was unaffected because it started at 38 against a 40 target.
+- Steps: when the switch was decided on the projection and the live SOC is not
+  below the threshold, record a `completion_policy="time"` hold with
+  `target_soc=None`, the shape `_defer_completion_to_scheduled_return` already
+  uses, so the hold survives to the scheduled `return-sbu`; keep the `soc`
+  policy when `start_soc < threshold`, which is what stops the 06:30 window at
+  the threshold. The decision line also says the reading "is below 40.0%" when
+  it equals the threshold; quote `decision_soc` instead.
+- Done when: a projection-triggered 07:00 preserve holds Utility to the 07:55
+  return, and a live-below-threshold preserve still completes at the threshold.
+
+### N15. Read the command-lock state without a torn read
+
+- Status: found 2026-11-17. Read-only; audit quality only, no mode change.
+- Why: `acquire_command_lock` creates the lock file with `O_CREAT | O_EXCL` and
+  only then writes the JSON payload, so a concurrent `topup-complete-check` can
+  read an empty file and audit `lock-skip held_by=unknown` with no `age_min` or
+  `held_since`. Seen at 2026-11-17 06:40:03 against the 06:40 preserve retry.
+- Steps: write the payload to a temporary file and link or rename it into place,
+  or have `record_lock_skip` retry the state read once before writing the row.
+- Done when: a locked `topup-complete-check` always names the holder and its age
+  in the `lock-skip` row.
 
 ## Current Baseline
 
