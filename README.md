@@ -291,6 +291,21 @@ Overnight-load learning keeps one averaged sample per night. It uses separate we
 
 The Discord control bot also accepts `/growatt_topup_cancel` to abort a running topup early.
 
+### Observed Supply
+
+Each dashboard snapshot records the inverter's grid (AC input) voltage, which
+reads about 0 V while the estate supply is cut. `supply-history` lists when the
+supply actually went off and came back, set against the active profile's
+scheduled outage windows, with the SOC on either side of each cut start. Edges
+are shown as the pair of snapshots that bracket them, so their precision is the
+dashboard refresh interval. It reads local history only and makes no Growatt
+call:
+
+```bash
+.venv/bin/python growatt_power_guard.py supply-history --days 3
+.venv/bin/python growatt_power_guard.py supply-history --json
+```
+
 ### Low Runtime Alert
 
 Send a Discord alert when estimated battery runtime drops below a threshold:

@@ -317,6 +317,24 @@ public-safe: no IDs, serials, domains, or credentials.
 - Done when: a locked `topup-complete-check` always names the holder and its age
   in the `lock-skip` row.
 
+### N16. Read the first week of observed supply cuts
+
+- Status: `supply-history` shipped 2026-11-17; snapshots carry `grid_v` from
+  that deploy on. Read-only.
+- Why: until now the outage start was inferred from the 08:01 watchdog reading
+  (N12 reads "the 08:01 watchdog read 39%"). The SPF's `vGrid` reads 0 V during
+  a cut (seen at 17:29 on 2026-11-17, inside the 15:30-18:00 window) and about
+  215-235 V on supply, so each snapshot now says whether the estate was on.
+- Steps: after a few days, run `supply-history --days 7` on the VPS. Check that
+  every scheduled window shows a `cut` and that the observed edges sit within
+  one refresh interval of the schedule; note any `unscheduled-cut` or `no-cut`.
+  Use the SOC at the first off reading in the N12 morning reads.
+- Done when: a week of windows is read and the result is recorded here. If the
+  estate's real cut times drift from the schedule by more than a refresh
+  interval, open a task to adjust the profile windows. If edges need more
+  precision, consider a durable ledger beside `bypass_daily.jsonl` rather than
+  more polling.
+
 ## Current Baseline
 
 The following capabilities are implemented and should be preserved:
@@ -362,6 +380,8 @@ The following capabilities are implemented and should be preserved:
 - A read-only top-up outcome scorecard that pairs starts and closures, compares
   planned and actual duration/SOC/load/grid evidence, classifies closure causes,
   and withholds tuning recommendations until three comparable outcomes exist.
+- Observed estate supply from the recorded grid voltage (`supply-history`),
+  set against the scheduled outage windows.
 - A separate morning-preservation scorecard that models the observed no-Utility
   SOC path, fails closed on incomplete metric windows, and gates the opt-in
   hourly-irradiance solar bridge behind three comparable post-change shadow
@@ -500,6 +520,14 @@ These remain intentionally below the active queue:
 - Authenticated web controls after dashboard auth, CSRF, and audit design.
 - Multi-inverter support with per-device schedules and thresholds.
 - Local-first inverter integration if a reliable supported path is proven.
+  The known route for the SPF is the Shine stick's own push (an 8-byte header
+  with Modbus input-register payloads on TCP 5279, as Epilykos receives it).
+  Pointing the stick at our host would cut the cloud path that mode writes use,
+  so it needs a relay that forwards to Growatt as well, and it is read-only.
+- Rejecting implausible jumps in daily energy counters was considered on
+  2026-11-17 and not needed: 248 ledger days showed no spike, and the stale
+  carry-over and flat-repeat guards in `daily_generation.py` cover the faults
+  seen so far.
 - A deeper PVOutput comparison view for forecast versus actual production.
 
 ## Good First Issues

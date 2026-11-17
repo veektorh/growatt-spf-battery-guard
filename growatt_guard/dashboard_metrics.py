@@ -52,6 +52,8 @@ CHARGE_TODAY_KEYS = ("eChargeToday", "eChargeTodayText", "eacChargeToday", "eAcC
 DISCHARGE_TODAY_KEYS = ("eDischargeToday", "eDischargeTodayText")
 LOAD_PERCENT_KEYS = ("loadPercent", "loadPercent1")
 BATTERY_VOLTAGE_KEYS = ("vBat", "vBat1", "vbat")
+# AC input (estate supply) voltage: about 0 V during a cut. See supply_history.py.
+GRID_VOLTAGE_KEYS = ("vGrid", "vGridText")
 
 class DashboardMetrics(TypedDict, total=False):
     """Normalized telemetry contract shared by dashboard policy and rendering."""
@@ -70,6 +72,7 @@ class DashboardMetrics(TypedDict, total=False):
     load_w: float | None
     load_today_kwh: float | None
     grid_w: float | None
+    grid_v: float | None
     grid_today_kwh: float | None
     charge_w: float | None
     charge_today_kwh: float | None
@@ -283,6 +286,7 @@ def extract_dashboard_metrics(status: dict[str, Any], now: dt.datetime | None = 
         "load_today_kwh": _rounded(_metric_max(status, LOAD_TODAY_KEYS), 2),
         "grid_w": _rounded(grid_w, 0),
         "grid_source": grid_source,
+        "grid_v": _rounded(_metric_number(status, GRID_VOLTAGE_KEYS), 1),
         "grid_today_kwh": _rounded(_metric_max(status, GRID_TODAY_KEYS), 2),
         "charge_w": _rounded(charge_w, 0),
         "charge_today_kwh": _rounded(_metric_max(status, CHARGE_TODAY_KEYS), 2),
