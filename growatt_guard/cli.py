@@ -29,6 +29,7 @@ from growatt_guard.schedule_overrides import command_outage_profile, command_sch
 from growatt_guard.schedule_profiles import command_profiles, command_set_profile
 from growatt_guard.schedule_views import command_schedule_calendar
 from growatt_guard.solar_reconcile import command_solar_reconcile
+from growatt_guard.supply_history import DEFAULT_SUPPLY_HISTORY_DAYS, command_supply_history
 from growatt_guard.topup_status import command_topup_status
 
 
@@ -381,6 +382,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     topup_status_parser = subparsers.add_parser("topup-status", help="Show canonical active top-up progress.")
     topup_status_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    supply_parser = subparsers.add_parser(
+        "supply-history",
+        help="Show when estate supply was actually cut (from recorded grid voltage) against the scheduled outages.",
+    )
+    supply_parser.add_argument(
+        "--days",
+        type=int,
+        default=DEFAULT_SUPPLY_HISTORY_DAYS,
+        help=f"Days to show, today included (default {DEFAULT_SUPPLY_HISTORY_DAYS}; history keeps about 8).",
+    )
+    supply_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     subparsers.add_parser(
         "runtime-alert",
         help="Send a Discord alert if estimated battery runtime is below RUNTIME_ALERT_MINUTES.",
@@ -551,6 +563,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return app.command_topup_complete_check(config)
         if command == "topup-status":
             return command_topup_status(config, args.json)
+        if command == "supply-history":
+            return command_supply_history(config, args.days, args.json)
         if command == "runtime-alert":
             return app.command_runtime_alert(config)
         if command == "adopt-utility":
