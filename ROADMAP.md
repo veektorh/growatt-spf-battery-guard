@@ -208,7 +208,8 @@ public-safe: no IDs, serials, domains, or credentials.
 - 2026-11-17 (fourth morning): the 06:30 preserve switched at SOC 38 against 40
   (projected 30% at the outage start), the 06:40 retry gave way as
   `lock-skip held_by=unknown` (no `age_min`, so the lock state was read before it
-  was written, see N15), and the window completed at 06:52 with SOC 40 against
+  was written; fixed 2026-11-17 by creating the lock with its payload
+  already in it), and the window completed at 06:52 with SOC 40 against
   its 40 target (22 min, implied 1640 W against 1787 W planned).
   - The 07:00 `morning-preserve-late` switched on the projection alone: live SOC
     40.0% against a 40.0% threshold, `decision_soc` = min(40, projected 35) = 35.
@@ -304,18 +305,6 @@ public-safe: no IDs, serials, domains, or credentials.
 - Done when: a projection-triggered 07:00 preserve stays open past its first
   minute check and closes at the headroom target or the 07:55 return, and a
   live-below preserve still completes at the threshold.
-
-### N15. Read the command-lock state without a torn read
-
-- Status: found 2026-11-17. Read-only; audit quality only, no mode change.
-- Why: `acquire_command_lock` creates the lock file with `O_CREAT | O_EXCL` and
-  only then writes the JSON payload, so a concurrent `topup-complete-check` can
-  read an empty file and audit `lock-skip held_by=unknown` with no `age_min` or
-  `held_since`. Seen at 2026-11-17 06:40:03 against the 06:40 preserve retry.
-- Steps: write the payload to a temporary file and link or rename it into place,
-  or have `record_lock_skip` retry the state read once before writing the row.
-- Done when: a locked `topup-complete-check` always names the holder and its age
-  in the `lock-skip` row.
 
 ### N16. Read the first week of observed supply cuts
 

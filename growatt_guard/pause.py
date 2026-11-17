@@ -14,6 +14,7 @@ from growatt_guard.state import (
     clear_login_cooldown_state,
     clear_pause_state,
     command_lock_is_stale,
+    command_lock_present,
     format_local_time,
     login_cooldown_until,
     pause_message,
@@ -50,13 +51,18 @@ def _lock_age_minutes(created_at: object) -> float | None:
     return max((dt.datetime.now(dt.timezone.utc) - created).total_seconds() / 60.0, 0.0)
 
 
-def record_lock_skip(config: Config, command: str, state: dict) -> None:
+LOCK_RELEASED_BEFORE_READ = "released-before-read"
+
+
+def record_lock_skip(config: Config, command: str, state: dict, *, released: bool = False) -> None:
     """Audit a job that gave way to the command already holding the lock.
 
     A scheduled job skipped for the lock leaves no other audit evidence, so the
     morning review cannot tell a deferral from a check that never fired.
+    ``released`` marks a lock that was gone by the time its state was read: the
+    holder finished between the failed acquire and the read.
     """
-    holder = str(state.get("command") or "unknown")
+    holder = LOCK_RELEASED_BEFORE_READ if released and not state else str(state.get("command") or "unknown")
     created_at = state.get("created_at")
     note = f"held_by={holder}"
     age_minutes = _lock_age_minutes(created_at)
@@ -74,11 +80,12 @@ def run_with_command_lock(config: Config, command: str, action) -> int:
     token = acquire_command_lock(command)
     if token is None:
         state = read_command_lock_state() or {}
+        released = not state and not command_lock_present()
         locked_command = state.get("command", "another command")
         created_at = state.get("created_at", "unknown time")
         message = f"Skipped `{command}` because `{locked_command}` is already running since {created_at}."
         logging.warning(message)
-        record_lock_skip(config, command, state)
+        record_lock_skip(config, command, state, released=released)
         if config.discord_notify_skip:
             send_discord_message(config, message)
         print(message)

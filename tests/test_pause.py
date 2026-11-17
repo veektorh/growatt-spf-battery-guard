@@ -126,3 +126,86 @@ class PauseTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CommandLockAtomicityTests(unittest.TestCase):
+    """N15: a concurrent reader must never see an empty lock file."""
+
+    def _paths(self, tmpdir):
+        return patch("growatt_guard.state.STATE_DIR", Path(tmpdir)), patch(
+            "growatt_guard.state.COMMAND_LOCK_FILE", Path(tmpdir) / "mode_command.lock"
+        )
+
+    def test_lock_holds_its_payload_the_moment_it_appears(self):
+        import json
+        import os
+        from growatt_guard import state
+
+        real_link = os.link
+        seen = []
+
+        def link_then_read(src, dst):
+            real_link(src, dst)
+            # Exactly what a concurrent topup-complete-check would read now.
+            seen.append(json.loads(Path(dst).read_text(encoding="utf-8")))
+
+        with TemporaryDirectory() as tmpdir:
+            state_patch, lock_patch = self._paths(tmpdir)
+            with state_patch, lock_patch, patch("growatt_guard.state.os.link", side_effect=link_then_read):
+                token = acquire_command_lock("preserve-battery")
+                self.assertEqual(state.read_command_lock_state()["command"], "preserve-battery")
+                release_command_lock(token or "")
+            leftovers = list(Path(tmpdir).iterdir())
+
+        self.assertIsNotNone(token)
+        self.assertEqual(seen[0]["command"], "preserve-battery")
+        self.assertEqual(seen[0]["token"], token)
+        self.assertEqual(leftovers, [])
+
+    def test_second_acquire_fails_and_leaves_the_holder_intact(self):
+        from growatt_guard import state
+
+        with TemporaryDirectory() as tmpdir:
+            state_patch, lock_patch = self._paths(tmpdir)
+            with state_patch, lock_patch:
+                first = acquire_command_lock("preserve-battery")
+                second = acquire_command_lock("topup-complete-check")
+                holder = state.read_command_lock_state()
+                names = sorted(path.name for path in Path(tmpdir).iterdir())
+                release_command_lock(first or "")
+
+        self.assertIsNotNone(first)
+        self.assertIsNone(second)
+        self.assertEqual(holder["command"], "preserve-battery")
+        self.assertEqual(names, ["mode_command.lock"])
+
+    def test_falls_back_to_exclusive_create_without_hard_links(self):
+        from growatt_guard import state
+
+        with TemporaryDirectory() as tmpdir:
+            state_patch, lock_patch = self._paths(tmpdir)
+            with state_patch, lock_patch, patch("growatt_guard.state.os.link", side_effect=PermissionError("no links")):
+                token = acquire_command_lock("return-sbu")
+                holder = state.read_command_lock_state()
+                again = acquire_command_lock("watchdog-sbu")
+                names = sorted(path.name for path in Path(tmpdir).iterdir())
+                release_command_lock(token or "")
+
+        self.assertIsNotNone(token)
+        self.assertEqual(holder["command"], "return-sbu")
+        self.assertIsNone(again)
+        self.assertEqual(names, ["mode_command.lock"])
+
+    def test_lock_released_before_read_is_named(self):
+        config = make_config(discord_notify_skip=False)
+        with TemporaryDirectory() as tmpdir, patch("growatt_guard.state.STATE_DIR", Path(tmpdir)), patch(
+            "growatt_guard.state.COMMAND_LOCK_FILE", Path(tmpdir) / "mode_command.lock"
+        ), patch("growatt_guard.audit.LOG_DIR", Path(tmpdir)), patch(
+            "growatt_guard.audit.MODE_AUDIT_FILE", Path(tmpdir) / "mode_decisions.csv"
+        ), patch("growatt_guard.pause.acquire_command_lock", return_value=None), redirect_stdout(StringIO()):
+            # The holder finished between the failed acquire and the state read.
+            self.assertEqual(run_with_command_lock(config, "topup-complete-check", lambda: 99), 0)
+            rows = read_mode_audit_rows()
+
+        self.assertEqual(rows[0]["action"], LOCK_SKIP_ACTION)
+        self.assertEqual(rows[0]["note"], "held_by=released-before-read")
