@@ -316,6 +316,10 @@ def read_command_lock_state() -> dict[str, Any] | None:
     return read_json_state(COMMAND_LOCK_FILE, "command lock")
 
 
+def command_lock_present() -> bool:
+    return COMMAND_LOCK_FILE.exists()
+
+
 def command_lock_is_stale() -> bool:
     if not COMMAND_LOCK_FILE.exists():
         return False
@@ -338,8 +342,7 @@ def acquire_command_lock(command: str) -> str | None:
 
     for _ in range(2):
         try:
-            flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
-            fd = os.open(str(COMMAND_LOCK_FILE), flags)
+            _create_lock_file(payload)
         except FileExistsError:
             if command_lock_is_stale():
                 try:
@@ -348,10 +351,41 @@ def acquire_command_lock(command: str) -> str | None:
                     pass
                 continue
             return None
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
         return token
     return None
+
+
+def _create_lock_file(payload: dict[str, Any]) -> None:
+    """Create the lock file with its payload already in it, or raise FileExistsError.
+
+    The payload is written to a private temporary file first and then hard-linked
+    into place. ``link`` fails when the lock exists, just as ``O_EXCL`` does, but
+    the lock never exists empty: an ``O_EXCL`` create followed by a write let a
+    concurrent job read a zero-byte lock and audit ``held_by=unknown``.
+    """
+    body = json.dumps(payload, indent=2, sort_keys=True)
+    fd, tmp = tempfile.mkstemp(dir=COMMAND_LOCK_FILE.parent, prefix=f".{COMMAND_LOCK_FILE.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(body)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(tmp, COMMAND_LOCK_FILE)
+            return
+        except FileExistsError:
+            raise
+        except OSError:
+            # A filesystem without hard links: fall back to the exclusive create.
+            logging.debug("Hard-link lock creation unavailable; using an exclusive create.", exc_info=True)
+        lock_fd = os.open(str(COMMAND_LOCK_FILE), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(lock_fd, "w", encoding="utf-8") as handle:
+            handle.write(body)
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
 def release_command_lock(token: str) -> None:
