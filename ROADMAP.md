@@ -191,8 +191,11 @@ public-safe: no IDs, serials, domains, or credentials.
 
 ### N19. Raise the morning top-up target so outages stop starting below the preserve threshold
 
-- Status: N12 closed 2026-11-18 after five mornings; the change alters
-  inverter mode timing and needs the owner's go-ahead before implementation.
+- Status: the owner picked the preserve-threshold option on 2026-11-18 and it
+  shipped the same day: the night plan raises its sunrise target to the next
+  morning's preserve threshold when that morning is an outage day
+  (`AUTO_TOPUP_MORNING_TARGET_ENABLED`, default on, weather-aware, fail-closed
+  to the flat target). Read-only until the next outage-day morning.
 - Why: N12's five outage-day mornings ended with the outage starting below the
   preserve threshold on three of them: 39% against 40 on 2026-11-16, 39%
   against 40 on 2026-11-17 (its 07:00 hold was lost to the N14 bug), and 41%
@@ -211,8 +214,12 @@ public-safe: no IDs, serials, domains, or credentials.
   taken from the next morning's preserve threshold. Both land the battery
   nearer the next morning's preserve threshold than today's flat sunrise
   floor (about 20%), at the cost of more overnight Utility minutes. The
-  morning scorecard (P1) supplies the counterfactual floor for whichever is
-  chosen.
+  owner chose the preserve-threshold option, so the battery arrives at the
+  06:30 preserve at or above the threshold, the preserve switches on the
+  projection alone, and its hold charges past the threshold by the headroom
+  (the N14 fix path) instead of completing exactly on the threshold and
+  letting the load drain the gap before the outage starts. Audit rows now
+  carry `sunrise_target_soc` and `morning_target_soc` for the read.
 - Note: N14's headroom fix is still unexercised — no projection-triggered
   preserve has run since it merged on 2026-11-17.
 - Done when: the owner picks an option, it ships in a mode-timing PR, and a
@@ -240,8 +247,13 @@ public-safe: no IDs, serials, domains, or credentials.
 
 ### N13. Switch to `estate-18h` once the 2026-11-18 rationing notice is confirmed
 
-- Status: profile defined and tested, switch pending the owner's confirmation.
-  Read-only until then. Changes inverter mode timing on switch.
+- Status: the owner confirmed the notice on 2026-11-18 and the switch ran the
+  same day: `install_cloud_cron.sh` from release 4c52686, then
+  `set-profile estate-18h` (was `estate-19h`, kept `set-outage-days auto`).
+  Verified: `profiles` reports `estate-18h` active, `health-check` reports
+  57 cron jobs across 3 profiles, and `schedule-preview --days 8` shows the
+  Wednesday 15:00 cut (14:55 return, 15:01 watchdog) and the Saturday
+  17:00-18:00 cut. Read-only; one item left.
 - Why: the estate is considering 18h weekday / 20h weekend supply from Wednesday
   2026-11-18 — weekday cuts 08:00-11:00 and 15:00-18:00, weekend cuts
   08:00-11:00 and 17:00-18:00. The arithmetic agrees with the stated hours
@@ -249,8 +261,8 @@ public-safe: no IDs, serials, domains, or credentials.
   powered blocks.
 - Observed, 2026-11-18: the first weekday cut under the notice ran to about
   11:00, not the installed profile's 10:30 — `supply-history` shows the
-  estate off between 07:55-08:11 and back between 10:56-11:11. Still
-  read-only until the owner confirms the notice.
+  estate off between 07:55-08:11 and back between 10:56-11:11. The owner
+  confirmed the notice on this evidence.
 - Steps: after deploy, run `./install_cloud_cron.sh` from the running release
   so the profile's 18 job variants are installed, then
   `set-profile estate-18h --reason "…"` and keep `set-outage-days auto`.

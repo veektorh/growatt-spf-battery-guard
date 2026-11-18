@@ -206,6 +206,33 @@ def _sunrise_hours(config: Config) -> float | None:
     except Exception:  # noqa: BLE001
         return None
 
+def next_morning_preserve_target_soc(config: Config, hrs: float | None) -> float | None:
+    """Estimate the preserve-battery threshold of the morning after this night.
+
+    The night plan raises its sunrise target to this value when that morning
+    is an outage day, so the battery reaches the 06:30 preserve at or above
+    the threshold. The preserve then switches on the projection alone and its
+    hold charges past the threshold by the headroom instead of completing
+    exactly on it and letting the load drain the gap before the outage
+    starts. The morning preserve re-decides from its own reading, so this
+    estimate only sizes the overnight window. Returns None when disabled,
+    when the sunrise horizon is unknown, or when the next morning has no
+    scheduled outage.
+    """
+    if not config.auto_topup_morning_target_enabled or hrs is None or hrs <= 0:
+        return None
+    try:
+        from growatt_guard.outage_days import today_is_outage_day
+
+        night_tz = resolve_timezone(getattr(config, "weather_timezone", ""))
+        morning = dt.datetime.now(tz=night_tz) + dt.timedelta(hours=hrs)
+        if not today_is_outage_day(now=morning):
+            return None
+        return float(choose_preserve_threshold(config, today=morning.date()).threshold)
+    except Exception as exc:  # noqa: BLE001 - the flat target must keep the night safe
+        logging.warning("Morning preserve target unavailable, using flat sunrise target: %s", exc)
+        return None
+
 def _persist_auto_topup_intent(
     config: Config,
     *,
@@ -329,6 +356,13 @@ def command_auto_topup_check(config: Config) -> int:
     effective_target_soc = max(config.battery_bms_cutoff_soc, config.auto_topup_target_soc)
     if late_safety_window:
         effective_target_soc = max(effective_target_soc, safety_floor_soc)
+    morning_target_soc = next_morning_preserve_target_soc(config, hrs)
+    if morning_target_soc is not None and morning_target_soc > effective_target_soc:
+        logging.info(
+            "Next morning is an outage day; sunrise target raised from %g%% to the preserve threshold %g%%",
+            effective_target_soc, morning_target_soc,
+        )
+        effective_target_soc = morning_target_soc
     target_topup_min_f = estimate_topup_for_sunrise(
         soc, load_w, config.battery_capacity_wh, effective_target_soc,
         charge_rate_w, hrs,
@@ -504,16 +538,19 @@ def command_auto_topup_check(config: Config) -> int:
         # Keep ownership intent so the completion check can reconcile by returning SBU.
         raise
 
+    audit_note = (
+        f"{topup_min}min, {hrs:.1f}h to sunrise, "
+        f"planned_min={topup_min}, target_soc={current_soc_target:g}, "
+        f"sunrise_target_soc={effective_target_soc:g}, "
+        f"planned_load_w={load_w:g}, "
+        f"planned_charge_rate_w={charge_rate_w:g}, "
+        f"plan_kind={'late-safety' if late_safety_window else 'reserve'}"
+    )
+    if morning_target_soc is not None:
+        audit_note += f", morning_target_soc={morning_target_soc:g}"
     append_mode_audit(
         config, "auto-topup-check", soc=soc, previous_mode=previous_mode,
-        action="auto-topup-started", result=result,
-        note=(
-            f"{topup_min}min, {hrs:.1f}h to sunrise, "
-            f"planned_min={topup_min}, target_soc={current_soc_target:g}, "
-            f"planned_load_w={load_w:g}, "
-            f"planned_charge_rate_w={charge_rate_w:g}, "
-            f"plan_kind={'late-safety' if late_safety_window else 'reserve'}"
-        ),
+        action="auto-topup-started", result=result, note=audit_note,
     )
     target_soc_arg = plan_target_soc if plan_target_soc > config.battery_bms_cutoff_soc else None
     if config.discord_notify_success and not config.dry_run:
