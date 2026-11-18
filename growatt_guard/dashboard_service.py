@@ -53,6 +53,7 @@ from growatt_guard.state import (
     write_schedule_profile_state,
 )
 from growatt_guard.topup_status import collect_topup_status
+from growatt_guard.topup import next_morning_preserve_target_soc
 from growatt_guard.weather import (
     choose_preserve_threshold,
     get_pv_forecast,
@@ -102,6 +103,10 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
         hrs_to_sunset = hours_until_next_sunset(config)
     except Exception:  # noqa: BLE001
         pass
+    morning_target_soc = next_morning_preserve_target_soc(config, hrs_to_sunrise)
+    planner_target_soc = config.auto_topup_target_soc
+    if morning_target_soc is not None:
+        planner_target_soc = max(planner_target_soc, morning_target_soc)
     output_path = resolve_dashboard_output(output)
     append_dashboard_metric_snapshot(
         status,
@@ -124,7 +129,7 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
         status, schedule, overrides, threshold_decision, config.dashboard_stale_minutes,
         config.battery_capacity_wh, config.battery_bms_cutoff_soc,
         hrs_to_sunrise, config.battery_charge_rate_w,
-        config.auto_topup_target_soc,
+        planner_target_soc,
         config.auto_topup_solar_skip_min_margin_minutes,
         config.auto_topup_headroom_soc,
         metrics_history,

@@ -414,6 +414,7 @@ class DischargeRateAverageTests(unittest.TestCase):
             battery_capacity_wh=30000.0,
             battery_charge_rate_w=3000.0,
             battery_bms_cutoff_soc=25.0,
+            auto_topup_morning_target_enabled=False,
             dry_run=True,
         )
 

@@ -77,7 +77,7 @@ class AutoTopupTargetSocTests(unittest.TestCase):
             cfg_cutoff = make_config(
                 auto_topup_enabled=True, battery_capacity_wh=30000.0,
                 battery_charge_rate_w=3000.0, battery_bms_cutoff_soc=25.0,
-                auto_topup_target_soc=0.0, dry_run=True,
+                auto_topup_target_soc=0.0, auto_topup_morning_target_enabled=False, dry_run=True,
             )
             ps = common_patches(written_cutoff)
             with (patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "t1.json"),
@@ -89,7 +89,7 @@ class AutoTopupTargetSocTests(unittest.TestCase):
             cfg_target = make_config(
                 auto_topup_enabled=True, battery_capacity_wh=30000.0,
                 battery_charge_rate_w=3000.0, battery_bms_cutoff_soc=25.0,
-                auto_topup_target_soc=35.0, dry_run=True,
+                auto_topup_target_soc=35.0, auto_topup_morning_target_enabled=False, dry_run=True,
             )
             ps2 = common_patches(written_target)
             with (patch.object(state_mod, "TOPUP_STATE_FILE", tmp / "t2.json"),
@@ -122,7 +122,7 @@ class AutoTopupTargetSocTests(unittest.TestCase):
             battery_charge_rate_w=2100.0,
             battery_bms_cutoff_soc=25.0,
             discord_topup_max_minutes=210,
-            dry_run=True,
+            auto_topup_morning_target_enabled=False,
         )
 
         with TemporaryDirectory() as tmpdir:
@@ -166,7 +166,7 @@ class AutoTopupTargetSocTests(unittest.TestCase):
         cfg = make_config(
             auto_topup_enabled=True, battery_capacity_wh=30000.0,
             battery_charge_rate_w=3000.0, battery_bms_cutoff_soc=25.0,
-            auto_topup_target_soc=35.0, dry_run=True,
+            auto_topup_target_soc=35.0, auto_topup_morning_target_enabled=False, dry_run=True,
         )
         buf = StringIO()
         with TemporaryDirectory() as tmpdir:
@@ -259,6 +259,7 @@ class AutoTopupMinMinutesTests(unittest.TestCase):
             battery_capacity_wh=30000.0,
             battery_charge_rate_w=3000.0,
             battery_bms_cutoff_soc=25.0,
+            auto_topup_morning_target_enabled=False,
             dry_run=True,
         )
 
@@ -361,6 +362,7 @@ class AutoTopupLateSafetyTests(unittest.TestCase):
             auto_topup_min_minutes=20.0,
             auto_topup_target_soc=35.0,
             auto_topup_sunrise_floor_soc=35.0,
+            auto_topup_morning_target_enabled=False,
             auto_topup_solar_skip_kwh_m2=4.0,
             auto_topup_solar_skip_min_margin_minutes=0.0,
             battery_capacity_wh=30000.0,
@@ -1025,6 +1027,7 @@ class TopupWindowBoundTests(unittest.TestCase):
         cfg = make_config(
             auto_topup_enabled=True,
             auto_topup_solar_skip_min_margin_minutes=0.0,
+            auto_topup_morning_target_enabled=False,
             battery_capacity_wh=self.NIGHT["capacity_wh"],
             battery_charge_rate_w=self.NIGHT["charge_rate_w"],
             battery_bms_cutoff_soc=self.NIGHT["cutoff_soc"],
@@ -1153,3 +1156,126 @@ class TopupExpiryWithinResolutionTests(unittest.TestCase):
         self.assertEqual(action, "topup-expired")
         self.assertIn("at or below 35% floor", output)
         self.assertEqual(embeds, ["failed"])
+
+
+class MorningPreserveTargetTests(unittest.TestCase):
+    """The night plan raises its sunrise target to the next morning's preserve threshold.
+
+    Replays the night of 2026-11-10 (SOC 36%, 1455 W, 12.6 h to sunrise, cutoff 20)
+    with the weather disabled, so the morning threshold is the fixed
+    LOW_BATTERY_SOC (50 in make_config).
+    """
+
+    NIGHT = {
+        "soc": 36.0,
+        "load_w": 1455.09,
+        "capacity_wh": 30_000.0,
+        "charge_rate_w": 1950.0,
+        "cutoff_soc": 20.0,
+        "hours": 12.6,
+    }
+
+    def _plan(self, tmp: Path, tag: str, **config_overrides) -> dict:
+        from growatt_guard import state as state_mod
+        from growatt_guard.topup import command_auto_topup_check
+
+        status = {
+            "datalogSn": "SN1", "deviceSn": "SN1",
+            "data": {"soc": self.NIGHT["soc"], "pDischarge": self.NIGHT["load_w"], "outputConfig": "0"},
+        }
+        written: dict = {}
+        cfg = make_config(
+            auto_topup_enabled=True,
+            auto_topup_solar_skip_min_margin_minutes=0.0,
+            auto_topup_headroom_soc=0.0,
+            battery_capacity_wh=self.NIGHT["capacity_wh"],
+            battery_charge_rate_w=self.NIGHT["charge_rate_w"],
+            battery_bms_cutoff_soc=self.NIGHT["cutoff_soc"],
+            **config_overrides,
+        )
+        with (
+            patch.object(state_mod, "TOPUP_STATE_FILE", tmp / f"t{tag}.json"),
+            patch.object(state_mod, "PAUSE_FILE", tmp / f"p{tag}.json"),
+            patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", tmp / f"dr{tag}.json"),
+            patch("growatt_guard.topup.read_pause_state", return_value=None),
+            patch("growatt_guard.topup.topup_is_active", return_value=False),
+            patch("growatt_guard.topup.hours_until_next_sunrise", return_value=self.NIGHT["hours"]),
+            patch("growatt_guard.topup.load_context", return_value=(None, None, status)),
+            patch("growatt_guard.topup.set_mode", return_value="ok"),
+            patch("growatt_guard.topup.command_pause", return_value=0),
+            patch(
+                "growatt_guard.topup.write_utility_hold_state",
+                side_effect=lambda **kwargs: written.update(kwargs),
+            ),
+            patch("growatt_guard.topup.append_mode_audit") as audit,
+            redirect_stdout(StringIO()),
+        ):
+            command_auto_topup_check(cfg)
+        written["note"] = audit.call_args.kwargs.get("note", "")
+        return written
+
+    def test_morning_target_extends_the_window_on_an_outage_morning(self):
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            with patch("growatt_guard.outage_days.today_is_outage_day", return_value=True):
+                flat = self._plan(tmp, "a", auto_topup_morning_target_enabled=False)
+                raised = self._plan(tmp, "b")
+
+        self.assertGreater(raised["minutes"], flat["minutes"])
+        self.assertIn("morning_target_soc=50", raised["note"])
+        self.assertIn("sunrise_target_soc=50", raised["note"])
+        self.assertIn("target 50% SOC at sunrise", raised["reason"])
+        self.assertNotIn("morning_target_soc", flat["note"])
+
+    def test_non_outage_morning_keeps_the_flat_target(self):
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            with patch("growatt_guard.outage_days.today_is_outage_day", return_value=False):
+                flat = self._plan(tmp, "a", auto_topup_morning_target_enabled=False)
+                gated = self._plan(tmp, "b")
+
+        self.assertEqual(gated["minutes"], flat["minutes"])
+        self.assertNotIn("morning_target_soc", gated["note"])
+
+    def test_weather_threshold_sets_the_morning_target(self):
+        from growatt_guard.weather import ThresholdDecision
+
+        decision = ThresholdDecision(threshold=55.0, reason="test", weather_category="rainy/cloudy")
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            with patch("growatt_guard.outage_days.today_is_outage_day", return_value=True), patch(
+                "growatt_guard.topup.choose_preserve_threshold", return_value=decision
+            ) as choose_mock:
+                raised = self._plan(tmp, "a")
+
+        choose_mock.assert_called_once()
+        self.assertIn("morning_target_soc=55", raised["note"])
+        self.assertIn("target 55% SOC at sunrise", raised["reason"])
+
+    def test_weather_failure_falls_back_to_the_flat_target(self):
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            with patch("growatt_guard.outage_days.today_is_outage_day", return_value=True), patch(
+                "growatt_guard.topup.choose_preserve_threshold",
+                side_effect=RuntimeError("weather down"),
+            ):
+                flat = self._plan(tmp, "a", auto_topup_morning_target_enabled=False)
+                degraded = self._plan(tmp, "b")
+
+        self.assertEqual(degraded["minutes"], flat["minutes"])
+        self.assertNotIn("morning_target_soc", degraded["note"])
+
+    def test_disabled_flag_never_consults_the_threshold(self):
+        with TemporaryDirectory() as tmpdir:
+            with patch("growatt_guard.outage_days.today_is_outage_day", return_value=True), patch(
+                "growatt_guard.topup.choose_preserve_threshold"
+            ) as choose_mock:
+                self._plan(Path(tmpdir), "a", auto_topup_morning_target_enabled=False)
+
+        choose_mock.assert_not_called()
+
+    def test_unknown_horizon_disables_the_morning_target(self):
+        from growatt_guard.topup import next_morning_preserve_target_soc
+
+        self.assertIsNone(next_morning_preserve_target_soc(make_config(), None))
+        self.assertIsNone(next_morning_preserve_target_soc(make_config(), 0.0))
