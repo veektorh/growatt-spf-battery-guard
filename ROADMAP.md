@@ -1,6 +1,6 @@
 # Growatt Guard Roadmap
 
-Last reviewed: 2026-11-17
+Last reviewed: 2026-11-18
 
 This is the working backlog for Growatt Guard. Priorities favor inverter safety,
 low Growatt API pressure, trustworthy decisions, and clear operations before
@@ -142,6 +142,21 @@ public-safe: no IDs, serials, domains, or credentials.
     on 30 kWh) implies about 1690 W. That is N1's rate-accuracy weakness on the
     load side instead of the charge side, and it is why the 22:00 window asked
     for 41 minutes and still landed at 80%.
+- Night of 2026-11-17 (2 of 3 on bands; the first whole weekday night on
+  them):
+  - Two starts: 18:00 for 214 min (reserve, 62% to 81% against an 83.09%
+    target, planned 1996 W) and 02:40 for 51 min (late-safety, 53% to 58%
+    against 58.11%, planned 1962 W), so 267 Utility minutes against 295,
+    146, 202, 165 and 251 on the five previous nights.
+  - The gap between the 21:35 completion and the 02:40 start was 5 h 05 m, and
+    nothing re-armed after the 03:32 completion. Both plans quoted banded
+    loads, so no flat fallback ran all night.
+  - The night's own row recorded evening 2518 W over 2 samples and overnight
+    1736 W over 21 samples; the 21:35 to 02:40 drain (81% to 53% on 30 kWh)
+    implies about 1650 W, so the overnight band ran close this time rather
+    than the 20% high of 2026-11-16.
+  - One more weekday night (2026-11-18) completes the three-night read, then
+    judge repeat top-ups against the 2026-11-09 baseline of three.
 - When the bands can go live: readiness counts banded nights of the *same day
   type*, and `day_type` treats Saturday and Sunday as weekend. Two weekday
   nights carry `bands` (2026-11-12 and 11-13) and two weekend nights do
@@ -174,65 +189,34 @@ public-safe: no IDs, serials, domains, or credentials.
   checks over three nights show fewer repeat top-ups than the 2026-11-09
   baseline.
 
-### N12. Review a week of mornings with the outage-start preserve
+### N19. Raise the morning top-up target so outages stop starting below the preserve threshold
 
-- Status: four of five outage-day mornings read (2026-11-14, 11-15, 11-16,
-  11-17). Read-only. A change it leads to alters inverter mode timing and needs
-  the owner's go-ahead.
-- Why: N3 closed on 2026-11-14 with the owner's agreement that #85 is the fix,
-  and that neither `AUTO_TOPUP_TARGET_SOC=35` nor a target taken from the next
-  morning's preserve threshold is needed yet. #85 makes `preserve-battery`
-  decide on `projected_soc_at_outage_start` instead of the live reading, and
-  adds the 07:00 `morning-preserve-late` check with a 55-minute hold before the
-  07:55 return. The case it targets: on 2026-11-13 the 02:40 late-safety window
-  ended at 60%, the 06:30 preserve skipped at 41% against a 40% threshold, and
-  the outage began near 39%.
-- Read per morning: the 06:30 and 07:00 preserve rows (`switch` or `skip`, with
-  live and projected SOC), the SOC at the 07:55 return, and the SOC when the
-  outage starts. Compare that SOC with the day's preserve threshold. When a
-  top-up holds the lock at 07:00 the row is `lock-skip` with `held_by` and
-  `age_min` in its note; read that as a deferral, not a missing check.
-- Mornings read so far: 2026-11-14 and 11-15. Both kept the 06:30 preserve
-  (`switch`, projected 19% and 29% at the outage start against thresholds 45
-  and 40) and both deferred the 07:00 check to the threshold top-up's hold. The
-  08:01 watchdog reading on each morning was 45% and 40%, exactly the day's
-  threshold, so neither outage started below it.
-- 2026-11-16 (third morning): the 06:30 preserve switched at SOC 34 against a
-  40 threshold (projected 23% at the outage start), the 06:40 completion check
-  and the 07:00 check both gave way as `lock-skip` rows (the first production
-  confirmation of the #93 evidence change; the top-up held the lock and
-  completed at 07:16 with SOC 40 against its 40 target), and the 07:55 return
-  skipped because the inverter was already on SBU. The 08:01 watchdog read 39%
-  against the 40 threshold: the first morning the outage started below the
-  preserve threshold, by one point.
-- 2026-11-17 (fourth morning): the 06:30 preserve switched at SOC 38 against 40
-  (projected 30% at the outage start), the 06:40 retry gave way as
-  `lock-skip held_by=unknown` (no `age_min`, so the lock state was read before it
-  was written; fixed 2026-11-17 by creating the lock with its payload
-  already in it), and the window completed at 06:52 with SOC 40 against
-  its 40 target (22 min, implied 1640 W against 1787 W planned).
-  - The 07:00 `morning-preserve-late` switched on the projection alone: live SOC
-    40.0% against a 40.0% threshold, `decision_soc` = min(40, projected 35) = 35.
-    The hold was recorded "until 06:55Z with target SOC 40.0%", and the 07:01
-    completion check closed it as `topup-target-reached actual_min=1,
-    start_soc=40, end_soc=40, target_soc=40` before returning to SBU at 07:01:06.
-    The designed 55-minute hold lasted 57 seconds; see N14 for the cause.
-  - The 07:55 return found the inverter already on SBU and skipped (`no-change`);
-    the 08:01 watchdog read 39% against the 40 threshold (`verified-sbu`), so the
-    outage started one point below it — two mornings in a row, since 11-16 was
-    also 39 against 40.
-  - The projection was pessimistic by four points (35 projected against 39
-    read), the same over-planning N2 sees in the band. The shortfall is not a
-    target problem: the 06:30 window reached the 40% threshold at 06:52 and the
-    load took two points off before 08:00. What would have covered that gap is
-    the 07:00 hold, which is why N14 comes first.
-- Done when: five outage-day mornings are read. If the outage still starts below
-  the threshold on two or more of them, reopen the sunrise-target options
-  (`AUTO_TOPUP_TARGET_SOC=35`, or a target from the next morning's preserve
-  threshold) as a new task; otherwise record the result and remove this one.
-  Two of the four mornings read are already one point below (11-16 and 11-17),
-  but 11-17 lost its 07:00 hold to N14 rather than to a target shortfall, so fix
-  N14 and read the fifth morning before reopening those options.
+- Status: N12 closed 2026-11-18 after five mornings; the change alters
+  inverter mode timing and needs the owner's go-ahead before implementation.
+- Why: N12's five outage-day mornings ended with the outage starting below the
+  preserve threshold on three of them: 39% against 40 on 2026-11-16, 39%
+  against 40 on 2026-11-17 (its 07:00 hold was lost to the N14 bug), and 41%
+  against a weather-aware 45 on 2026-11-18. Per N12's done-when, the
+  sunrise-target options reopen.
+- 2026-11-18 detail: the 06:30 preserve switched at 42% against 45%
+  (projected 34% at the outage start), the 06:40 and 07:00 checks deferred as
+  `lock-skip` rows (`held_by=topup-complete-check` with `held_since` and
+  `age_min` populated — the 2026-11-17 payload fix confirmed in production),
+  the window completed at 07:02 at exactly 45%, and the 08:01 watchdog read
+  41%, four points under. The structural gap is unchanged: the top-up that
+  serves the morning completes at the threshold and the load takes two to
+  four points off before the 08:00 outage start, and the 07:00 preserve hold
+  that should cover that drain has not survived to 08:00 on any morning read.
+- Options carried over from N3/N12: `AUTO_TOPUP_TARGET_SOC=35`, or a target
+  taken from the next morning's preserve threshold. Both land the battery
+  nearer the next morning's preserve threshold than today's flat sunrise
+  floor (about 20%), at the cost of more overnight Utility minutes. The
+  morning scorecard (P1) supplies the counterfactual floor for whichever is
+  chosen.
+- Note: N14's headroom fix is still unexercised — no projection-triggered
+  preserve has run since it merged on 2026-11-17.
+- Done when: the owner picks an option, it ships in a mode-timing PR, and a
+  later outage-day morning starts at or above the preserve threshold.
 
 ### N5. Confirm the preserve-window deferral in production
 
@@ -263,6 +247,10 @@ public-safe: no IDs, serials, domains, or credentials.
   08:00-11:00 and 17:00-18:00. The arithmetic agrees with the stated hours
   (24 - 6h = 18h weekday, 24 - 4h = 20h weekend), so the windows are cuts, not
   powered blocks.
+- Observed, 2026-11-18: the first weekday cut under the notice ran to about
+  11:00, not the installed profile's 10:30 — `supply-history` shows the
+  estate off between 07:55-08:11 and back between 10:56-11:11. Still
+  read-only until the owner confirms the notice.
 - Steps: after deploy, run `./install_cloud_cron.sh` from the running release
   so the profile's 18 job variants are installed, then
   `set-profile estate-18h --reason "…"` and keep `set-outage-days auto`.
@@ -275,7 +263,9 @@ public-safe: no IDs, serials, domains, or credentials.
 ### N14. Confirm a projection-triggered preserve hold survives its first check
 
 - Status: fix merged 2026-11-17; waiting for the next projection-triggered
-  morning. Read-only now.
+  morning. Read-only now. Still unexercised on 2026-11-18: the 07:00 preserve
+  deferred as a lock-skip while the 06:30 window completed at 07:02, so no
+  projection-triggered preserve has run since the fix merged.
 - Why: `_record_preserve_utility_hold` writes the hold with the default
   `completion_policy="soc"` and `target_soc=threshold`, and
   `topup-complete-check` closes any `soc` hold whose reading is at or above the
@@ -314,10 +304,20 @@ public-safe: no IDs, serials, domains, or credentials.
   (N12 reads "the 08:01 watchdog read 39%"). The SPF's `vGrid` reads 0 V during
   a cut (seen at 17:29 on 2026-11-17, inside the 15:30-18:00 window) and about
   215-235 V on supply, so each snapshot now says whether the estate was on.
+- First windows read, 2026-11-18:
+  - 2026-11-17, scheduled 15:30-18:00: already cut at the first reading
+    (17:36), back between 17:51-18:06, so the end edge sits within one
+    refresh interval of 18:00. SOC 66% at the first off reading.
+  - 2026-11-18, scheduled 08:00-10:30: off between 07:55-08:11, back between
+    10:56-11:11. The start edge is within one refresh interval of 08:00; the
+    end ran 26 to 41 minutes past the scheduled 10:30, matching the 11:00
+    end of the estate-18h notice rather than the installed profile (N13).
+    SOC 41% at the first off reading, the number N19 quotes for that morning.
+  - No unscheduled cut appeared in the first read.
 - Steps: after a few days, run `supply-history --days 7` on the VPS. Check that
   every scheduled window shows a `cut` and that the observed edges sit within
   one refresh interval of the schedule; note any `unscheduled-cut` or `no-cut`.
-  Use the SOC at the first off reading in the N12 morning reads.
+  Use the SOC at the first off reading in the N19 morning reads.
 - Done when: a week of windows is read and the result is recorded here. If the
   estate's real cut times drift from the schedule by more than a refresh
   interval, open a task to adjust the profile windows. If edges need more
@@ -340,6 +340,11 @@ public-safe: no IDs, serials, domains, or credentials.
   AC output, while the planner learns from battery drain, which also carries
   conversion and standby losses; the 11% gap is about that size. Any switch
   must first learn that ratio from nights where both are recorded.
+- First morning read, 2026-11-18, for the night of 2026-11-17: hourly profile
+  21.4 kWh (average 1786 W, likely 19.0-25.3 kWh) against band 23.4 kWh
+  (evening 1959 W, overnight 1942 W, 22 nights) — an 8.5% gap, narrower than
+  the 11% on the first run. The night's implied overnight drain was about
+  1650 W against a learned overnight band of 1736 W.
 - Steps: run `load-profile` on the VPS each morning for a week, beside the
   previous night's actual drain (`discharge_rate_history.json`). Record, per
   night, hourly-profile kWh, band kWh, and actual kWh. Snapshots mix weekday and
@@ -432,12 +437,13 @@ closures and add fixtures for any new trustworthy classification signal.
   or interpretation bug.
 
 Current concrete steps toward this goal are in Next Up: N2 (plan with an evening
-load and an overnight load, now observing in production) and N12 (a week of
-mornings with the outage-start preserve, which replaced N3). The learned charge rate went live on 2026-11-10 at
-the owner's direction, ahead of the three-comparable-outcome gate; N1 collected
+load and an overnight load, now observing in production) and N19 (raise the
+morning top-up target after N12's five mornings). The learned charge rate went live on
+2026-11-10 at the owner's direction, ahead of the three-comparable-outcome gate; N1 collected
 those outcomes after the fact and closed on 2026-11-13 with the repeats still
-present, which is why N2 owns them now. A sunrise-target change returns only
-if N12 shows outages still starting below the preserve threshold.
+present, which is why N2 owns them now. N12 closed on 2026-11-18 with three of
+five outage mornings starting below the preserve threshold, so the
+sunrise-target change returned as N19.
 
 ### P2. Notification Quiet Hours And Digest
 
