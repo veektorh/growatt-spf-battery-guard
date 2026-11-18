@@ -245,33 +245,6 @@ public-safe: no IDs, serials, domains, or credentials.
 - Done when: one alert row is seen on the live Now tab and its text matches the
   matching `dashboard.json` field (`automation.*` or `planner.tonight_safe`).
 
-### N13. Switch to `estate-18h` once the 2026-11-18 rationing notice is confirmed
-
-- Status: the owner confirmed the notice on 2026-11-18 and the switch ran the
-  same day: `install_cloud_cron.sh` from release 4c52686, then
-  `set-profile estate-18h` (was `estate-19h`, kept `set-outage-days auto`).
-  Verified: `profiles` reports `estate-18h` active, `health-check` reports
-  57 cron jobs across 3 profiles, and `schedule-preview --days 8` shows the
-  Wednesday 15:00 cut (14:55 return, 15:01 watchdog) and the Saturday
-  17:00-18:00 cut. Read-only; one item left.
-- Why: the estate is considering 18h weekday / 20h weekend supply from Wednesday
-  2026-11-18 — weekday cuts 08:00-11:00 and 15:00-18:00, weekend cuts
-  08:00-11:00 and 17:00-18:00. The arithmetic agrees with the stated hours
-  (24 - 6h = 18h weekday, 24 - 4h = 20h weekend), so the windows are cuts, not
-  powered blocks.
-- Observed, 2026-11-18: the first weekday cut under the notice ran to about
-  11:00, not the installed profile's 10:30 — `supply-history` shows the
-  estate off between 07:55-08:11 and back between 10:56-11:11. The owner
-  confirmed the notice on this evidence.
-- Steps: after deploy, run `./install_cloud_cron.sh` from the running release
-  so the profile's 18 job variants are installed, then
-  `set-profile estate-18h --reason "…"` and keep `set-outage-days auto`.
-  `schedule-preview --days 8` must show the 15:00 cut on Wednesday and the
-  17:00 cut on Saturday.
-- Done when: `profiles` reports `estate-18h` active, `health-check` reports the
-  installed count across 3 profiles, and the first Wednesday 15:00 cut shows
-  `afternoon-return-sbu` then `afternoon-watchdog` audit rows.
-
 ### N14. Confirm a projection-triggered preserve hold survives its first check
 
 - Status: fix merged 2026-11-17; waiting for the next projection-triggered
@@ -323,8 +296,13 @@ public-safe: no IDs, serials, domains, or credentials.
   - 2026-11-18, scheduled 08:00-10:30: off between 07:55-08:11, back between
     10:56-11:11. The start edge is within one refresh interval of 08:00; the
     end ran 26 to 41 minutes past the scheduled 10:30, matching the 11:00
-    end of the estate-18h notice rather than the installed profile (N13).
+    end of the estate-18h notice rather than the installed profile's 10:30.
     SOC 41% at the first off reading, the number N19 quotes for that morning.
+  - 2026-11-18, scheduled 15:00-18:00: off between 15:05-15:09 at a read at
+    15:56, so the window was still cut; SOC 84% at the first off reading. The
+    estate-18h Wednesday cut began on schedule, with the 14:55 `return-sbu`
+    (skipped, already in SBU) and 15:01 `watchdog-sbu` (verified) audit rows
+    before it.
   - No unscheduled cut appeared in the first read.
 - Steps: after a few days, run `supply-history --days 7` on the VPS. Check that
   every scheduled window shows a `cut` and that the observed edges sit within
