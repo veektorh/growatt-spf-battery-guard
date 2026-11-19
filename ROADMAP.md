@@ -117,9 +117,12 @@ public-safe: no IDs, serials, domains, or credentials.
   profile (scaled by the learned drain-to-load ratio) into the night plan in a
   separate mode-timing PR, or to keep the bands and remove this task.
 
-### N20. Read the next outage morning for preserve churn and the morning-target estimate
+### N20. Confirm the schedule-aware preserve skip on the next outage morning
 
-- Status: read-only, waiting for the next outage morning.
+- Status: the skip shipped 2026-11-19 with the owner's go-ahead
+  (`PRESERVE_SCHEDULE_AWARE_SKIP_ENABLED`, default on, fail-closed to the
+  current switch-now behaviour on any schedule read error). Read-only until
+  the next outage morning.
 - Why: the 2026-11-19 outage morning met every target but cycled the inverter
   to get there. The scheduled preserve jobs each switched to Utility and
   closed within minutes: 06:00 at SOC 45 (hold target 43 already banked, so
@@ -140,27 +143,38 @@ public-safe: no IDs, serials, domains, or credentials.
   midnight re-plan raised the target. Harmless that night (the evening plan
   sized to 93% on a low battery), but a high-SOC evening would leave the
   raise to the overnight checks alone.
-- Steps: read the next outage morning's preserve rows the same way. Watch
-  whether the 18:00 morning-target estimate keeps under-shooting the actual
-  threshold. Candidate fix if the churn repeats, decided 2026-11-19: a
-  schedule-aware skip — a preserve job defers without writing mode when a
-  later scheduled preserve before the cut can still cover the projection,
-  so the latest job acts once; same grid energy, two mode writes instead
-  of eight. Holding Utility until the 07:55 return was rejected: it buys
+- Shipped design: a projection-triggered preserve (live at or above the
+  threshold, projection below it at the outage start) defers without writing
+  mode when a later scheduled preserve still fires before the cut
+  (`next_preserve_fire_before_outage`), recording a
+  `deferred-to-later-preserve` audit row; the last job before the cut acts
+  once and sizes its hold to the threshold plus the larger of the flat
+  headroom and the projected drain to the outage start, so the battery
+  arrives at the threshold instead of the last hour's load deciding it.
+  Holding Utility until the 07:55 return was rejected on 2026-11-19: it buys
   two points of margin the threshold does not need for about 2.5-3 kWh of
-  grid, and a larger morning headroom has the same cost. The trade is one
-  acting window instead of four attempts at the cloud write; the earlier
-  jobs still run as live checks and the 08:01 watchdog still alerts.
-- Done when: the next outage morning is read here and either the churn is
-  accepted as bounded by the schedule, or a mode-timing task is opened with
-  the owner's go-ahead.
+  grid, and a larger flat morning headroom has the same cost. The trade is
+  one acting window instead of one per scheduled job; the earlier jobs still
+  run as live checks and the 08:01 watchdog still alerts.
+- Steps: read the next outage morning's preserve rows. Expect
+  `deferred-to-later-preserve` rows for every job but the last, one
+  `switch-to-utility`, and the cut starting at or above the threshold. Keep
+  watching whether the 18:00 morning-target estimate under-shoots the
+  actual threshold.
+- Done when: the next outage morning shows one preserve switch and no churn,
+  and the cut starts at or above the preserve threshold; if the later job
+  fails its cloud write, the 08:01 watchdog alert and the fallback
+  (switch-now) path record why.
 
 ## Current Baseline
 
 The following capabilities are implemented and should be preserved:
 
 - Cloud-safe morning and afternoon preservation, verified SBU returns,
-  watchdog checks, health reporting, and conditional night auto-topup.
+  watchdog checks, health reporting, and conditional night auto-topup. A
+  projection-triggered preserve defers to the last scheduled job before the
+  cut, which sizes its hold to the projected drain so the outage starts at
+  the threshold with one acting window per morning.
 - Sunrise planning using learned weekday/weekend evening and overnight band
   loads (horizon-weighted), observed charge rates, weather calibration,
   minimum topup duration, SOC safety floors, and a sunrise target raised to

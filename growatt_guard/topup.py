@@ -3,7 +3,6 @@ from __future__ import annotations
 import datetime as dt
 import logging
 from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from growatt_guard.audit import append_mode_audit, find_overdue_unclosed_topup
 from growatt_guard.config import Config
@@ -23,6 +22,7 @@ from growatt_guard.growatt_api import (
 from growatt_guard.modes import command_return_sbu, ensure_device_reporting
 from growatt_guard.schedule import (
     effective_schedule_jobs_on_date,
+    schedule_timezone,
     validate_schedule,
     validate_schedule_overrides,
 )
@@ -658,16 +658,6 @@ def _return_sbu_and_clear_topup(config: Config) -> int:
     return result
 
 
-def _schedule_timezone(schedule: dict[str, Any]) -> dt.tzinfo:
-    name = str(schedule.get("timezone") or "").strip()
-    if name:
-        try:
-            return ZoneInfo(name)
-        except (ZoneInfoNotFoundError, ValueError):
-            logging.warning("Schedule timezone %r is invalid; using host local time.", name)
-    return dt.datetime.now().astimezone().tzinfo or dt.timezone.utc
-
-
 def next_scheduled_return_sbu(
     schedule: dict[str, Any],
     overrides: dict[str, Any],
@@ -681,7 +671,7 @@ def next_scheduled_return_sbu(
     overnight, and before the first preserve — completion keeps its documented
     "return to SBU" behaviour instead of holding grid power.
     """
-    local_now = now if now is not None else dt.datetime.now(_schedule_timezone(schedule)).replace(tzinfo=None)
+    local_now = now if now is not None else dt.datetime.now(schedule_timezone(schedule)).replace(tzinfo=None)
     preserve_fired = False
     returns: list[dt.datetime] = []
     for job in effective_schedule_jobs_on_date(schedule, overrides, local_now.date()):
@@ -725,7 +715,7 @@ def _defer_completion_to_scheduled_return(config: Config, soc: float | None) -> 
     if next_return is None:
         return None
 
-    schedule_tz = _schedule_timezone(schedule)
+    schedule_tz = schedule_timezone(schedule)
     expiry = next_return.replace(tzinfo=schedule_tz).astimezone(dt.timezone.utc)
     minutes = max(1, int((expiry - utc_now()).total_seconds() // 60))
     note = (
