@@ -140,11 +140,17 @@ public-safe: no IDs, serials, domains, or credentials.
   midnight re-plan raised the target. Harmless that night (the evening plan
   sized to 93% on a low battery), but a high-SOC evening would leave the
   raise to the overnight checks alone.
-- Steps: read the next outage morning's preserve rows the same way. If the
-  06:00-07:00 churn repeats and the Growatt write count matters, consider a
-  larger morning hold headroom or a minimum hold floor so one preserve covers
-  the pre-outage hour. Watch whether the 18:00 morning-target estimate keeps
-  under-shooting the actual threshold.
+- Steps: read the next outage morning's preserve rows the same way. Watch
+  whether the 18:00 morning-target estimate keeps under-shooting the actual
+  threshold. Candidate fix if the churn repeats, decided 2026-11-19: a
+  schedule-aware skip — a preserve job defers without writing mode when a
+  later scheduled preserve before the cut can still cover the projection,
+  so the latest job acts once; same grid energy, two mode writes instead
+  of eight. Holding Utility until the 07:55 return was rejected: it buys
+  two points of margin the threshold does not need for about 2.5-3 kWh of
+  grid, and a larger morning headroom has the same cost. The trade is one
+  acting window instead of four attempts at the cloud write; the earlier
+  jobs still run as live checks and the 08:01 watchdog still alerts.
 - Done when: the next outage morning is read here and either the churn is
   accepted as bounded by the schedule, or a mode-timing task is opened with
   the owner's go-ahead.
