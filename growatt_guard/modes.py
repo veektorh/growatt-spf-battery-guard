@@ -58,6 +58,7 @@ from growatt_guard.dashboard_metrics import read_dashboard_metrics_history
 from growatt_guard.schedule import (
     find_schedule_job,
     next_scheduled_runs,
+    next_preserve_fire_before_outage,
     resolve_effective_schedule_job,
     schedule_job_tokens,
     schedule_job_id,
@@ -232,6 +233,26 @@ def _preserve_hold_expiry(now: dt.datetime | None = None) -> dt.datetime:
     return fallback.astimezone(dt.timezone.utc)
 
 
+def _next_later_preserve_fire(
+    config: Config,
+    schedule: dict | None,
+    outage_windows: list[dict[str, str]],
+) -> dt.datetime | None:
+    """Next scheduled preserve-battery fire before the next outage starts.
+
+    Fail closed: a disabled flag, an unreadable schedule, or any lookup error
+    returns None so the caller switches now, exactly as it did before the
+    schedule-aware skip existed.
+    """
+    if not config.preserve_schedule_aware_skip_enabled or schedule is None:
+        return None
+    try:
+        overrides = validate_schedule_overrides(schedule)
+        return next_preserve_fire_before_outage(schedule, overrides, outage_windows)
+    except Exception as exc:  # noqa: BLE001 - failing closed keeps the morning switch
+        logging.warning("Preserve schedule-aware skip unavailable; switching now: %s", exc)
+        return None
+
 def _record_preserve_utility_hold(
     config: Config,
     soc: float,
@@ -239,6 +260,7 @@ def _record_preserve_utility_hold(
     *,
     load_w: float | None,
     bridge_decision: SolarBridgeDecision,
+    drain_soc: float | None = None,
 ) -> None:
     if config.dry_run:
         return
@@ -247,11 +269,16 @@ def _record_preserve_utility_hold(
     # live reading already sits at the threshold. A hold targeting the threshold
     # would then satisfy its own completion test on the next minute check and hand
     # the inverter back to SBU before the outage starts, so size that window with
-    # the headroom the nightly windows already use.
+    # the headroom the nightly windows already use — and, when this is the last
+    # preserve before the cut, with the drain the projection still expects by the
+    # outage start, so the battery arrives at the threshold instead of the last
+    # hour's load deciding it.
     target_soc = threshold
     if soc >= threshold:
         headroom_soc = max(0.0, float(config.auto_topup_headroom_soc))
-        target_soc = threshold + headroom_soc
+        if drain_soc is not None:
+            headroom_soc = max(headroom_soc, float(drain_soc))
+        target_soc = min(threshold + headroom_soc, 100.0)
     write_utility_hold_state(
         "owned",
         target_soc,
@@ -448,9 +475,11 @@ def command_preserve_battery(config: Config) -> int:
     # The outage starts after this check, so the SOC that matters is the one the
     # load will leave behind, not the reading taken now.
     try:
-        outage_windows = validate_schedule().get("outage_windows") or []
+        schedule = validate_schedule()
+        outage_windows = schedule.get("outage_windows") or []
     except Exception as exc:  # noqa: BLE001 - the projection is an extra safety net
         logging.warning("Preserve outage projection unavailable: %s", exc)
+        schedule = None
         outage_windows = []
     projected_soc = projected_soc_at_outage_start(
         soc,
@@ -465,6 +494,30 @@ def command_preserve_battery(config: Config) -> int:
     )
     decision_soc = soc if projected_soc is None else min(soc, projected_soc)
     if decision_soc < threshold:
+        if soc >= threshold and projected_soc is not None:
+            later_preserve_fire = _next_later_preserve_fire(config, schedule, outage_windows)
+            if later_preserve_fire is not None:
+                note = (
+                    f"SOC {soc:g}% >= {threshold:g}% but projected {projected_soc:g}% at the outage start; "
+                    f"next scheduled preserve-battery {later_preserve_fire:%H:%M} before the cut re-decides"
+                )
+                logging.info(
+                    "Preserve-battery deferred to the %s job instead of switching now.",
+                    later_preserve_fire.strftime("%H:%M"),
+                )
+                append_mode_audit(
+                    config,
+                    "preserve-battery",
+                    soc=soc,
+                    threshold=threshold,
+                    weather_category=threshold_decision.weather_category,
+                    previous_mode=previous_mode,
+                    action="deferred-to-later-preserve",
+                    result="skipped",
+                    note=note,
+                )
+                print(note)
+                return 0
         forecast = None
         if config.weather_enabled:
             try:
@@ -559,12 +612,16 @@ def command_preserve_battery(config: Config) -> int:
         # Record ownership before the cloud write so an ambiguous response can be reconciled safely.
         # Definite Growatt rejections (success: False) clear that hold so the next preserve retry
         # is not blocked by topup-complete-check holding the mode lock.
+        drain_soc = None
+        if projected_soc is not None:
+            drain_soc = max(0.0, soc - projected_soc)
         _record_preserve_utility_hold(
             config,
             soc,
             threshold,
             load_w=load_w,
             bridge_decision=bridge_decision,
+            drain_soc=drain_soc,
         )
         try:
             result, attempts_used = _set_preserve_utility_mode(api, config, device)

@@ -9,6 +9,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.paths import APP_HOME, DATA_HOME
@@ -1070,3 +1071,44 @@ def projected_soc_at_outage_start(
         return None
     drain_soc = load_w * (minutes / 60.0) / battery_capacity_wh * 100.0
     return soc - drain_soc
+
+def schedule_timezone(schedule: dict[str, Any]) -> dt.tzinfo:
+    name = str(schedule.get("timezone") or "").strip()
+    if name:
+        try:
+            return ZoneInfo(name)
+        except (ZoneInfoNotFoundError, ValueError):
+            logging.warning("Schedule timezone %r is invalid; using host local time.", name)
+    return dt.datetime.now().astimezone().tzinfo or dt.timezone.utc
+
+
+def next_preserve_fire_before_outage(
+    schedule: dict[str, Any],
+    overrides: dict[str, Any],
+    windows: list[dict[str, str]],
+    now: dt.datetime | None = None,
+) -> dt.datetime | None:
+    """Next scheduled preserve-battery fire before the next outage starts.
+
+    A preserve job that still fires before the cut can re-decide from a fresher
+    reading and charge from the grid, so an earlier projection-triggered switch
+    can defer to it without writing mode. Returns None when no outage starts
+    later today or when no active preserve-battery job fires in between. Times
+    are naive in the schedule timezone.
+    """
+    tz = schedule_timezone(schedule)
+    local_now = now if now is not None else dt.datetime.now(tz).replace(tzinfo=None)
+    if local_now.tzinfo is not None:
+        local_now = local_now.astimezone(tz).replace(tzinfo=None)
+    minutes = minutes_to_next_outage_start(windows, local_now)
+    if minutes is None or minutes <= 0:
+        return None
+    outage_start = local_now + dt.timedelta(minutes=minutes)
+    best: dt.datetime | None = None
+    for job in effective_schedule_jobs_on_date(schedule, overrides, local_now.date()):
+        if job.status == "skip" or job.effective_command != "preserve-battery":
+            continue
+        for fire in job.fires:
+            if local_now < fire < outage_start and (best is None or fire < best):
+                best = fire
+    return best

@@ -206,7 +206,7 @@ class IdempotencyTests(unittest.TestCase):
         mock_set.assert_not_called()
 
 
-    def _run_preserve(self, status: dict, config, tmpdir: str, projection):
+    def _run_preserve(self, status: dict, config, tmpdir: str, projection, later_fire=None):
         from growatt_guard.modes import command_preserve_battery
         from contextlib import redirect_stdout
         from io import StringIO
@@ -214,6 +214,7 @@ class IdempotencyTests(unittest.TestCase):
         with self._audit_patch(tmpdir)[0], self._audit_patch(tmpdir)[1], \
              patch("growatt_guard.modes.load_context", return_value=(None, DeviceRef("p", "s", "storage", {}), status)), \
              patch("growatt_guard.modes.projected_soc_at_outage_start", return_value=projection), \
+             patch("growatt_guard.modes.next_preserve_fire_before_outage", return_value=later_fire), \
              patch("growatt_guard.modes.set_mode", return_value={"success": True}) as mock_set, \
              patch("growatt_guard.modes.ensure_not_paused", return_value=False), \
              redirect_stdout(StringIO()):
@@ -248,6 +249,7 @@ class IdempotencyTests(unittest.TestCase):
              patch("growatt_guard.modes.load_context", return_value=(None, DeviceRef("p", "s", "storage", {}), status)), \
              patch("growatt_guard.modes.choose_preserve_threshold", return_value=ThresholdDecision(threshold, "normal", "normal threshold")), \
              patch("growatt_guard.modes.projected_soc_at_outage_start", return_value=projection), \
+             patch("growatt_guard.modes.next_preserve_fire_before_outage", return_value=None), \
              patch("growatt_guard.modes.set_mode", return_value={"success": True}), \
              patch("growatt_guard.modes.verify_mode_switch", return_value=True), \
              patch("growatt_guard.modes.ensure_not_paused", return_value=False), \
@@ -256,12 +258,13 @@ class IdempotencyTests(unittest.TestCase):
             hold = read_utility_hold_state()
         return result, hold
 
-    def test_projection_triggered_preserve_hold_targets_threshold_plus_headroom(self):
+    def test_projection_triggered_preserve_hold_covers_the_projected_drain(self):
         from tempfile import TemporaryDirectory
 
         # Live 40% on a 40% threshold: only the 35% projection justifies the
-        # switch, so a hold targeting 40% would clear its own completion check on
-        # the next minute and drop the preserve the outage still needs.
+        # switch, and the projection says five points drain before the outage
+        # starts, so the hold charges past the flat headroom and lands the
+        # battery back at the threshold when the cut begins.
         config = make_config(
             low_battery_soc=40,
             battery_capacity_wh=30000,
@@ -278,7 +281,7 @@ class IdempotencyTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(hold["completion_policy"], "soc")
         self.assertEqual(hold["start_soc"], 40.0)
-        self.assertEqual(hold["target_soc"], 43.0)
+        self.assertEqual(hold["target_soc"], 45.0)
 
     def test_live_below_threshold_preserve_hold_targets_the_threshold(self):
         from tempfile import TemporaryDirectory
@@ -299,6 +302,65 @@ class IdempotencyTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(hold["start_soc"], 38.0)
         self.assertEqual(hold["target_soc"], 40.0)
+
+    def test_projection_triggered_preserve_hold_keeps_the_flat_headroom_when_drain_is_smaller(self):
+        from tempfile import TemporaryDirectory
+
+        config = make_config(
+            low_battery_soc=40,
+            battery_capacity_wh=30000,
+            dry_run=False,
+            auto_topup_headroom_soc=3,
+        )
+        status = {
+            "device": {"capacity": "40 %"},
+            "storage_params": {"storageBean": {"outputConfig": "0", "outPutPower": 1900}},
+        }
+        with TemporaryDirectory() as tmpdir:
+            result, hold = self._run_preserve_with_hold(status, config, tmpdir, 38.5)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(hold["target_soc"], 43.0)
+
+    def test_projection_triggered_preserve_defers_to_a_later_scheduled_job(self):
+        import datetime as dt
+        from tempfile import TemporaryDirectory
+
+        config = make_config(low_battery_soc=40, battery_capacity_wh=30000)
+        status = {
+            "device": {"capacity": "45 %"},
+            "storage_params": {"storageBean": {"outputConfig": "0", "outPutPower": 1437}},
+        }
+        later_fire = dt.datetime.now().replace(hour=7, minute=0, second=0, microsecond=0)
+        with TemporaryDirectory() as tmpdir:
+            result, mock_set = self._run_preserve(status, config, tmpdir, 35.0, later_fire=later_fire)
+            audit = (Path(tmpdir) / "mode_decisions.csv").read_text(encoding="utf-8")
+
+        # A later preserve job before the cut re-decides from a fresher reading,
+        # so this check writes no mode at all.
+        self.assertEqual(result, 0)
+        mock_set.assert_not_called()
+        self.assertIn("deferred-to-later-preserve", audit)
+
+    def test_schedule_aware_preserve_deferral_can_be_disabled(self):
+        import datetime as dt
+        from tempfile import TemporaryDirectory
+
+        config = make_config(
+            low_battery_soc=40,
+            battery_capacity_wh=30000,
+            preserve_schedule_aware_skip_enabled=False,
+        )
+        status = {
+            "device": {"capacity": "45 %"},
+            "storage_params": {"storageBean": {"outputConfig": "0", "outPutPower": 1437}},
+        }
+        later_fire = dt.datetime.now().replace(hour=7, minute=0, second=0, microsecond=0)
+        with TemporaryDirectory() as tmpdir:
+            result, mock_set = self._run_preserve(status, config, tmpdir, 35.0, later_fire=later_fire)
+
+        self.assertEqual(result, 0)
+        mock_set.assert_called_once()
 
     def test_preserve_battery_skips_when_the_projection_clears_the_threshold(self):
         from tempfile import TemporaryDirectory

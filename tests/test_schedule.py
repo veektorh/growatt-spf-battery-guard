@@ -11,6 +11,7 @@ from helpers import make_config
 from growatt_guard.schedule import (
     minutes_to_next_outage_start,
     projected_soc_at_outage_start,
+    next_preserve_fire_before_outage,
     CONDITIONAL_GROWATT_READ_COMMANDS,
     GROWATT_READ_COMMANDS,
     estimate_growatt_api_runs_per_day,
@@ -214,6 +215,68 @@ class ScheduleTests(unittest.TestCase):
             overrides = validate_schedule_overrides(schedule, path)
 
         self.assertIn("2026-06-26", overrides["dates"])
+
+    def test_next_preserve_fire_before_outage_returns_the_next_fire(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "preserve-a", "cron": "30 6 * * *", "command": "preserve-battery"},
+                {"id": "preserve-b", "cron": "0 7 * * *", "command": "preserve-battery"},
+                {"id": "noon-read", "cron": "0 12 * * *", "command": "health-check"},
+            ],
+        }
+        windows = [{"start": "08:00", "end": "11:00", "days": "weekdays"}]
+        now = dt.datetime(2026, 11, 19, 6, 10)  # a Thursday
+
+        fire = next_preserve_fire_before_outage(schedule, {"dates": {}}, windows, now)
+
+        self.assertEqual(fire, dt.datetime(2026, 11, 19, 6, 30))
+
+    def test_next_preserve_fire_before_outage_returns_none_after_the_last_fire(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [{"id": "preserve-b", "cron": "0 7 * * *", "command": "preserve-battery"}],
+        }
+        windows = [{"start": "08:00", "end": "11:00", "days": "weekdays"}]
+        now = dt.datetime(2026, 11, 19, 7, 10)
+
+        self.assertIsNone(next_preserve_fire_before_outage(schedule, {"dates": {}}, windows, now))
+
+    def test_next_preserve_fire_before_outage_returns_none_inside_an_outage_window(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [{"id": "preserve-b", "cron": "0 7 * * *", "command": "preserve-battery"}],
+        }
+        windows = [{"start": "08:00", "end": "11:00", "days": "weekdays"}]
+        now = dt.datetime(2026, 11, 19, 9, 0)
+
+        self.assertIsNone(next_preserve_fire_before_outage(schedule, {"dates": {}}, windows, now))
+
+    def test_next_preserve_fire_before_outage_skips_overridden_jobs(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [
+                {"id": "preserve-a", "cron": "30 6 * * *", "command": "preserve-battery"},
+                {"id": "preserve-b", "cron": "0 7 * * *", "command": "preserve-battery"},
+            ],
+        }
+        windows = [{"start": "08:00", "end": "11:00", "days": "weekdays"}]
+        overrides = {"dates": {"2026-11-19": {"skip": ["preserve-a"]}}}
+        now = dt.datetime(2026, 11, 19, 6, 10)
+
+        fire = next_preserve_fire_before_outage(schedule, overrides, windows, now)
+
+        self.assertEqual(fire, dt.datetime(2026, 11, 19, 7, 0))
+
+    def test_next_preserve_fire_before_outage_ignores_a_job_at_the_outage_start(self):
+        schedule = {
+            "timezone": "Africa/Lagos",
+            "jobs": [{"id": "preserve-late", "cron": "0 8 * * *", "command": "preserve-battery"}],
+        }
+        windows = [{"start": "08:00", "end": "11:00", "days": "weekdays"}]
+        now = dt.datetime(2026, 11, 19, 6, 10)
+
+        self.assertIsNone(next_preserve_fire_before_outage(schedule, {"dates": {}}, windows, now))
 
     def test_run_scheduled_skips_date_override(self):
         config = make_config(discord_notify_skip=False)
