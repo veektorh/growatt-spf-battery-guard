@@ -1,6 +1,6 @@
 # Growatt Guard Roadmap
 
-Last reviewed: 2026-11-19
+Last reviewed: 2026-11-20
 
 This is the working backlog for Growatt Guard. Priorities favor inverter safety,
 low Growatt API pressure, trustworthy decisions, and clear operations before
@@ -22,6 +22,10 @@ public-safe: no IDs, serials, domains, or credentials.
   production since it deployed on 2026-11-10.
 - Done when: an audit row with action `topup-complete-deferred` is seen and the
   following scheduled `return-sbu` returned to SBU as planned.
+- Read, 2026-11-20: still no `topup-complete-deferred` row. The latest
+  completions (11-19 06:01-07:07 at 43-45%, 11-20 00:59 at 86%) ended outside
+  a preserve window or above its threshold; the 11-19 21:17 hold expired
+  instead of completing.
 
 ### N11. See a live alert row on the dashboard Now tab
 
@@ -53,17 +57,32 @@ public-safe: no IDs, serials, domains, or credentials.
     SOC 41% at the first off reading, four points under the weather-aware 45%
     preserve threshold that morning.
   - 2026-11-18, scheduled 15:00-18:00: off between 15:05-15:09 at a read at
-    15:56, so the window was still cut; SOC 84% at the first off reading. The
-    estate-18h Wednesday cut began on schedule, with the 14:55 `return-sbu`
-    (skipped, already in SBU) and 15:01 `watchdog-sbu` (verified) audit rows
-    before it.
+    15:56, so the window was still cut; back between 17:56-18:06. SOC 84% at
+    the first off reading. The estate-18h cut began on schedule, with the
+    14:55 `return-sbu` (skipped, already in SBU) and 15:01 `watchdog-sbu`
+    (verified) audit rows before it.
   - 2026-11-19, scheduled 08:00-11:00: off between 07:59-08:09, back between
-    still off at the 08:31 read (the window ends 11:00). SOC 43% before,
-    44% at the first off reading. This is the first outage morning after
-    the sunrise-target change (N19, closed 2026-11-19): the cut started at
-    43-44% against the 40% preserve threshold, above the line for the first
-    time in the read mornings, against 39/39/41 on the N12 mornings.
-  - No unscheduled cut appeared in the first read.
+    10:54-11:09. SOC 43% before, 44% at the first off reading. This is the
+    first outage morning after the sunrise-target change (N19, closed
+    2026-11-19): the cut started at 43-44% against the 40% preserve
+    threshold, above the line for the first time in the read mornings,
+    against 39/39/41 on the N12 mornings.
+  - 2026-11-19, scheduled 15:00-18:00: off between 14:55-15:10, back between
+    17:55-18:10. SOC 90% before, 90% at the first off reading.
+- Second read, 2026-11-20 (`supply-history --days 7`, 389 readings since
+  2026-11-17T17:36): the 11-19 morning and afternoon edges above fill in, and
+  the 11-18 afternoon end edge appeared. The 11-17 morning window has no
+  readings because snapshots start at 17:36 that day, and the 11-17 afternoon
+  start edge is unknown for the same reason. Still no unscheduled cut.
+- Caveat found on the second read: `supply-history` labels every day with the
+  profile active *now*, so the 11-18 morning window is reported as 08:00-11:00
+  although the profile that morning was still estate-19h (08:00-10:30); the
+  switch to estate-18h landed at 11:40 that day, before the afternoon jobs.
+  Read a past day's edges against the profile that was active then.
+- Edges sat within about 10 minutes (one refresh interval; 9.6 minutes average
+  across the 389 readings) of the estate's scheduled edge on every window with
+  readings on both sides. The widest is the 11-18 morning end, 10:54-11:09
+  against an estate end of 11:00.
 - Steps: after a few days, run `supply-history --days 7` on the VPS. Check that
   every scheduled window shows a `cut` and that the observed edges sit within
   one refresh interval of the schedule; note any `unscheduled-cut` or `no-cut`.
@@ -102,6 +121,13 @@ public-safe: no IDs, serials, domains, or credentials.
   (81% to 45% over 5.2 h on 30 kWh) against a planned 1987-2042 W, so the
   band ran close to the drain; the night's own recorded overnight band came
   out 2383 W because live load held 2300-2500 W through the small hours.
+- Morning read 3, 2026-11-20, for the night of 2026-11-19: hourly profile
+  22.5 kWh (average 1878 W, likely 19.7-26.3 kWh) against band 23.8 kWh
+  (evening 1980 W, overnight 1990 W, 22 nights) — a 5.5% gap, flat against
+  read 2. The night's implied overnight drain was about 1500 W (86% to 61%
+  over 5.0 h on 30 kWh) against a planned overnight band of 1990 W, so the
+  band ran about a third above the drain; the night's own recorded overnight
+  band came out 1763 W with live load 1150-1600 W through the small hours.
 - N2 closed 2026-11-19 with the verdict "fewer repeat top-ups": the three
   banded weekday nights (11-16, 11-17, 11-18) each ran two starts against
   the 2026-11-09 baseline of three, nothing re-armed after the last
@@ -156,6 +182,15 @@ public-safe: no IDs, serials, domains, or credentials.
   grid, and a larger flat morning headroom has the same cost. The trade is
   one acting window instead of one per scheduled job; the earlier jobs still
   run as live checks and the 08:01 watchdog still alerts.
+- First live deferral row, 2026-11-19 11:05 (afternoon, not a morning): SOC 71%
+  against a 45% threshold with a 40.8% projection at the 15:00 cut recorded
+  `deferred-to-later-preserve`. The 12:05-14:05 jobs then found 83-89% and
+  recorded `no-change`, the 14:55 `return-sbu` found SBU already, and the
+  15:01 `watchdog-sbu` verified — no mode write all afternoon. The deferral
+  path works, but PV recovery meant it never needed the last-job hold.
+- Morning of 2026-11-20, read at 07:54: all four preserve jobs (06:00, 06:30,
+  06:40, 07:00) projected 51-53% at the 08:00 cut against a 40% threshold, so
+  each recorded `no-change` and the deferral path was not exercised.
 - Steps: read the next outage morning's preserve rows. Expect
   `deferred-to-later-preserve` rows for every job but the last, one
   `switch-to-utility`, and the cut starting at or above the threshold. Keep
