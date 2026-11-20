@@ -281,11 +281,21 @@ public-safe: no IDs, serials, domains, or credentials.
   and PV gives back less during the cut. The 45% dry-season threshold and N20's
   last pre-cut hold are the current cover, and N20's hold sizes only to the
   drain up to the cut start, not the drain during it.
+- Partial answer from the retained window, 2026-11-20: both measured cut
+  mornings were PV-positive, so a 35% arrival would have sufficed. On 11-18
+  (rainy/cloudy, 45% threshold) the cut started at 41%, dipped to 40% between
+  08:26 and 08:41, then climbed to 57% by 11:11; on 11-19 it started at 44% and
+  climbed straight away to 69% by 10:54. PV ran 2.5-5.4 kW against 1.0-1.4 kW
+  of load, and the deepest cloud pass (09:26-09:41 on 11-18) still held SOC
+  flat with 1.1-1.4 kW of PV. So the 40% threshold's five points are insurance
+  against a fully overcast or unscheduled cut, worth roughly the 1.5 kWh they
+  cost - not the main lever on grid use, which is the band's 15-20 point
+  overshoot.
 - Steps: read the next two normal mornings to confirm the cut-start arithmetic
-  (target met, cut starts 40 plus or minus a point). Then read a cloudy
-  cut-morning: whether SOC drains through the cut with PV below load, and
-  whether the last pre-cut hold covered that. Only then choose between a
-  category-scaled horizon (rainy/cloudy +90), a higher cloudy threshold, or
+  (target met, cut starts 40 plus or minus a point). Then read an overcast
+  cut-morning: whether SOC drains through the cut with PV below load for hours,
+  and whether the last pre-cut hold covered that. Only then choose between a
+  category-scaled horizon (rainy/cloudy +90), a lower normal threshold, or
   leaving both alone.
 - Done when: a normal cut-morning is confirmed within a point of the threshold
   with the target met, a cloudy cut-morning is read, and the owner decides
