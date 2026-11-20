@@ -256,6 +256,31 @@ public-safe: no IDs, serials, domains, or credentials.
   projected sunset SOC, or that it cannot estimate yet, and no badge or tile
   demands more energy than the battery holds.
 
+### N22. End the night-plan horizon at PV takeover, not astronomical sunrise
+
+- Status: open, read-only until the owner picks the horizon; it changes mode
+  timing, so wiring it needs the go-ahead. Interacts with N17: a leaner hourly
+  plan removes the margin that currently hides this.
+- Why: the reserve plan targets SOC at sunrise, but the battery keeps carrying
+  the house until PV output covers the load. On 2026-11-20 (sunrise 06:36,
+  normal, dry-season threshold 40) PV rose 6 W at 06:28 to 1160 W at 07:28
+  against 1.2-1.3 kW of load; the crossover was about 07:35, 59 minutes after
+  sunrise, and SOC fell 58% to 54% across that hour (4 points, 1.2 kWh). A
+  43% target at sunrise therefore reads about 39% where the floor matters,
+  under the 40% threshold and before the 08:00 cut. The N12 mornings agree:
+  three of five cuts started at 39-41% against 40. It reads safe today only
+  because the band overplans by 15-20 points and the 06:30-07:00 preserves
+  re-decide, and a cloudy morning's slower ramp makes the gap larger.
+- Steps: pick the horizon end — sunrise plus a fixed offset (today's crossover
+  was +59 minutes) or an offset scaled by the weather category (normal +60,
+  rainy/cloudy +90) — and apply it where the reserve plan sizes its window and
+  completion target, keeping `hours_until_next_sunrise` as the report value.
+  Record the post-sunrise drain in the audit note. Dry-run the plan against the
+  last week's mornings before enabling.
+- Done when: a normal-forecast plan lands the SOC floor at or above the
+  threshold when PV takes over, and the following outage-morning read shows the
+  cut starting at or above the threshold with no morning preserve switch.
+
 ## Current Baseline
 
 The following capabilities are implemented and should be preserved:
