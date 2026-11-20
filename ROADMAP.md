@@ -232,6 +232,30 @@ public-safe: no IDs, serials, domains, or credentials.
   fails its cloud write, the 08:01 watchdog alert and the fallback
   (switch-now) path record why.
 
+### N21. Stop the morning Tonight card from demanding an impossible top-up
+
+- Status: open, display-only; it changes no mode timing. Read-only until the
+  owner picks a rule.
+- Why: at 08:40 on 2026-11-20 the Now tab read "High risk", projected sunrise
+  SOC 0% against the 40% reserve, and "Top-up Tonight 9h 36m / 18.7 kWh" —
+  more grid energy than the 30 kWh battery can hold. `build_tonight_risk`
+  projects from now to sunrise (21h 44m) at the weekday night bands
+  (1988 W), which is 43 kWh over a daylight day; before noon
+  `_should_use_projected_sunset_start` is false, so the projector it uses is
+  not the sunset start. Its own note reads "Stress estimate from carrying
+  that load until sunrise", so the number is deliberate but the badge and the
+  "Top-up Tonight" tile present it as tonight's plan. Every morning on a
+  full-sun day therefore shows High risk, and N11's alert-row read cannot
+  tell a real alert from this one.
+- Steps: choose the morning behaviour — project from the sunset start whenever
+  a PV forecast exists, show the stress figure only as an explicitly labelled
+  worst case, or suppress the card before noon — then make the badge, the
+  tile, and the note say the same thing. Keep the evening behaviour that N11
+  watches, and the sunset projection after 12:00.
+- Done when: on a sunny morning the card states what tonight needs after the
+  projected sunset SOC, or that it cannot estimate yet, and no badge or tile
+  demands more energy than the battery holds.
+
 ## Current Baseline
 
 The following capabilities are implemented and should be preserved:
