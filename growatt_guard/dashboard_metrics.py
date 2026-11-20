@@ -23,6 +23,10 @@ DASHBOARD_FILE = BASE_DIR / "dashboard.html"
 DASHBOARD_JSON_FILE = BASE_DIR / "dashboard.json"
 DASHBOARD_METRICS_FILE = LOG_DIR / "dashboard_metrics.jsonl"
 DASHBOARD_METRICS_RETENTION_DAYS = 8
+# Rows kept on disk for later analysis. Readers still default to the shorter
+# window above, so dashboards and reports keep their current range while a
+# season of continuous snapshots stays available to reads that ask for it.
+DASHBOARD_METRICS_KEEP_DAYS = 90
 MIN_DASHBOARD_REFRESH_MINUTES = 5
 BYPASS_EPISODE_GAP_MINUTES = 60
 BYPASS_FULL_SOC = 99.0
@@ -354,9 +358,11 @@ def append_dashboard_metric_snapshot(
 ) -> dict[str, Any]:
     now = now or dt.datetime.now().astimezone()
     metric = extract_dashboard_metrics(status, now=now)
-    rows = read_dashboard_metrics_history(now=now.replace(tzinfo=None))
+    rows = read_dashboard_metrics_history(
+        now=now.replace(tzinfo=None), days=DASHBOARD_METRICS_KEEP_DAYS
+    )
     rows.append(metric)
-    cutoff = now.replace(tzinfo=None) - dt.timedelta(days=DASHBOARD_METRICS_RETENTION_DAYS)
+    cutoff = now.replace(tzinfo=None) - dt.timedelta(days=DASHBOARD_METRICS_KEEP_DAYS)
     rows = [row for row in rows if (ts := _parse_metric_timestamp(row)) is not None and ts >= cutoff]
     _write_dashboard_metrics_history(rows)
     try:

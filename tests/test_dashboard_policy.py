@@ -386,6 +386,31 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(payload["soc"]["soc"], [50.0, 50.0])
         self.assertEqual(payload["daily"]["pv_kwh"][-1], 2.5)
 
+    def test_history_keeps_rows_past_the_read_window(self):
+        status = {
+            "device": {"capacity": "50%"},
+            "storage_params": {
+                "storageBean": {"outputConfig": "0", "ppv": 500, "outPutPower": 800, "epvToday": 2.5},
+                "storageDetailBean": {"bmsSoc": 50, "pDischarge": 300, "pCharge": 0},
+            },
+        }
+
+        with TemporaryDirectory() as tmpdir, patch(
+            "growatt_guard.dashboard_metrics.DASHBOARD_METRICS_FILE", Path(tmpdir) / "dashboard_metrics.jsonl"
+        ):
+            append_dashboard_metric_snapshot(status, now=dt.datetime(2026, 6, 1, 8, 0))
+            append_dashboard_metric_snapshot(status, now=dt.datetime(2026, 6, 20, 8, 0))
+            recent = read_dashboard_metrics_history(now=dt.datetime(2026, 6, 20, 8, 5))
+            kept = read_dashboard_metrics_history(now=dt.datetime(2026, 6, 20, 8, 5), days=30)
+            append_dashboard_metric_snapshot(status, now=dt.datetime(2026, 9, 15, 8, 0))
+            pruned = read_dashboard_metrics_history(now=dt.datetime(2026, 9, 15, 8, 5), days=200)
+
+        self.assertEqual(len(recent), 1)
+        self.assertEqual(len(kept), 2)
+        self.assertEqual(
+            [row["timestamp"][:10] for row in pruned], ["2026-06-20", "2026-09-15"]
+        )
+
     def test_history_days_follow_the_site_timezone_not_the_host(self):
         site_tz = dt.timezone(dt.timedelta(hours=1))
         history = [
