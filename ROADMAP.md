@@ -128,6 +128,16 @@ public-safe: no IDs, serials, domains, or credentials.
   over 5.0 h on 30 kWh) against a planned overnight band of 1990 W, so the
   band ran about a third above the drain; the night's own recorded overnight
   band came out 1763 W with live load 1150-1600 W through the small hours.
+- Cost evidence from read 3's night, 2026-11-20: the 00:00 reserve plan sized
+  against the 2028 W band and a 45% sunrise target (the window was
+  rainy/cloudy then; the morning came out normal, so the dry-season threshold
+  was 40% plus the 3-point headroom) and bought 6 points (1.8 kWh) of grid
+  between 00:00 and 00:59 to take 80% to 86%. Without that charge the night
+  lands about 50% at sunrise (86% minus the measured 30-point drain) against
+  the 43 the morning needed, so in hindsight the window was avoidable even
+  though the 00:00 inputs did not show it. Actual sunrise SOC was 56-58% and
+  the 08:00 cut started at 55%, so the surplus went into the cut as margin;
+  SOC was heading to about 72% by the 11:00 return, so no PV was curtailed.
 - N2 closed 2026-11-19 with the verdict "fewer repeat top-ups": the three
   banded weekday nights (11-16, 11-17, 11-18) each ran two starts against
   the 2026-11-09 baseline of three, nothing re-armed after the last
