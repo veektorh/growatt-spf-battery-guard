@@ -103,12 +103,14 @@ public-safe: no IDs, serials, domains, or credentials.
   2020-2170 W from 20:00 to 22:59, then 1630-1800 W until 06:00. The idea comes
   from Epilykos's consumption forecast (same hour over recent days, median and
   20th-80th percentile); the code here is our own.
-- Caveat found on the first run: for a weekday night the hourly profile gives
-  21.2 kWh (average 1769 W, likely 18.5-25.5 kWh) and the band planner 23.8 kWh
-  (evening 1903 W, overnight 2019 W over 21 nights). `load_w` is the inverter's
-  AC output, while the planner learns from battery drain, which also carries
-  conversion and standby losses; the 11% gap is about that size. Any switch
-  must first learn that ratio from nights where both are recorded.
+- Caveat, corrected 2026-11-20: the band history is fed from the inverter's AC
+  load (`outPutPower`, the same `load_w` the hourly profile uses) at each
+  auto-topup check, so the first-run 11% gap was smoothing and sample timing,
+  not conversion loss. The conversion the plan needs is drain = AC load × about
+  1.07, measured on the 11-19 night rows (1953/1819, 1850/1727, 1361/1283 W),
+  and the configured 30 kWh holds within 7% once grid charging is subtracted
+  (10.8 kWh of DC discharge minus 2.1 kWh of charge over the 00:12-00:57 hold
+  for 27 points, 320 Wh/point).
 - First morning read, 2026-11-18, for the night of 2026-11-17: hourly profile
   21.4 kWh (average 1786 W, likely 19.0-25.3 kWh) against band 23.4 kWh
   (evening 1959 W, overnight 1942 W, 22 nights) — an 8.5% gap, narrower than
@@ -138,6 +140,22 @@ public-safe: no IDs, serials, domains, or credentials.
   though the 00:00 inputs did not show it. Actual sunrise SOC was 56-58% and
   the 08:00 cut started at 55%, so the surplus went into the cut as margin;
   SOC was heading to about 72% by the 11:00 return, so no PV was curtailed.
+- Structural replay, 2026-11-20: the window is sized from its end (about 01:00)
+  to sunrise (06:40), where the hourly medians fall from 1868 W to 1594 W while
+  the overnight band is one flat 1990-2028 W. Against the same 48% sunrise
+  target, the band needs 86% at 01:00 (the target actually used, bought in
+  59 minutes at 80%), the hourly median of 1749 W over that horizon needs
+  81% (about 10 minutes, 0.3 kWh), and the night's real 1580 W needs 78% (no
+  window at all). Either fix alone would have cut the window to about ten
+  minutes: the band against the morning's real 43% target needs 81.3%
+  (0.4 kWh), and the hourly profile against the planned 48% target needs 81.1%
+  (0.3 kWh). Together they leave no window, so the 1.8 kWh was the flat
+  overnight mean plus the overnight forecast improvement, with about 3 points
+  of night-to-night noise on top.
+- Design constraint found 2026-11-20: the hourly profile pools every retained
+  day, while the band splits weekday and weekend. Wire it only once it splits
+  the same way, because the weekend cuts (08:00-11:00 and 17:00-18:00) and
+  their job set differ from weekdays.
 - N2 closed 2026-11-19 with the verdict "fewer repeat top-ups": the three
   banded weekday nights (11-16, 11-17, 11-18) each ran two starts against
   the 2026-11-09 baseline of three, nothing re-armed after the last
