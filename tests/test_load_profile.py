@@ -8,6 +8,7 @@ from growatt_guard.load_profile import (
     format_load_profile_report,
     hourly_load_profile,
     percentile,
+    planning_night_load,
     project_load,
 )
 
@@ -99,6 +100,58 @@ class ProjectionTests(unittest.TestCase):
         self.assertIsNone(project_load(self.profile, start, 12))
         self.assertIsNotNone(project_load(self.profile, start, 4))
         self.assertIsNone(project_load(self.profile, start, 0))
+
+
+class PlanningNightLoadTests(unittest.TestCase):
+    """The reserve plan prefers the hour-of-day profile, then the bands."""
+
+    def _nights(self, days: int, evening: float, overnight: float, first=dt.date(2026, 11, 9)):
+        rows = []
+        for offset in range(days):
+            evening_day = first + dt.timedelta(days=offset)
+            morning = evening_day + dt.timedelta(days=1)
+            for hour in range(19, 24):
+                rows.extend(_readings(evening_day, hour, evening))
+            for hour in range(0, 7):
+                rows.extend(_readings(morning, hour, overnight))
+        return rows
+
+    def test_uses_the_hourly_profile_when_every_hour_is_ready(self):
+        rows = self._nights(4, 1800, 1500)
+        history = [
+            {"day_type": "weekday", "rate_w": 2000, "bands": {
+                "evening": {"rate_w": 2100, "sample_count": 10},
+                "overnight": {"rate_w": 1600, "sample_count": 20},
+            }},
+        ]
+        rate, source = planning_night_load(
+            rows, history, now=dt.datetime(2026, 11, 12, 19, 20, tzinfo=WAT), hours=11.0, tz=WAT
+        )
+        self.assertEqual(rate, 1627.0)
+        self.assertIn("hourly profile median (weekday", source)
+
+    def test_falls_back_to_the_bands_when_hours_are_short(self):
+        rows = self._nights(2, 1800, 1500)
+        history = [
+            {"day_type": "weekday", "rate_w": 2000, "bands": {
+                "evening": {"rate_w": 2100, "sample_count": 10},
+                "overnight": {"rate_w": 1600, "sample_count": 20},
+            }}
+            for _ in range(4)
+        ]
+        rate, source = planning_night_load(
+            rows, history, now=dt.datetime(2026, 11, 12, 19, 20, tzinfo=WAT), hours=11.0, tz=WAT
+        )
+        self.assertTrue(1600.0 < rate < 2100.0)
+        self.assertNotIn("hourly", source)
+
+    def test_falls_back_to_the_flat_night_without_bands(self):
+        history = [{"day_type": "weekday", "rate_w": 1400} for _ in range(4)]
+        rate, source = planning_night_load(
+            [], history, now=dt.datetime(2026, 11, 12, 19, 20, tzinfo=WAT), hours=11.0, tz=WAT
+        )
+        self.assertEqual(rate, 1400.0)
+        self.assertNotIn("hourly", source)
 
 
 class ReportTests(unittest.TestCase):

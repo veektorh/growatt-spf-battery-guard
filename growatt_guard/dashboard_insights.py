@@ -4,7 +4,7 @@ from typing import Any
 
 from growatt_guard.growatt_api import estimate_topup_for_sunrise, format_duration_minutes
 from growatt_guard.dashboard_metrics import _fmt_kwh, _fmt_pct, _fmt_w, _parse_metric_timestamp
-from growatt_guard.load_learning import select_night_load_profile, select_overnight_load
+from growatt_guard.load_profile import planning_night_load
 from growatt_guard.state import read_discharge_rate_history
 
 from growatt_guard.dashboard_planning import _positive_metric
@@ -327,6 +327,7 @@ def build_tonight_risk(
     projection_start_soc: float | None = None,
     projection_hours: float | None = None,
     projection_basis: str = "",
+    metric_rows: list[dict[str, Any]] | None = None,
     now: dt.datetime | None = None,
     tz: dt.tzinfo | None = None,
 ) -> dict[str, Any]:
@@ -372,14 +373,9 @@ def build_tonight_risk(
         basis = basis or "projected sunset SOC"
 
     history = read_discharge_rate_history()
-    profile = select_night_load_profile(history, now=now, hours=duration_hours, tz=tz)
-    if profile["rate_w"] is not None:
-        load_w = float(profile["rate_w"])
-        source = str(profile["source"])
-    else:
-        learned_load = select_overnight_load(history, now=now)
-        load_w = learned_load["rate_w"]
-        source = learned_load["source"]
+    load_w, source = planning_night_load(
+        metric_rows or [], history, now=now, hours=duration_hours, tz=tz
+    )
     if load_w is None:
         battery_net_w = live_metrics.get("battery_net_w")
         if isinstance(battery_net_w, (int, float)) and battery_net_w > 0:

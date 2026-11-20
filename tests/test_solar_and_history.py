@@ -402,6 +402,7 @@ class DischargeRateAverageTests(unittest.TestCase):
               patch("growatt_guard.topup.set_mode", return_value="ok"),
               patch("growatt_guard.topup.command_pause", return_value=0),
               patch("growatt_guard.topup.write_utility_hold_state", side_effect=fake_write),
+              patch("growatt_guard.topup.read_dashboard_metrics_history", return_value=[]),
               patch("growatt_guard.topup.append_mode_audit"),
               redirect_stdout(StringIO())):
             command_auto_topup_check(cfg)
@@ -440,8 +441,10 @@ class DischargeRateAverageTests(unittest.TestCase):
             # The check records its live reading on the wall clock; pin it to the
             # test's evening so the result does not depend on the day it runs.
             with patch.object(state_mod, "DISCHARGE_RATE_HISTORY_FILE", dr_file), patch(
-                "growatt_guard.topup.select_night_load_profile",
-                side_effect=lambda history, **kwargs: real_profile(history, now=fixed_now, **kwargs),
+                "growatt_guard.load_profile.select_night_load_profile",
+                side_effect=lambda history, **kwargs: real_profile(
+                    history, **{**kwargs, "now": fixed_now}
+                ),
             ), patch("growatt_guard.topup.resolve_timezone", return_value=fixed_now.tzinfo), patch(
                 "growatt_guard.topup.append_discharge_rate_reading",
                 side_effect=lambda rate, **kwargs: state_mod.append_discharge_rate_reading(
@@ -453,6 +456,16 @@ class DischargeRateAverageTests(unittest.TestCase):
         # 2.67 h of 2500 W evening load plus 2.33 h of 1600 W overnight load over a
         # 5 h horizon is 2081 W, and the live 2500 W spike is capped to it.
         self.assertAlmostEqual(result["start_load_w"], 2080.6, delta=1.0)
+
+    def test_plans_with_the_shared_planning_load(self):
+        cfg = self._make_cfg()
+        with TemporaryDirectory() as tmpdir:
+            with patch(
+                "growatt_guard.topup.planning_night_load",
+                return_value=(1750.0, "hourly profile median (weekday, 5h)"),
+            ):
+                result = self._run_check(cfg, tmpdir, discharge_w=1500.0, prior_readings=[2000.0])
+        self.assertEqual(result["start_load_w"], 1750.0)
 
     def test_headroom_adds_soc_margin_to_the_planned_window(self):
         cfg_base = self._make_cfg()

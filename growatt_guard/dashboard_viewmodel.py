@@ -269,6 +269,7 @@ def build_dashboard_data_payload(
         projection_start_soc=risk_start_soc,
         projection_hours=overnight_hours,
         projection_basis=risk_basis,
+        metric_rows=metric_history,
         now=now,
         tz=resolve_timezone(schedule.get("timezone")),
     )

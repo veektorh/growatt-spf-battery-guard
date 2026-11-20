@@ -28,6 +28,8 @@ from growatt_guard.load_learning import (
     day_type,
     night_key,
     resolve_timezone,
+    select_night_load_profile,
+    select_overnight_load,
 )
 from growatt_guard.schedule import validate_schedule
 from growatt_guard.state import read_discharge_rate_history
@@ -132,6 +134,38 @@ def project_load(
         "high_wh": round(totals["high_w"]),
         "rate_w": round(totals["median_w"] / hours),
     }
+
+
+def planning_night_load(
+    rows: list[dict[str, Any]],
+    history: list[dict[str, Any]],
+    *,
+    now: dt.datetime | None = None,
+    hours: float,
+    tz: dt.tzinfo | None = None,
+) -> tuple[float | None, str]:
+    """Night load for the reserve plan.
+
+    Prefers the hour-of-day profile of the night the horizon belongs to when
+    every hour it touches has enough days, then the banded planner, then its
+    flat fallback. The night is the one the horizon starts in, so a plan made at
+    01:00 uses the evening that started the night rather than the new date.
+    """
+    now = now or dt.datetime.now().astimezone()
+    if hours > 0:
+        local = now.astimezone(tz) if tz is not None else now.astimezone()
+        kind = day_type(night_key(local, tz))
+        projection = project_load(hourly_load_profile(rows, tz=tz, night_type=kind), local, hours)
+        if projection is not None:
+            return float(projection["rate_w"]), f"hourly profile median ({kind}, {projection['hours']:g}h)"
+    profile = select_night_load_profile(history, now=now, hours=hours, tz=tz)
+    if profile["rate_w"] is not None:
+        return float(profile["rate_w"]), str(profile["source"])
+    flat = select_overnight_load(history, now=now)
+    return (
+        float(flat["rate_w"]) if flat["rate_w"] is not None else None,
+        str(flat["source"]),
+    )
 
 
 def _night_start(now: dt.datetime) -> dt.datetime:
