@@ -93,87 +93,6 @@ public-safe: no IDs, serials, domains, or credentials.
   precision, consider a durable ledger beside `bypass_daily.jsonl` rather than
   more polling.
 
-### N17. Decide whether the night plan should use the hourly load profile
-
-- Status: `load-profile` shipped 2026-11-17 as a shadow view. Read-only until a
-  decision; wiring it into `command_auto_topup_check` changes inverter mode
-  timing and needs the owner's go-ahead. Follows N2.
-- Why: N2's two bands still smooth over a clear shape. Eight days of snapshots
-  (to 2026-11-17) give medians of about 1370 W at 18:00, 1620 W at 19:00,
-  2020-2170 W from 20:00 to 22:59, then 1630-1800 W until 06:00. The idea comes
-  from Epilykos's consumption forecast (same hour over recent days, median and
-  20th-80th percentile); the code here is our own.
-- Caveat, corrected 2026-11-20: the band history is fed from the inverter's AC
-  load (`outPutPower`, the same `load_w` the hourly profile uses) at each
-  auto-topup check, so the first-run 11% gap was smoothing and sample timing,
-  not conversion loss. The conversion the plan needs is drain = AC load × about
-  1.07, measured on the 11-19 night rows (1953/1819, 1850/1727, 1361/1283 W),
-  and the configured 30 kWh holds within 7% once grid charging is subtracted
-  (10.8 kWh of DC discharge minus 2.1 kWh of charge over the 00:12-00:57 hold
-  for 27 points, 320 Wh/point).
-- First morning read, 2026-11-18, for the night of 2026-11-17: hourly profile
-  21.4 kWh (average 1786 W, likely 19.0-25.3 kWh) against band 23.4 kWh
-  (evening 1959 W, overnight 1942 W, 22 nights) — an 8.5% gap, narrower than
-  the 11% on the first run. The night's implied overnight drain was about
-  1650 W against a learned overnight band of 1736 W.
-- Morning read 2, 2026-11-19, for the night of 2026-11-18: hourly profile
-  22.9 kWh (average 1908 W, likely 19.7-26.4 kWh) against band 24.2 kWh
-  (evening 1967 W, overnight 2036 W, 22 nights) — a 5.5% gap, narrowing from
-  11% and 8.5%. The night's implied overnight drain was about 2070 W
-  (81% to 45% over 5.2 h on 30 kWh) against a planned 1987-2042 W, so the
-  band ran close to the drain; the night's own recorded overnight band came
-  out 2383 W because live load held 2300-2500 W through the small hours.
-- Morning read 3, 2026-11-20, for the night of 2026-11-19: hourly profile
-  22.5 kWh (average 1878 W, likely 19.7-26.3 kWh) against band 23.8 kWh
-  (evening 1980 W, overnight 1990 W, 22 nights) — a 5.5% gap, flat against
-  read 2. The night's implied overnight drain was about 1500 W (86% to 61%
-  over 5.0 h on 30 kWh) against a planned overnight band of 1990 W, so the
-  band ran about a third above the drain; the night's own recorded overnight
-  band came out 1763 W with live load 1150-1600 W through the small hours.
-- Cost evidence from read 3's night, 2026-11-20: the 00:00 reserve plan sized
-  against the 2028 W band and a 45% sunrise target (the window was
-  rainy/cloudy then; the morning came out normal, so the dry-season threshold
-  was 40% plus the 3-point headroom) and bought 6 points (1.8 kWh) of grid
-  between 00:00 and 00:59 to take 80% to 86%. Without that charge the night
-  lands about 50% at sunrise (86% minus the measured 30-point drain) against
-  the 43 the morning needed, so in hindsight the window was avoidable even
-  though the 00:00 inputs did not show it. Actual sunrise SOC was 56-58% and
-  the 08:00 cut started at 55%, so the surplus went into the cut as margin;
-  SOC was heading to about 72% by the 11:00 return, so no PV was curtailed.
-- Structural replay, 2026-11-20: the window is sized from its end (about 01:00)
-  to sunrise (06:40), where the hourly medians fall from 1868 W to 1594 W while
-  the overnight band is one flat 1990-2028 W. Against the same 48% sunrise
-  target, the band needs 86% at 01:00 (the target actually used, bought in
-  59 minutes at 80%), the hourly median of 1749 W over that horizon needs
-  81% (about 10 minutes, 0.3 kWh), and the night's real 1580 W needs 78% (no
-  window at all). Either fix alone would have cut the window to about ten
-  minutes: the band against the morning's real 43% target needs 81.3%
-  (0.4 kWh), and the hourly profile against the planned 48% target needs 81.1%
-  (0.3 kWh). Together they leave no window, so the 1.8 kWh was the flat
-  overnight mean plus the overnight forecast improvement, with about 3 points
-  of night-to-night noise on top.
-- Design constraint found 2026-11-20: the hourly profile pooled every retained
-  day, while the band splits weekday and weekend, and the weekend cuts
-  (08:00-11:00 and 17:00-18:00) and their job set differ from weekdays. The
-  split shipped the same day: `hourly_load_profile(..., night_type=...)`
-  classifies each reading by the night it belongs to, and the report prints
-  `by day type (hourly / band)` for both. Wiring waits on the weekend nights,
-  since the retained metrics hold no weekend night yet.
-- N2 closed 2026-11-19 with the verdict "fewer repeat top-ups": the three
-  banded weekday nights (11-16, 11-17, 11-18) each ran two starts against
-  the 2026-11-09 baseline of three, nothing re-armed after the last
-  completion on any night, and every completion landed at or within a point
-  of target. The band-vs-live direction is unstable — about 20% above live
-  on 11-16, close on 11-17, 10-20% below live on 11-18 — so no live-load cap
-  was added; the near-target rule absorbed the misses.
-- Steps: run `load-profile` on the VPS each morning for a week, beside the
-  previous night's actual drain (`discharge_rate_history.json`). Record, per
-  night, hourly-profile kWh, band kWh, and actual kWh. Snapshots mix weekday and
-  weekend days; check whether weekend hours differ enough to split them.
-- Done when: a week is recorded and the owner decides either to wire the hourly
-  profile (scaled by the learned drain-to-load ratio) into the night plan in a
-  separate mode-timing PR, or to keep the bands and remove this task.
-
 ### N20. Confirm the schedule-aware preserve skip on the next outage morning
 
 - Status: the skip shipped 2026-11-19 with the owner's go-ahead
@@ -290,7 +209,8 @@ public-safe: no IDs, serials, domains, or credentials.
   flat with 1.1-1.4 kW of PV. So the 40% threshold's five points are insurance
   against a fully overcast or unscheduled cut, worth roughly the 1.5 kWh they
   cost - not the main lever on grid use, which is the band's 15-20 point
-  overshoot.
+  overshoot (the hourly plan halves it, and the full-charge clamp bounds what
+  that saves on any given window).
 - Steps: read the next two normal mornings to confirm the cut-start arithmetic
   (target met, cut starts 40 plus or minus a point). Then read an overcast
   cut-morning: whether SOC drains through the cut with PV below load for hours,
@@ -389,19 +309,26 @@ closures and add fixtures for any new trustworthy classification signal.
 - Add regression fixtures whenever a production report exposes a new data-shape
   or interpretation bug.
 
-Current concrete steps toward this goal are in Next Up: N17 (hourly load
-profile shadow read) and N20 (next outage-morning read). N2 closed on
-2026-11-19 with the verdict "fewer repeat top-ups": three banded weekday
-nights each ran two starts against the 2026-11-09 baseline of three, and the
-band-vs-live direction proved unstable, so no live-load cap was added. N19
-closed the same day: the first outage morning after the change started its
-cut at 43-44% against the 40% preserve threshold, the first read morning
-above the line. The learned charge rate went live on 2026-11-10 at the
+Current concrete steps toward this goal are in Next Up: N20 (next outage-morning
+read). N2 closed on 2026-11-19 with the verdict "fewer repeat top-ups": three
+banded weekday nights each ran two starts against the 2026-11-09 baseline of
+three, and the band-vs-live direction proved unstable, so no live-load cap was
+added. N19 closed the same day: the first outage morning after the change
+started its cut at 43-44% against the 40% preserve threshold, the first read
+morning above the line. The learned charge rate went live on 2026-11-10 at the
 owner's direction, ahead of the three-comparable-outcome gate; N1 collected
 those outcomes after the fact and closed on 2026-11-13 with the repeats still
 present, which is why N2 owned them. N12 closed on 2026-11-18 with three of
 five outage mornings starting below the preserve threshold, so the
-sunrise-target change returned as N19.
+sunrise-target change returned as N19. N17 closed on 2026-11-20 at the owner's
+direction ("fix the estimate first", threshold left at 40):
+`planning_night_load` prefers the night's hour-of-day profile (1827 W at the
+18:00 horizon against the band's 2028 W, about 1750 W at 00:00 against 1990 W)
+and falls back to the bands when any hour lacks three days, so weekend nights
+keep the bands until they qualify. The gain is bounded by the full-charge
+clamp: an evening window whose completion target is already 100% ends at the
+same SOC, and the saving lands on post-midnight windows (86% to 81% on the
+11-19 night, about 1.6 kWh of that window's 1.8 kWh).
 
 ### P2. Notification Quiet Hours And Digest
 
