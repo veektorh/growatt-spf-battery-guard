@@ -57,6 +57,17 @@ class HourlyProfileTests(unittest.TestCase):
         rows += [{"timestamp": "2026-11-12T20:30:00+01:00", "load_w": 9000}]
         self.assertEqual(hourly_load_profile(rows, tz=WAT)[20]["days"], 3)
 
+    def test_night_type_keeps_the_night_a_sample_belongs_to(self):
+        friday, saturday, sunday = dt.date(2026, 11, 13), dt.date(2026, 11, 14), dt.date(2026, 11, 15)
+        rows = _readings(friday, 23, 1500) + _readings(saturday, 0, 700)
+        rows += _readings(saturday, 23, 2100) + _readings(sunday, 0, 1900)
+        weekend = hourly_load_profile(rows, tz=WAT, night_type="weekend")
+        self.assertEqual((weekend[23]["median_w"], weekend[23]["days"]), (2100, 1))
+        self.assertEqual((weekend[0]["median_w"], weekend[0]["days"]), (1900, 1))
+        weekday = hourly_load_profile(rows, tz=WAT, night_type="weekday")
+        self.assertEqual((weekday[23]["median_w"], weekday[23]["days"]), (1500, 1))
+        self.assertEqual((weekday[0]["median_w"], weekday[0]["days"]), (700, 1))
+
     def test_skips_missing_and_bad_values(self):
         rows = _days(3, {20: [2000]})
         rows += [
@@ -115,6 +126,11 @@ class ReportTests(unittest.TestCase):
         text = format_load_profile_report(report)
         self.assertIn("hourly profile: 20.0 kWh (average 1667 W)", text)
         self.assertIn("band planner:   21.2 kWh (evening 2100 W, overnight 1600 W, 1 nights)", text)
+        self.assertIsNotNone(report["night"]["hourly_by_type"]["weekday"])
+        self.assertIsNone(report["night"]["hourly_by_type"]["weekend"])
+        self.assertIn(
+            "by day type (hourly / band): weekday 20.0 / 21.2 kWh, weekend n/a / 10.8 kWh", text
+        )
         self.assertIn("  12:00  no data", text)
 
     def test_after_midnight_uses_the_night_that_started_yesterday(self):

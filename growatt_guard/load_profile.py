@@ -26,6 +26,7 @@ from growatt_guard.load_learning import (
     OVERNIGHT_START_HOUR,
     _band_average,
     day_type,
+    night_key,
     resolve_timezone,
 )
 from growatt_guard.schedule import validate_schedule
@@ -63,8 +64,14 @@ def hourly_load_profile(
     *,
     tz: dt.tzinfo | None = None,
     min_days: int = MIN_PROFILE_DAYS,
+    night_type: str | None = None,
 ) -> dict[int, dict[str, Any]]:
-    """Per local hour: median and likely-range load in W, and the days behind it."""
+    """Per local hour: median and likely-range load in W, and the days behind it.
+
+    ``night_type`` keeps only readings that belong to a night of that day type.
+    The night is the one a sample falls in, so after-midnight hours are judged
+    by the evening that started the night, exactly as the band history does.
+    """
     readings: dict[tuple[dt.date, int], list[float]] = {}
     for row in rows:
         load = row.get("load_w")
@@ -72,6 +79,8 @@ def hourly_load_profile(
             continue
         local = _local(row, tz)
         if local is None:
+            continue
+        if night_type is not None and day_type(night_key(local, tz)) != night_type:
             continue
         readings.setdefault((local.date(), local.hour), []).append(float(load))
 
@@ -162,6 +171,9 @@ def build_load_profile_report(
     night_start = _night_start(local_now)
     night_hours = 24 - EVENING_START_HOUR + OVERNIGHT_END_HOUR
     target = day_type(night_start)
+    typed = {
+        kind: hourly_load_profile(rows, tz=tz, night_type=kind) for kind in ("weekday", "weekend")
+    }
     return {
         "generated_at": local_now.isoformat(timespec="minutes"),
         "min_days": MIN_PROFILE_DAYS,
@@ -172,6 +184,13 @@ def build_load_profile_report(
             "day_type": target,
             "hourly": project_load(profile, night_start, night_hours),
             "bands": band_planner_night(discharge_history, target),
+            "hourly_by_type": {
+                kind: project_load(typed[kind], night_start, night_hours)
+                for kind in typed
+            },
+            "bands_by_type": {
+                kind: band_planner_night(discharge_history, kind) for kind in typed
+            },
         },
     }
 
@@ -212,6 +231,14 @@ def format_load_profile_report(report: dict[str, Any]) -> str:
         )
     else:
         lines.append("  band planner:   no banded history for this day type")
+    typed = []
+    for kind in ("weekday", "weekend"):
+        hourly_typed = (night.get("hourly_by_type") or {}).get(kind)
+        bands_typed = (night.get("bands_by_type") or {}).get(kind)
+        hourly_text = f"{hourly_typed['median_wh'] / 1000:.1f}" if hourly_typed else "n/a"
+        bands_text = f"{bands_typed['energy_wh'] / 1000:.1f}" if bands_typed else "n/a"
+        typed.append(f"{kind} {hourly_text} / {bands_text} kWh")
+    lines.append("  by day type (hourly / band): " + ", ".join(typed))
     return "\n".join(lines)
 
 

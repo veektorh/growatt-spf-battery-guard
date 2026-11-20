@@ -14,9 +14,10 @@ MIN_MATCHING_NIGHTS = 3
 FALLBACK_NIGHT_WINDOW = 4
 
 
-def day_type(value: dt.datetime) -> str:
-    local = value.astimezone() if value.tzinfo is not None else value
-    return "weekday" if local.weekday() < 5 else "weekend"
+def day_type(value: dt.datetime | dt.date) -> str:
+    if isinstance(value, dt.datetime):
+        value = value.astimezone() if value.tzinfo is not None else value
+    return "weekday" if value.weekday() < 5 else "weekend"
 
 
 def _window_label(used: int, total: int) -> str:
