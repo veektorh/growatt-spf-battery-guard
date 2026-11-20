@@ -152,10 +152,13 @@ public-safe: no IDs, serials, domains, or credentials.
   (0.3 kWh). Together they leave no window, so the 1.8 kWh was the flat
   overnight mean plus the overnight forecast improvement, with about 3 points
   of night-to-night noise on top.
-- Design constraint found 2026-11-20: the hourly profile pools every retained
-  day, while the band splits weekday and weekend. Wire it only once it splits
-  the same way, because the weekend cuts (08:00-11:00 and 17:00-18:00) and
-  their job set differ from weekdays.
+- Design constraint found 2026-11-20: the hourly profile pooled every retained
+  day, while the band splits weekday and weekend, and the weekend cuts
+  (08:00-11:00 and 17:00-18:00) and their job set differ from weekdays. The
+  split shipped the same day: `hourly_load_profile(..., night_type=...)`
+  classifies each reading by the night it belongs to, and the report prints
+  `by day type (hourly / band)` for both. Wiring waits on the weekend nights,
+  since the retained metrics hold no weekend night yet.
 - N2 closed 2026-11-19 with the verdict "fewer repeat top-ups": the three
   banded weekday nights (11-16, 11-17, 11-18) each ran two starts against
   the 2026-11-09 baseline of three, nothing re-armed after the last
