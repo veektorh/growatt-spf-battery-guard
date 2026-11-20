@@ -83,6 +83,12 @@ public-safe: no IDs, serials, domains, or credentials.
   across the 389 readings) of the estate's scheduled edge on every window with
   readings on both sides. The widest is the 11-18 morning end, 10:54-11:09
   against an estate end of 11:00.
+- Third read, 2026-11-20 13:23 (`supply-history --days 7`, 430 readings): the
+  11-20 morning window is off between 07:58-08:01, back between 10:52-11:07.
+  SOC 55% before and at the first off reading, the highest cut start read so
+  far and 15 points above the 40% threshold the morning jobs used. Every
+  window with readings on both sides still sits within one refresh interval
+  of the schedule; no `unscheduled-cut` and no `no-cut` yet.
 - Steps: after a few days, run `supply-history --days 7` on the VPS. Check that
   every scheduled window shows a `cut` and that the observed edges sit within
   one refresh interval of the schedule; note any `unscheduled-cut` or `no-cut`.
@@ -141,6 +147,13 @@ public-safe: no IDs, serials, domains, or credentials.
 - Morning of 2026-11-20, read at 07:54: all four preserve jobs (06:00, 06:30,
   06:40, 07:00) projected 51-53% at the 08:00 cut against a 40% threshold, so
   each recorded `no-change` and the deferral path was not exercised.
+- Same morning, after the cut: zero mode writes. The 07:55 `return-sbu` found
+  SBU already and the 08:01 `watchdog-sbu` verified, so the whole morning ran
+  as four live checks and no Utility round-trip. The cut started between
+  07:58-08:01 at 55%, 15 points above the 40% threshold, which is why no job
+  needed to act; the last-job hold stays unexercised until a morning projects
+  below the threshold. First no-churn outage morning, though not the "one
+  switch" shape the steps expected.
 - Steps: read the next outage morning's preserve rows. Expect
   `deferred-to-later-preserve` rows for every job but the last, one
   `switch-to-utility`, and the cut starting at or above the threshold. Keep
@@ -211,6 +224,22 @@ public-safe: no IDs, serials, domains, or credentials.
   cost - not the main lever on grid use, which is the band's 15-20 point
   overshoot (the hourly plan halves it, and the full-charge clamp bounds what
   that saves on any given window).
+- Read, 2026-11-20 (third normal cut-morning): the cut started between
+  07:58-08:01 at 55%, not 40-42. The horizon is not the cause: the 00:00 plan
+  sized to 86% at sunrise, the 00:59 top-up hit 86 exactly, and the battery
+  then carried the house to 55% at dawn. The miss is the load estimate — the
+  plan used 2028 W (the bands) against an actual ~1.6 kW from 01:00 to 08:00,
+  so it arrived ten to twelve points above the 43-45 target. N17's hourly
+  planning deployed at 09:47 that day, so the 18:00 plan that evening is the
+  first hourly-profile plan; read the next arrival against this 55% band-era
+  baseline.
+- Weather-category flip, 2026-11-20: the 06:00-07:00 preserve rows used the
+  normal 40% threshold and the 08:40 Now card still read 40, while the
+  11:00-onward rows and the same dashboard read rainy/cloudy 45%
+  ("max cloud 59%, rain 2.2mm"). The day turned sunny, so the lower morning
+  figure cost nothing; an overcast day whose category only firms up after the
+  cut would have been planned five points light. Read a past cut morning's
+  category from the audit rows of that morning, not the midday dashboard.
 - Steps: read the next two normal mornings to confirm the cut-start arithmetic
   (target met, cut starts 40 plus or minus a point). Then read an overcast
   cut-morning: whether SOC drains through the cut with PV below load for hours,
@@ -220,6 +249,39 @@ public-safe: no IDs, serials, domains, or credentials.
 - Done when: a normal cut-morning is confirmed within a point of the threshold
   with the target met, a cloudy cut-morning is read, and the owner decides
   whether any horizon offset is needed.
+
+### N23. Name the midday surplus window when the battery is full
+
+- Status: open, display-only; it changes no mode timing. Read-only until the
+  owner picks the surface.
+- Why: on 2026-11-20 the battery reached 99% at 12:53 and the SPF, which has
+  no export path, pinned the array to the house load: PV 2413 W against a
+  2322 W load at 12:53 with the battery at 5 W and charge 0 W, then 1268 W
+  against 1202 W at 13:08 and 1360 W against 1284 W at 13:23. From 12:53 to
+  13:23 `pv_today_kwh` and `load_today_kwh` both rose 0.7 kWh — nothing above
+  load was stored or used. The day had peaked at 5.4 kW at 10:52 and the
+  7-day same-time pace expected 40.1 kWh against 24.7 kWh recorded, so the
+  afternoon's remaining PV had no sink.
+- Why it matters: the only lever on an off-grid SPF is moving deferrable load
+  into the strong-sun hours; the guard cannot store or export the surplus. The
+  Now tab already says "Battery is full, so the current 1.4 kW solar is best
+  used by flexible house loads", but that exists only while someone watches,
+  and the daily summary, the ledger, and PVOutput cannot tell capped output
+  from array potential.
+- The overnight top-up was not the cause: the only grid charge was the
+  00:00-00:59 reserve window, 80% to 86% at an implied 1835 W against 1868
+  planned. Skipping it would have left about 48-49% at dawn and the array
+  would still have filled the battery roughly half an hour later (1.8 kWh at
+  the 3.4 kW it accepted in late morning). No avoidable charge to remove by
+  that lever.
+- Steps: choose the surface — a Now-tab row while `soc >= 95` and PV stays
+  within about 100 W of load across consecutive refreshes, a daily-summary
+  line naming the capped hours, or a one-shot Discord nudge — and state the
+  day's peak so the reader can size the lost window without a fabricated
+  potential figure. Keep it on the existing read-only refresh path.
+- Done when: a full-battery afternoon states that output is capped and names
+  the usable strong-sun window, and the day's record separates capped output
+  from array potential.
 
 ## Current Baseline
 
