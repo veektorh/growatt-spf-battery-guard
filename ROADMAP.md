@@ -258,28 +258,38 @@ public-safe: no IDs, serials, domains, or credentials.
 
 ### N22. End the night-plan horizon at PV takeover, not astronomical sunrise
 
-- Status: open, read-only until the owner picks the horizon; it changes mode
-  timing, so wiring it needs the go-ahead. Interacts with N17: a leaner hourly
-  plan removes the margin that currently hides this.
+- Status: open, read-only. The flat "+60 minutes to 48%" option was rejected on
+  2026-11-20 as an over-correction; what remains is whether a cloudy cut-day
+  needs a horizon offset at all.
 - Why: the reserve plan targets SOC at sunrise, but the battery keeps carrying
-  the house until PV output covers the load. On 2026-11-20 (sunrise 06:36,
-  normal, dry-season threshold 40) PV rose 6 W at 06:28 to 1160 W at 07:28
-  against 1.2-1.3 kW of load; the crossover was about 07:35, 59 minutes after
-  sunrise, and SOC fell 58% to 54% across that hour (4 points, 1.2 kWh). A
-  43% target at sunrise therefore reads about 39% where the floor matters,
-  under the 40% threshold and before the 08:00 cut. The N12 mornings agree:
-  three of five cuts started at 39-41% against 40. It reads safe today only
-  because the band overplans by 15-20 points and the 06:30-07:00 preserves
-  re-decide, and a cloudy morning's slower ramp makes the gap larger.
-- Steps: pick the horizon end — sunrise plus a fixed offset (today's crossover
-  was +59 minutes) or an offset scaled by the weather category (normal +60,
-  rainy/cloudy +90) — and apply it where the reserve plan sizes its window and
-  completion target, keeping `hours_until_next_sunrise` as the report value.
-  Record the post-sunrise drain in the audit note. Dry-run the plan against the
-  last week's mornings before enabling.
-- Done when: a normal-forecast plan lands the SOC floor at or above the
-  threshold when PV takes over, and the following outage-morning read shows the
-  cut starting at or above the threshold with no morning preserve switch.
+  the house until PV covers the load. On 2026-11-20 (sunrise 06:36, normal,
+  dry-season threshold 40) PV rose 6 W at 06:28 to 1160 W at 07:28 against
+  1.2-1.3 kW of load; the crossover was about 07:35, 59 minutes after sunrise,
+  and SOC fell 58% to 54% across that hour (4 points, 1.2 kWh). The 3-point
+  headroom in the 43% target is calibrated to exactly that: a met target reads
+  39% at 07:35, then PV gives back about a point before 08:00 (SOC 54 to 55
+  from 07:35 to 07:58), so the cut starts at 40 - at the threshold, as designed.
+  Moving the horizon to +60 minutes would raise the target to about 48 and the
+  cut start to about 45, buying 1.5 kWh overnight for margin that PV provides
+  free 25 minutes later. The N12 mornings that started at 39-41% predate N19's
+  sunrise-target change, when the plan did not size to the next morning's
+  preserve threshold at all (`AUTO_TOPUP_TARGET_SOC` is unset, so the floor was
+  the 20% BMS cutoff), so they are not evidence for a higher horizon; and the
+  band already overplans by 15-20 points, which is why today arrived at 54-55
+  rather than 39.
+- Remaining question: on a rainy/cloudy cut-day the dip is larger (6-8 points)
+  and PV gives back less during the cut. The 45% dry-season threshold and N20's
+  last pre-cut hold are the current cover, and N20's hold sizes only to the
+  drain up to the cut start, not the drain during it.
+- Steps: read the next two normal mornings to confirm the cut-start arithmetic
+  (target met, cut starts 40 plus or minus a point). Then read a cloudy
+  cut-morning: whether SOC drains through the cut with PV below load, and
+  whether the last pre-cut hold covered that. Only then choose between a
+  category-scaled horizon (rainy/cloudy +90), a higher cloudy threshold, or
+  leaving both alone.
+- Done when: a normal cut-morning is confirmed within a point of the threshold
+  with the target met, a cloudy cut-morning is read, and the owner decides
+  whether any horizon offset is needed.
 
 ## Current Baseline
 
