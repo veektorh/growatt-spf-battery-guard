@@ -26,11 +26,12 @@ from growatt_guard.schedule import (
     validate_schedule,
     validate_schedule_overrides,
 )
-from growatt_guard.load_learning import (
-    resolve_timezone,
-    select_night_load_profile,
-    select_overnight_load,
+from growatt_guard.dashboard_metrics import (
+    DASHBOARD_METRICS_RETENTION_DAYS,
+    read_dashboard_metrics_history,
 )
+from growatt_guard.load_learning import resolve_timezone
+from growatt_guard.load_profile import planning_night_load
 from growatt_guard.notifications import (
     embed_auto_topup_started,
     embed_topup_below_target,
