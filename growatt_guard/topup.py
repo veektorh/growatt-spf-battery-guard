@@ -112,22 +112,6 @@ def _planning_load_w(live_load_w: float, learned_load_w: float | None) -> float:
     return min(live_load_w, learned_load_w * _LIVE_LOAD_UPLIFT_CAP_FACTOR)
 
 
-def _learned_night_load(
-    history: list[dict],
-    hours: float,
-    tz: dt.tzinfo | None = None,
-) -> tuple[float | None, str]:
-    """Banded evening/overnight load when it is ready, else the flat nightly average."""
-    profile = select_night_load_profile(history, hours=hours, tz=tz)
-    if profile["rate_w"] is not None:
-        return float(profile["rate_w"]), str(profile["source"])
-    flat = select_overnight_load(history)
-    return (
-        float(flat["rate_w"]) if flat["rate_w"] is not None else None,
-        str(flat["source"]),
-    )
-
-
 def _projected_sunrise_soc(
     soc: float,
     load_w: float,
@@ -305,7 +289,14 @@ def command_auto_topup_check(config: Config) -> int:
     night_tz = resolve_timezone(getattr(config, "weather_timezone", ""))
     append_discharge_rate_reading(live_load_w, aggregate_nightly=True, tz=night_tz)
     history = read_discharge_rate_history()
-    learned_load_w, learned_source = _learned_night_load(history, hrs, night_tz)
+    planned_at = dt.datetime.now().astimezone()
+    learned_load_w, learned_source = planning_night_load(
+        read_dashboard_metrics_history(now=planned_at, days=DASHBOARD_METRICS_RETENTION_DAYS),
+        history,
+        now=planned_at,
+        hours=hrs,
+        tz=night_tz,
+    )
     load_w = _planning_load_w(live_load_w, learned_load_w)
     if learned_load_w is not None:
         logging.info(
@@ -543,6 +534,7 @@ def command_auto_topup_check(config: Config) -> int:
         f"planned_min={topup_min}, target_soc={current_soc_target:g}, "
         f"sunrise_target_soc={effective_target_soc:g}, "
         f"planned_load_w={load_w:g}, "
+        f"planned_load_source={learned_source}, "
         f"planned_charge_rate_w={charge_rate_w:g}, "
         f"plan_kind={'late-safety' if late_safety_window else 'reserve'}"
     )
