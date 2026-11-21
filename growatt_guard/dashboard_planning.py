@@ -68,6 +68,64 @@ def _numeric_metric(value: Any) -> float | None:
     return None
 
 
+_CAPPED_FULL_SOC = 95.0
+_CAPPED_PIN_W = 100.0
+
+
+def _row_datetime(row: dict[str, Any]) -> dt.datetime | None:
+    stamp = row.get("timestamp")
+    if not isinstance(stamp, str):
+        return None
+    try:
+        return dt.datetime.fromisoformat(stamp)
+    except ValueError:
+        return None
+
+
+def _capped_solar_run(
+    metric_rows: list[dict[str, Any]] | None,
+    now: dt.datetime,
+) -> dict[str, Any] | None:
+    """Trailing run of full-battery reads whose PV is pinned to the load.
+
+    The SPF has no export path, so once the battery is full the array is
+    throttled to the house. That state is only worth naming when it holds
+    across consecutive refreshes; one reading at the top can be a passing cloud.
+    """
+    rows = [row for row in (metric_rows or []) if _row_datetime(row) is not None]
+    since: dt.datetime | None = None
+    reads = 0
+    for row in reversed(rows):
+        stamp = _row_datetime(row)
+        if stamp is None or stamp.date() != now.date():
+            break
+        soc = _numeric_metric(row.get("soc"))
+        pv_w = _numeric_metric(row.get("pv_w"))
+        load_w = _numeric_metric(row.get("load_w"))
+        if (
+            soc is None
+            or pv_w is None
+            or load_w is None
+            or soc < _CAPPED_FULL_SOC
+            or pv_w <= 0
+            or abs(pv_w - load_w) > _CAPPED_PIN_W
+        ):
+            break
+        since = stamp
+        reads += 1
+    if since is None or reads < 2:
+        return None
+    today_peak = max(
+        (
+            _numeric_metric(row.get("pv_w")) or 0.0
+            for row in rows
+            if (_row_datetime(row) or now).date() == now.date()
+        ),
+        default=0.0,
+    )
+    return {"since": since, "reads": reads, "peak_w": today_peak or None}
+
+
 def _clamp_pct(value: float) -> float:
     return max(0.0, min(100.0, value))
 
@@ -344,6 +402,7 @@ def build_dashboard_recommendations(
     grid_status_text: str,
     energy_outlook: dict[str, Any] | None = None,
     threshold_decision: Any | None = None,
+    solar_capped: dict[str, Any] | None = None,
 ) -> list[dict]:
     """Generate ranked recommendations with reason and impact context."""
     _ = soc_health
@@ -355,7 +414,21 @@ def build_dashboard_recommendations(
     tonight_level = str(tonight_risk.get("level", "")).lower()
     energy_outlook = energy_outlook or {}
 
-    if soc >= 95 and pv_w > 0:
+    if solar_capped is not None:
+        since = solar_capped["since"]
+        peak_w = solar_capped["peak_w"]
+        peak_text = f" Today peaked at {_fmt_w(peak_w)}." if peak_w else ""
+        recs.append({
+            "icon": "PV",
+            "level": "watch",
+            "title": "Array output is capped",
+            "text": (
+                f"Battery has been full since {since:%H:%M} and PV is pinned to the house load, "
+                f"so nothing above load is being stored.{peak_text} Use the remaining strong-sun hours."
+            ),
+            "meta": f"Capped for {solar_capped['reads']} consecutive reads",
+        })
+    elif soc >= 95 and pv_w > 0:
         recs.append({
             "icon": "OK",
             "level": "good",

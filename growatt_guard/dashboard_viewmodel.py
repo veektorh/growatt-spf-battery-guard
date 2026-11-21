@@ -26,6 +26,7 @@ from growatt_guard.dashboard_insights import (
     compute_tonight_safe,
 )
 from growatt_guard.dashboard_planning import (
+    _capped_solar_run,
     _numeric_metric,
     build_dashboard_assistant_summary, build_dashboard_daily_mix,
     build_dashboard_energy_outlook, build_dashboard_home_status,
@@ -296,6 +297,7 @@ def build_dashboard_data_payload(
         next_action,
         now=now,
     )
+    solar_capped = _capped_solar_run(metric_history, now)
     recommendations = build_dashboard_recommendations(
         live_metrics,
         "",
@@ -306,6 +308,7 @@ def build_dashboard_data_payload(
         grid_status_text,
         energy_outlook=energy_outlook,
         threshold_decision=threshold_decision,
+        solar_capped=solar_capped,
     )
     _projected_sunrise = risk.get("projected_sunrise_soc")
     tonight_safe = compute_tonight_safe(
@@ -352,6 +355,15 @@ def build_dashboard_data_payload(
             "reserve_floor_soc": battery_bms_cutoff_soc,
             "auto_topup_min_minutes": auto_topup_min_minutes,
             "load_profile": _load_profile_view(metric_history, now, site_tz),
+            "solar_capped": (
+                {
+                    "since": solar_capped["since"].isoformat(timespec="minutes"),
+                    "reads": solar_capped["reads"],
+                    "peak_w": solar_capped["peak_w"],
+                }
+                if solar_capped
+                else None
+            ),
         },
         "supply": _supply_view(metric_history, schedule, now, site_tz),
         "assistant": {
