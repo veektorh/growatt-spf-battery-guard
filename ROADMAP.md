@@ -222,39 +222,6 @@ public-safe: no IDs, serials, domains, or credentials.
   with the target met, a cloudy cut-morning is read, and the owner decides
   whether any horizon offset is needed.
 
-### N23. Name the midday surplus window when the battery is full
-
-- Status: open, display-only; it changes no mode timing. Read-only until the
-  owner picks the surface.
-- Why: on 2026-11-20 the battery reached 99% at 12:53 and the SPF, which has
-  no export path, pinned the array to the house load: PV 2413 W against a
-  2322 W load at 12:53 with the battery at 5 W and charge 0 W, then 1268 W
-  against 1202 W at 13:08 and 1360 W against 1284 W at 13:23. From 12:53 to
-  13:23 `pv_today_kwh` and `load_today_kwh` both rose 0.7 kWh — nothing above
-  load was stored or used. The day had peaked at 5.4 kW at 10:52 and the
-  7-day same-time pace expected 40.1 kWh against 24.7 kWh recorded, so the
-  afternoon's remaining PV had no sink.
-- Why it matters: the only lever on an off-grid SPF is moving deferrable load
-  into the strong-sun hours; the guard cannot store or export the surplus. The
-  Now tab already says "Battery is full, so the current 1.4 kW solar is best
-  used by flexible house loads", but that exists only while someone watches,
-  and the daily summary, the ledger, and PVOutput cannot tell capped output
-  from array potential.
-- The overnight top-up was not the cause: the only grid charge was the
-  00:00-00:59 reserve window, 80% to 86% at an implied 1835 W against 1868
-  planned. Skipping it would have left about 48-49% at dawn and the array
-  would still have filled the battery roughly half an hour later (1.8 kWh at
-  the 3.4 kW it accepted in late morning). No avoidable charge to remove by
-  that lever.
-- Steps: choose the surface — a Now-tab row while `soc >= 95` and PV stays
-  within about 100 W of load across consecutive refreshes, a daily-summary
-  line naming the capped hours, or a one-shot Discord nudge — and state the
-  day's peak so the reader can size the lost window without a fabricated
-  potential figure. Keep it on the existing read-only refresh path.
-- Done when: a full-battery afternoon states that output is capped and names
-  the usable strong-sun window, and the day's record separates capped output
-  from array potential.
-
 ### N24. The pre-cut projection basis: read all three, keep the sample
 
 - Status: answered, read-only watch. No basis change is justified on the
@@ -299,6 +266,24 @@ public-safe: no IDs, serials, domains, or credentials.
   the deferral to the cut hour over re-basing the input.
 - Done when: closed as answered; reopen as its own task if the watch condition
   above fires.
+
+### N25. Separate capped output from array potential in the day's record
+
+- Status: open, read-only design. Reports only; no mode timing.
+- Why: N23 closed on 2026-11-21 with the Now-tab "Solar surplus" row, which
+  only exists while someone is looking. On 2026-11-20 the array was pinned to
+  the house from 12:53 (PV 2413 W against a 2322 W load, then 1268/1202 and
+  1360/1284) and the day still recorded 24.7 kWh against a 7-day same-time
+  pace of 40.1 kWh, with nothing in the daily summary, the ledger, or PVOutput
+  able to say the output was capped rather than the array weak.
+- Steps: add a capped-hours field to the daily summary and the ledger, computed
+  from the same predicate the Now row uses (soc at or above 95 and PV within
+  100 W of load, over the day's snapshots), paired with the day's peak PV and
+  the day's forecast PV so a reader separates a throttled day from a cloudy
+  one. Keep it on the read-only reporting path.
+- Done when: a completed capped day's record states the capped hours and the
+  peak, and a throttled day is distinguishable from a cloudy one without
+  opening the dashboard.
 
 ## Current Baseline
 
@@ -358,6 +343,9 @@ The following capabilities are implemented and should be preserved:
   and withholds tuning recommendations until three comparable outcomes exist.
 - Observed estate supply from the recorded grid voltage (`supply-history`),
   set against the scheduled outage windows.
+- A Now-tab "Solar surplus" row while the battery is full and PV is pinned to
+  the load across consecutive refreshes, naming the capped window and the
+  day's peak (N23, closed 2026-11-21; the ledger half is N25).
 - A shadow hour-of-day load profile (`load-profile`) compared with the band
   planner's night energy.
 - A separate morning-preservation scorecard that models the observed no-Utility

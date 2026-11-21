@@ -37,6 +37,7 @@ from growatt_guard.dashboard import (
     _today_job_rows,
     _upcoming_override_rows,
 )
+from growatt_guard.dashboard_planning import _capped_solar_run, build_dashboard_recommendations
 from growatt_guard.dashboard_service import dashboard_asset_for_path
 
 
@@ -501,6 +502,41 @@ class DashboardTests(unittest.TestCase):
                 pv_forecast=pv_forecast,
                 now=dt.datetime(2026, 7, 5, 8, 0),
             )
+
+    def test_capped_solar_row_needs_a_consecutive_full_battery_run(self):
+        now = dt.datetime(2026, 11, 20, 13, 23)
+        live = {"soc": 99.0, "pv_w": 1360.0, "load_w": 1284.0, "grid_w": 0.0, "battery_net_w": -76.0}
+        rows = [
+            {"timestamp": "2026-11-20T12:53:00", "soc": 99, "pv_w": 2413, "load_w": 2322},
+            {"timestamp": "2026-11-20T13:08:00", "soc": 99, "pv_w": 1268, "load_w": 1202},
+            {"timestamp": "2026-11-20T13:23:00", "soc": 99, "pv_w": 1360, "load_w": 1284},
+        ]
+
+        capped = build_dashboard_recommendations(
+            live, "", "charging", {"level": "comfortable"}, {},
+            "1.4 kW", "Solar covering entire load", solar_capped=_capped_solar_run(rows, now),
+        )
+        self.assertEqual(capped[0]["title"], "Array output is capped")
+        self.assertIn("full since 12:53", capped[0]["text"])
+        self.assertIn("Today peaked at 2.4 kW", capped[0]["text"])
+
+        single = build_dashboard_recommendations(
+            live, "", "charging", {"level": "comfortable"}, {},
+            "1.4 kW", "Solar covering entire load", solar_capped=_capped_solar_run(rows[-1:], now),
+        )
+        self.assertEqual(single[0]["title"], "Use solar while it is abundant")
+
+        # PV far above load means the array is charging the battery, not capped.
+        charging_rows = [
+            {"timestamp": "2026-11-20T13:08:00", "soc": 99, "pv_w": 3400, "load_w": 1202},
+            {"timestamp": "2026-11-20T13:23:00", "soc": 99, "pv_w": 3400, "load_w": 1284},
+        ]
+        charging = build_dashboard_recommendations(
+            live, "", "charging", {"level": "comfortable"}, {},
+            "1.4 kW", "Solar covering entire load",
+            solar_capped=_capped_solar_run(charging_rows, now),
+        )
+        self.assertNotEqual(charging[0]["title"], "Array output is capped")
 
     def test_dashboard_payload_morning_projection_starts_from_the_sunset_estimate(self):
         # N21: before noon the card projects from the SOC the day's remaining PV

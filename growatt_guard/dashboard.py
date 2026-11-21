@@ -495,6 +495,20 @@ def build_dashboard_html(dashboard_data: dict[str, Any]) -> str:
         alerts.append((topup_badge_class, "Top-up running", utility_hold_detail or active_topup_detail))
     if tonight_safe_alert is not None:
         alerts.append(tonight_safe_alert)
+    solar_capped = dashboard_data["planner"].get("solar_capped") or {}
+    if solar_capped:
+        capped_since = None
+        try:
+            capped_since = dt.datetime.fromisoformat(str(solar_capped.get("since")))
+        except ValueError:
+            capped_since = None
+        capped_peak = solar_capped.get("peak_w")
+        capped_detail = "Battery is full and PV is pinned to the house load, so nothing above load is being stored"
+        if capped_since:
+            capped_detail += f" since {capped_since:%H:%M}"
+        if isinstance(capped_peak, (int, float)) and capped_peak > 0:
+            capped_detail += f"; today peaked at {_fmt_w(capped_peak)}"
+        alerts.append(("badge-warn", "Solar surplus", capped_detail + ". Move flexible loads into this window."))
     alerts_html = _render_alerts(alerts)
 
     tonight_needs_topup = isinstance(tonight_topup, (int, float)) and tonight_topup > 0
