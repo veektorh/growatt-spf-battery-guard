@@ -267,24 +267,6 @@ public-safe: no IDs, serials, domains, or credentials.
 - Done when: closed as answered; reopen as its own task if the watch condition
   above fires.
 
-### N25. Separate capped output from array potential in the day's record
-
-- Status: open, read-only design. Reports only; no mode timing.
-- Why: N23 closed on 2026-11-21 with the Now-tab "Solar surplus" row, which
-  only exists while someone is looking. On 2026-11-20 the array was pinned to
-  the house from 12:53 (PV 2413 W against a 2322 W load, then 1268/1202 and
-  1360/1284) and the day still recorded 24.7 kWh against a 7-day same-time
-  pace of 40.1 kWh, with nothing in the daily summary, the ledger, or PVOutput
-  able to say the output was capped rather than the array weak.
-- Steps: add a capped-hours field to the daily summary and the ledger, computed
-  from the same predicate the Now row uses (soc at or above 95 and PV within
-  100 W of load, over the day's snapshots), paired with the day's peak PV and
-  the day's forecast PV so a reader separates a throttled day from a cloudy
-  one. Keep it on the read-only reporting path.
-- Done when: a completed capped day's record states the capped hours and the
-  peak, and a throttled day is distinguishable from a cloudy one without
-  opening the dashboard.
-
 ## Current Baseline
 
 The following capabilities are implemented and should be preserved:
@@ -345,7 +327,16 @@ The following capabilities are implemented and should be preserved:
   set against the scheduled outage windows.
 - A Now-tab "Solar surplus" row while the battery is full and PV is pinned to
   the load across consecutive refreshes, naming the capped window and the
-  day's peak (N23, closed 2026-11-21; the ledger half is N25).
+  day's peak (N23, closed 2026-11-21).
+- Capped minutes and peak PV on every finalized day in the daily generation
+  ledger, and a 21:00 daily-summary line setting them against the day-ahead
+  forecast, so a full-battery day reads apart from a cloudy one without the
+  dashboard (N25, closed 2026-11-21). The pin tolerance is the larger of 100 W
+  and 5% of load: on 2026-11-20 a 3.7 kW load read 170 W under PV while pinned.
+  Re-measured on the retained week, 2026-11-20 is the only capped day (89 min,
+  peak 5.4 kW) and it generated 30.9 kWh against a 31.4 kWh forecast, so the
+  cap cost little that day; the earlier 24.7-vs-40.1 comparison was a
+  mid-afternoon total against a pace, not a weak day.
 - A shadow hour-of-day load profile (`load-profile`) compared with the band
   planner's night energy.
 - A separate morning-preservation scorecard that models the observed no-Utility

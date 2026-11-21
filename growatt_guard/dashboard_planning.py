@@ -5,6 +5,7 @@ from typing import Any
 from growatt_guard.growatt_api import format_duration_minutes
 from growatt_guard.dashboard_metrics import _fmt_kwh, _fmt_pct, _fmt_w
 from growatt_guard.schedule import next_scheduled_runs, schedule_job_tokens
+from growatt_guard.solar_cap import is_capped_reading
 
 def _positive_metric(value: Any) -> float | None:
     if isinstance(value, (int, float)):
@@ -68,10 +69,6 @@ def _numeric_metric(value: Any) -> float | None:
     return None
 
 
-_CAPPED_FULL_SOC = 95.0
-_CAPPED_PIN_W = 100.0
-
-
 def _row_datetime(row: dict[str, Any]) -> dt.datetime | None:
     stamp = row.get("timestamp")
     if not isinstance(stamp, str):
@@ -99,17 +96,7 @@ def _capped_solar_run(
         stamp = _row_datetime(row)
         if stamp is None or stamp.date() != now.date():
             break
-        soc = _numeric_metric(row.get("soc"))
-        pv_w = _numeric_metric(row.get("pv_w"))
-        load_w = _numeric_metric(row.get("load_w"))
-        if (
-            soc is None
-            or pv_w is None
-            or load_w is None
-            or soc < _CAPPED_FULL_SOC
-            or pv_w <= 0
-            or abs(pv_w - load_w) > _CAPPED_PIN_W
-        ):
+        if not is_capped_reading(row):
             break
         since = stamp
         reads += 1
