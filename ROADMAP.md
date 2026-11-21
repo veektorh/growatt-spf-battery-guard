@@ -286,35 +286,50 @@ public-safe: no IDs, serials, domains, or credentials.
   the usable strong-sun window, and the day's record separates capped output
   from array potential.
 
-### N24. Base the pre-cut projection on the load profile, not one sample
+### N24. The pre-cut projection basis: read all three, keep the sample
 
-- Status: open, read-only until the owner picks the rule. Any change here moves
-  inverter mode timing.
-- Why: `projected_soc_at_outage_start` drains linearly from the single
-  `outPutPower` reading and the minutes to the cut. On 2026-11-21 the same
-  formula produced 36.35% at 06:00 (48% live, which implies about 1747 W over
-  the 120 minutes to the 08:00 cut) and 41% at 06:30 (46% live, 945 W in the
-  audit note), so the 06:00 job deferred and no later job acted. Measured
-  discharge over those two hours was 968 W and then 334 W, and SOC fell three
-  points; the cut started at 44%. The hourly profile puts the same hours at
-  1515 W and 1392 W, and substituting it at 06:30 would have projected about
-  38.7% — the last pre-cut job would have held the battery for a cut that
-  needed nothing.
-- Why it matters: the two errors are live and point opposite ways. A
-  momentarily high sample defers a switch a stable profile would want; a
-  momentarily low sample at the last pre-cut job clears the threshold and
-  leaves the cut with no hold, which is the failure N20's hold exists to
-  prevent. The projection also ignores the PV that rises between the check and
-  the cut, so on a PV-positive morning it over-predicts the drain.
-- Steps: pick one basis — the hourly-profile median over the remaining minutes,
-  the larger of the sample and the profile, or the profile with the current PV
-  offset subtracted — and state why. Read three pre-cut mornings on the chosen
-  basis against the recorded arrival: no hold on a morning that arrives at or
-  above the threshold, one hold on a morning below it. Keep the change to the
-  input only; the deferral policy stays as shipped.
-- Done when: one helper names the projection inputs, a test covers the chosen
-  basis and its fallback, three pre-cut mornings are read with no false hold
-  and no missed hold, and the owner has approved the mode-timing change.
+- Status: answered, read-only watch. No basis change is justified on the
+  evidence below, so nothing here moves mode timing; reopen only if a second
+  false hold or any missed hold appears.
+- Why it was opened: `projected_soc_at_outage_start` drains linearly from the
+  single `outPutPower` reading and the minutes to the cut. On 2026-11-21 the
+  same formula produced 36.35% at 06:00 (48% live, implying about 1747 W over
+  the 120 minutes) and 41% at 06:30 (46% live, 945 W), so the 06:00 job
+  deferred and the rest cleared. That looked like one noisy input deciding the
+  morning.
+- Measurement, 2026-11-21: every pre-cut job row on the four cut mornings with
+  readings, re-run under three bases — the recorded `load_w` sample, the
+  current hourly-profile medians (1515 W at 06:00, 1392 W at 07:00), and the
+  net `discharge_w` (which already carries the PV offset) — against the SOC at
+  the first cut reading. Last pre-cut job of each morning:
+
+  | Morning | Threshold | Live | Sample | Profile | Discharge | Arrival |
+  |---|---|---|---|---|---|---|
+  | 2026-11-18 (06:30, last job that ran) | 45 | 42 | 34.0 | 34.8 | 31.7 | 41 |
+  | 2026-11-19 (07:00) | 40 | 42 | 39.0 | 37.4 | 39.6 | 44 |
+  | 2026-11-20 (07:00) | 40 | 56 | 52.0 | 51.4 | 51.9 | 55 |
+  | 2026-11-21 (07:00) | 40 | 45 | 41.0 | 40.4 | 41.9 | 44 |
+
+- What it says: the three bases never diverge by more than 3.5 points and the
+  mean bias at the last job is 4.5 points pessimistic for the sample, 5.0 for
+  the profile and 4.7 for net discharge — within a point of each other on four
+  mornings. The profile, which the task proposed, is the *worst* of the three,
+  and the shipped sample basis is not the weakest. All three lose to the PV
+  that rises between the last job and the cut — on 2026-11-20 from 171 W at
+  06:58 to 2639 W at 08:01 against a 1.3 kW house — which no instantaneous
+  input can see. The lever that fixes that is the deferral, not the input, and
+  it is already shipped (N20).
+- The one false hold on record predates it: 2026-11-19 07:00 projected 39.0%
+  against a 40% threshold with a 152 W PV reading and switched, for a cut that
+  started at 44%. That is about 1 kWh of grid on a morning where four jobs
+  switched; the deferral would have sent the 06:00, 06:30 and 06:40 jobs to the
+  07:00 re-decision, but the 07:00 sample was pessimistic on its own.
+- Steps: none now. If a second false hold appears at a last pre-cut job, or any
+  morning arrives below the threshold after its last job cleared it, read that
+  morning against this table before proposing anything — and prefer widening
+  the deferral to the cut hour over re-basing the input.
+- Done when: closed as answered; reopen as its own task if the watch condition
+  above fires.
 
 ## Current Baseline
 
@@ -405,15 +420,17 @@ closures and add fixtures for any new trustworthy classification signal.
   or interpretation bug.
 
 Current concrete steps toward this goal are in Next Up: N20 (the last pre-cut
-hold) and N24 (the projection's load input). N2 closed on 2026-11-19 with the
-verdict "fewer repeat top-ups": three banded weekday nights each ran two starts
-against the 2026-11-09 baseline of three, and the band-vs-live direction proved
-unstable, so no live-load cap was added. N19 closed the same day: the first
-outage morning after the change started its cut at 43-44% against the 40%
-preserve threshold, the first read morning above the line. The learned charge
-rate went live on 2026-11-10 at the owner's direction, ahead of the
-three-comparable-outcome gate; N1 collected those outcomes after the fact and
-closed on 2026-11-13 with the repeats still present, which is why N2 owned
+hold). The projection-basis question (N24) was answered on 2026-11-21: the
+sample, the hourly profile and net discharge land within a point of each other
+on four cut mornings, so the input stays as shipped. N2 closed on 2026-11-19
+with the verdict "fewer repeat top-ups": three banded weekday nights each ran
+two starts against the 2026-11-09 baseline of three, and the band-vs-live
+direction proved unstable, so no live-load cap was added. N19 closed the same
+day: the first outage morning after the change started its cut at 43-44%
+against the 40% preserve threshold, the first read morning above the line. The
+learned charge rate went live on 2026-11-10 at the owner's direction, ahead of
+the three-comparable-outcome gate; N1 collected those outcomes after the fact
+and closed on 2026-11-13 with the repeats still present, which is why N2 owned
 them. N12 closed on 2026-11-18 with three of five outage mornings starting
 below the preserve threshold, so the sunrise-target change returned as N19.
 N17 closed on 2026-11-20 at the owner's direction ("fix the estimate first",
