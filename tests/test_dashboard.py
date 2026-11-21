@@ -466,7 +466,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(risk["projection_basis"], "projected sunset SOC")
 
 
-    def test_dashboard_payload_morning_projection_does_not_start_from_sunset(self):
+    def _morning_payload(self, *, pv_forecast):
         status = {
             "storage_params": {
                 "storageBean": {"outputConfig": "0"},
@@ -480,13 +480,15 @@ class DashboardTests(unittest.TestCase):
             }
         }
         schedule = {"timezone": "Africa/Lagos", "jobs": []}
-
         with patch("growatt_guard.dashboard_insights.read_discharge_rate_history", return_value=[{"rate_w": 400}, {"rate_w": 400}]), \
             patch("growatt_guard.dashboard_viewmodel.read_pause_state", return_value=None), \
             patch("growatt_guard.dashboard_viewmodel.read_battery_alert_state", return_value=None), \
             patch("growatt_guard.dashboard_viewmodel.read_growatt_cloud_failure_state", return_value=None), \
-            patch("growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None):
-            payload = build_dashboard_data_payload(
+            patch("growatt_guard.dashboard_viewmodel.read_pvoutput_state", return_value=None), \
+            patch("growatt_guard.dashboard_viewmodel.read_mode_audit_rows", return_value=[]), \
+            patch("growatt_guard.dashboard_viewmodel.build_chart_data",
+                  return_value={"labels": [], "soc": []}):
+            return build_dashboard_data_payload(
                 status,
                 schedule,
                 {"dates": {}},
@@ -496,12 +498,55 @@ class DashboardTests(unittest.TestCase):
                 hours_to_sunrise=22,
                 battery_charge_rate_w=2100,
                 hours_to_sunset=10,
+                pv_forecast=pv_forecast,
                 now=dt.datetime(2026, 7, 5, 8, 0),
             )
 
+    def test_dashboard_payload_morning_projection_starts_from_the_sunset_estimate(self):
+        # N21: before noon the card projects from the SOC the day's remaining PV
+        # leaves at sunset, not from now-to-sunrise across a whole daylight day.
+        payload = self._morning_payload(
+            pv_forecast={"tomorrow_kwh": 30.0, "today_remaining_kwh": 20.0}
+        )
+
+        risk = payload["planner"]["tonight_risk"]
         outlook = payload["planner"]["outlook"]
-        self.assertGreater(outlook["projected_sunrise_soc"], 10)
-        self.assertNotIn("projected sunset SOC", outlook["sunrise_basis"])
+        self.assertEqual(risk["projection_kind"], "sunset")
+        self.assertGreater(risk["projection_start_soc"], 44.0)
+        self.assertEqual(risk["projection_hours"], 12.0)
+        self.assertIn("projected sunset SOC", outlook["sunrise_basis"])
+        self.assertEqual(outlook["projected_sunset_soc"], risk["projection_start_soc"])
+
+    def test_dashboard_payload_morning_without_a_forecast_estimates_later(self):
+        payload = self._morning_payload(pv_forecast=None)
+
+        risk = payload["planner"]["tonight_risk"]
+        self.assertEqual(risk["projection_kind"], "pending")
+        self.assertEqual(risk["title"], "Estimating later")
+        self.assertIsNone(risk["projected_sunrise_soc"])
+        self.assertIsNone(risk["topup_minutes"])
+        html = build_dashboard_html(payload)
+        self.assertNotIn("Top-up needed tonight", html)
+        self.assertIn("waits for the day&#x27;s remaining PV", html)
+
+    def test_tonight_risk_topup_never_exceeds_the_battery_headroom(self):
+        live = {"soc": 88.0, "battery_net_w": 3000.0, "load_w": 3000.0}
+        with patch("growatt_guard.dashboard_insights.read_discharge_rate_history", return_value=[{"rate_w": 3000}, {"rate_w": 3000}]):
+            risk = build_tonight_risk(
+                live,
+                battery_capacity_wh=30000,
+                battery_bms_cutoff_soc=25,
+                hours_to_sunrise=22,
+                battery_charge_rate_w=1000,
+                hours_to_sunset=10,
+                pv_remaining_kwh=6.0,
+                now=dt.datetime(2026, 7, 5, 8, 0),
+            )
+
+        headroom_kwh = (100.0 - risk["projection_start_soc"]) / 100.0 * 30.0
+        charged_kwh = risk["topup_minutes"] / 60.0 * 1.0
+        self.assertLessEqual(charged_kwh, headroom_kwh + 1e-6)
+        self.assertGreater(risk["topup_minutes"], 0.0)
 
     def test_dashboard_payload_includes_last_successful_pvoutput_upload(self):
         status = {
@@ -718,6 +763,7 @@ class DashboardTests(unittest.TestCase):
                 battery_charge_rate_w=2400,
                 auto_topup_solar_skip_min_margin_minutes=60,
                 auto_topup_min_minutes=20,
+                now=dt.datetime(2026, 11, 12, 19, 30),
             )
 
         self.assertIn("Topup to Sunrise", html)
@@ -764,6 +810,7 @@ class DashboardTests(unittest.TestCase):
                     hours_to_sunrise=10,
                     battery_charge_rate_w=1000,
                     auto_topup_solar_skip_min_margin_minutes=60,
+                    now=dt.datetime(2026, 11, 12, 19, 30),
                     **overrides,
                 )
 

@@ -26,7 +26,7 @@ from growatt_guard.dashboard_insights import (
     compute_tonight_safe,
 )
 from growatt_guard.dashboard_planning import (
-    _numeric_metric, _project_sunset_soc, _should_use_projected_sunset_start,
+    _numeric_metric,
     build_dashboard_assistant_summary, build_dashboard_daily_mix,
     build_dashboard_energy_outlook, build_dashboard_home_status,
     build_dashboard_next_action, build_dashboard_recommendations,
@@ -249,14 +249,11 @@ def build_dashboard_data_payload(
     daily_mix = build_dashboard_daily_mix(live_metrics)
     next_action = build_dashboard_next_action(schedule, now=now)
     daily_insights = build_dashboard_daily_insights(live_metrics, metric_history, now=now)
-    projected_sunset_soc = _project_sunset_soc(live_metrics, battery_capacity_wh, hours_to_sunset)
-    overnight_hours = None
-    risk_start_soc = None
-    risk_basis = ""
-    if projected_sunset_soc is not None and _should_use_projected_sunset_start(now, hours_to_sunset, hours_to_sunrise):
-        overnight_hours = float(hours_to_sunrise or 0) - float(hours_to_sunset or 0)
-        risk_start_soc = projected_sunset_soc
-        risk_basis = "projected sunset SOC"
+    pv_remaining_kwh = None
+    if isinstance(pv_forecast, dict):
+        remaining = pv_forecast.get("today_remaining_kwh")
+        if isinstance(remaining, (int, float)):
+            pv_remaining_kwh = float(remaining)
     risk = build_tonight_risk(
         live_metrics,
         battery_capacity_wh,
@@ -266,9 +263,8 @@ def build_dashboard_data_payload(
         auto_topup_target_soc,
         auto_topup_solar_skip_min_margin_minutes,
         auto_topup_headroom_soc,
-        projection_start_soc=risk_start_soc,
-        projection_hours=overnight_hours,
-        projection_basis=risk_basis,
+        hours_to_sunset=hours_to_sunset,
+        pv_remaining_kwh=pv_remaining_kwh,
         metric_rows=metric_history,
         now=now,
         tz=resolve_timezone(schedule.get("timezone")),

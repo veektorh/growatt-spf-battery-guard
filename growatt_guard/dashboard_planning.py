@@ -90,18 +90,6 @@ def _project_sunset_soc(
     return _clamp_pct(soc - (battery_net_w * hours_to_sunset / battery_capacity_wh) * 100.0)
 
 
-def _should_use_projected_sunset_start(
-    now: dt.datetime,
-    hours_to_sunset: float | None,
-    hours_to_sunrise: float | None,
-) -> bool:
-    if hours_to_sunset is None or hours_to_sunrise is None:
-        return False
-    if hours_to_sunset <= 0 or hours_to_sunrise <= hours_to_sunset:
-        return False
-    return now.hour >= 12 or hours_to_sunset <= 6
-
-
 def _dashboard_greeting(now: dt.datetime) -> str:
     if now.hour < 12:
         return "Good morning"
@@ -210,6 +198,13 @@ def build_dashboard_energy_outlook(
 ) -> dict[str, Any]:
     """Summarize predictive energy outcomes using available local signals."""
     projected_sunset_soc = _project_sunset_soc(live_metrics, battery_capacity_wh, hours_to_sunset)
+    # When the tonight card projected from a PV-aware sunset SOC, that number
+    # is the one the page shows; two different sunset figures would contradict
+    # each other on the same tile.
+    if str(tonight_risk.get("projection_kind") or "") == "sunset":
+        risk_sunset = tonight_risk.get("projection_start_soc")
+        if isinstance(risk_sunset, (int, float)):
+            projected_sunset_soc = float(risk_sunset)
 
     projected_sunrise_soc = tonight_risk.get("projected_sunrise_soc")
     if not isinstance(projected_sunrise_soc, (int, float)):
@@ -243,7 +238,10 @@ def build_dashboard_energy_outlook(
     if not isinstance(target_soc, (int, float)):
         target_soc = None
     if projected_sunrise_soc is None:
-        sunrise_note = "Projection will appear after SOC, sunrise, capacity, and load signals are available."
+        if str(tonight_risk.get("projection_kind") or "") == "pending":
+            sunrise_note = "Waiting for the day's remaining PV before sizing tonight."
+        else:
+            sunrise_note = "Projection will appear after SOC, sunrise, capacity, and load signals are available."
     elif projected_sunrise_soc <= 1:
         sunrise_note = "Stress estimate from carrying that load until sunrise."
     elif target_soc is not None:
