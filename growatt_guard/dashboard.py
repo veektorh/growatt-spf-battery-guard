@@ -498,6 +498,12 @@ def build_dashboard_html(dashboard_data: dict[str, Any]) -> str:
     alerts_html = _render_alerts(alerts)
 
     tonight_needs_topup = isinstance(tonight_topup, (int, float)) and tonight_topup > 0
+    if str(tonight_risk.get("projection_kind") or "") == "pending":
+        tonight_topup_sub = "waits for the day's remaining PV"
+    elif tonight_needs_topup:
+        tonight_topup_sub = "of grid charging needed"
+    else:
+        tonight_topup_sub = "projected from tonight's load"
     attention_html = (
         (_inline_badge("Top-up needed tonight", tonight_badge_class) if tonight_needs_topup else "")
         + _inline_badge("Systems OK" if dashboard_health_ok else "Needs attention", "badge-ok" if dashboard_health_ok else "badge-warn")
@@ -583,7 +589,7 @@ def build_dashboard_html(dashboard_data: dict[str, Any]) -> str:
         "tile-topup",
         "Top-up Tonight",
         tonight_topup_display,
-        "of grid charging needed" if tonight_needs_topup else "projected from tonight's load",
+        tonight_topup_sub,
         tonight_title,
         tonight_badge_class,
         _meter(

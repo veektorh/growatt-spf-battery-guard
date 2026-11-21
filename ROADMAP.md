@@ -41,6 +41,10 @@ public-safe: no IDs, serials, domains, or credentials.
   rebuilt Now tab yet.
 - Done when: one alert row is seen on the live Now tab and its text matches the
   matching `dashboard.json` field (`automation.*` or `planner.tonight_safe`).
+- Read, 2026-11-21: blocked until today by N21's morning card, which published
+  a false High risk every sunny morning. With N21 shipped the morning card
+  either states the sunset-based projection or says it is estimating later, so
+  the next alert row can be taken at face value.
 
 ### N20. Confirm the schedule-aware preserve skip on the next outage morning
 
@@ -135,41 +139,6 @@ public-safe: no IDs, serials, domains, or credentials.
   the open half is the hold: a morning whose 07:00 projection lands below the
   threshold shows one `switch-to-utility`, a hold sized to the threshold plus
   the projected drain, and a cut start at the threshold.
-
-### N21. Stop the morning Tonight card from demanding an impossible top-up
-
-- Status: open, display-only; it changes no mode timing. Read-only until the
-  owner picks a rule.
-- Why: at 08:40 on 2026-11-20 the Now tab read "High risk", projected sunrise
-  SOC 0% against the 40% reserve, and "Top-up Tonight 9h 36m / 18.7 kWh" —
-  more grid energy than the 30 kWh battery can hold. `build_tonight_risk`
-  projects from now to sunrise (21h 44m) at the weekday night bands
-  (1988 W), which is 43 kWh over a daylight day; before noon
-  `_should_use_projected_sunset_start` is false, so the projector it uses is
-  not the sunset start. Its own note reads "Stress estimate from carrying
-  that load until sunrise", so the number is deliberate but the badge and the
-  "Top-up Tonight" tile present it as tonight's plan. Every morning on a
-  full-sun day therefore shows High risk, and N11's alert-row read cannot
-  tell a real alert from this one.
-- Third morning, 2026-11-21 08:25: `level=high`, `title="High risk"`,
-  `projected_sunrise_soc=0.0`, `margin_soc=-40`, `plan_target_soc=43`,
-  `load_w=1550` from "weekend history (last 4 of 8 nights)",
-  `hours_to_sunrise=22.19`, `topup_minutes=584.5` (9h 44m) and the detail line
-  "Projected sunrise SOC 0%; target 40%; load 1.6 kW; topup 9h 44m" — while
-  the 08:00-11:00 cut was running and SOC sat at 44%. The mechanism is now
-  explicit in the payload: 08:25 plus `hours_to_sunrise=22.19` lands on 06:36
-  tomorrow, so the figure counts to the *next* sunrise; before noon the
-  projection spans a whole daylight day, drives `projected_sunrise_soc` to its
-  0 floor, and the tile states a top-up (9h 44m at 1.55 kW is about 15 kWh)
-  that is neither tonight's need nor reachable before the cut.
-- Steps: choose the morning behaviour — project from the sunset start whenever
-  a PV forecast exists, show the stress figure only as an explicitly labelled
-  worst case, or suppress the card before noon — then make the badge, the
-  tile, and the note say the same thing. Keep the evening behaviour that N11
-  watches, and the sunset projection after 12:00.
-- Done when: on a sunny morning the card states what tonight needs after the
-  projected sunset SOC, or that it cannot estimate yet, and no badge or tile
-  demands more energy than the battery holds.
 
 ### N22. End the night-plan horizon at PV takeover, not astronomical sunrise
 
@@ -353,7 +322,13 @@ The following capabilities are implemented and should be preserved:
   status shared across CLI, Discord, dashboard, health, and service diagnostics.
 - A mobile-oriented dashboard with live power flow, daily energy, metric source
   paths, freshness, charts, schedule visibility, tonight-risk planning,
-  reconciliation, same-time insights, and schema-versioned JSON output.
+  reconciliation, same-time insights, and schema-versioned JSON output. The
+  Tonight card projects from a PV-aware sunset SOC whenever the day's
+  remaining PV is known, says it is estimating later rather than publishing a
+  whole daylight day of load before noon, labels the all-day figure a stress
+  estimate, and never sizes a top-up past the battery's headroom (N21, closed
+  2026-11-21; the same morning read 9h 44m for 15 kWh on a 44% battery, now
+  under two hours from the sunset estimate).
 - One observability refresh path that updates the dashboard and PVOutput from a
   shared Growatt read.
 - PVOutput live uploads, extended-field fallback, complete weekly-history

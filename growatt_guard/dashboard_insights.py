@@ -330,7 +330,18 @@ def build_tonight_risk(
     metric_rows: list[dict[str, Any]] | None = None,
     now: dt.datetime | None = None,
     tz: dt.tzinfo | None = None,
+    hours_to_sunset: float | None = None,
+    pv_remaining_kwh: float | None = None,
 ) -> dict[str, Any]:
+    """Project tonight's sunrise SOC and the top-up it needs.
+
+    Basis order: an explicit start/horizon from the caller, then the sunset
+    projection whenever the day's remaining PV is known (the battery's sunset
+    SOC depends on today's array, not on the current net draw), then the live
+    SOC once the sun is down, then the all-day stress figure after noon. Before
+    noon without a PV forecast there is no honest number, so the card says it
+    is estimating later instead of publishing a whole daylight day of load.
+    """
     soc = live_metrics.get("soc")
     if not isinstance(soc, (int, float)):
         return {
@@ -360,17 +371,43 @@ def build_tonight_risk(
             "topup_minutes": None,
         }
 
-    start_soc = soc
-    duration_hours = hours_to_sunrise
-    basis = projection_basis
+    overnight_hours: float | None = None
+    if (
+        isinstance(hours_to_sunset, (int, float))
+        and hours_to_sunset > 0
+        and float(hours_to_sunset) < float(hours_to_sunrise)
+    ):
+        overnight_hours = float(hours_to_sunrise) - float(hours_to_sunset)
+
     if (
         isinstance(projection_start_soc, (int, float))
         and isinstance(projection_hours, (int, float))
         and projection_hours > 0
     ):
-        start_soc = float(projection_start_soc)
+        basis_kind = "explicit"
         duration_hours = float(projection_hours)
-        basis = basis or "projected sunset SOC"
+        basis = projection_basis or "projected sunset SOC"
+    elif overnight_hours is not None and isinstance(pv_remaining_kwh, (int, float)):
+        basis_kind = "sunset"
+        duration_hours = overnight_hours
+        basis = "projected sunset SOC"
+    elif isinstance(hours_to_sunset, (int, float)) and hours_to_sunset <= 0:
+        # The array is down, so now-to-sunrise is the real overnight draw.
+        basis_kind = "live"
+        duration_hours = float(hours_to_sunrise)
+        basis = "live SOC"
+    elif (now.hour if now is not None else dt.datetime.now().hour) >= 12:
+        basis_kind = "stress"
+        duration_hours = float(hours_to_sunrise)
+        basis = "stress estimate"
+    else:
+        basis_kind = "pending"
+        duration_hours = float(hours_to_sunrise)
+        basis = ""
+
+    start_soc = float(soc)
+    if basis_kind == "explicit":
+        start_soc = float(projection_start_soc)
 
     history = read_discharge_rate_history()
     load_w, source = planning_night_load(
@@ -395,6 +432,43 @@ def build_tonight_risk(
             "topup_minutes": None,
         }
 
+    if basis_kind == "sunset":
+        # Sunset SOC = live SOC plus the day's remaining PV minus the load it
+        # still has to carry before sunset. The current net draw says nothing
+        # about a morning whose array will refill the battery by evening.
+        sunset_balance_kwh = (
+            float(pv_remaining_kwh) - load_w * float(hours_to_sunset) / 1000.0
+        )
+        start_soc = max(
+            0.0,
+            min(
+                100.0,
+                float(soc) + (sunset_balance_kwh * 1000.0 / battery_capacity_wh) * 100.0,
+            ),
+        )
+
+    if basis_kind == "pending":
+        return {
+            "level": "unknown",
+            "title": "Estimating later",
+            "detail": (
+                "Tonight's projection starts once the day's remaining PV is known; "
+                "the 18:00 reserve plan sizes the window."
+            ),
+            "projected_sunrise_soc": None,
+            "target_soc": round(max(battery_bms_cutoff_soc, auto_topup_target_soc), 1),
+            "plan_target_soc": None,
+            "margin_soc": None,
+            "hours_to_sunrise": round(float(hours_to_sunrise), 2),
+            "projection_hours": None,
+            "projection_start_soc": None,
+            "projection_basis": "",
+            "projection_kind": basis_kind,
+            "load_w": round(load_w, 1),
+            "load_source": source,
+            "topup_minutes": None,
+        }
+
     soc_drop = (load_w * duration_hours / battery_capacity_wh) * 100.0
     projected_soc = max(0.0, start_soc - soc_drop)
     target_soc = max(battery_bms_cutoff_soc, auto_topup_target_soc)
@@ -412,7 +486,15 @@ def build_tonight_risk(
             margin_hours,
         )
         if topup_minutes is not None:
-            topup_minutes = max(0.0, round(topup_minutes, 1))
+            # The battery cannot accept more than its headroom; a tile must not
+            # ask for grid energy the pack has nowhere to put.
+            headroom_minutes = (
+                max(0.0, (100.0 - start_soc) / 100.0 * battery_capacity_wh)
+                / battery_charge_rate_w
+                * 60.0
+            )
+            topup_minutes = max(0.0, min(topup_minutes, headroom_minutes))
+            topup_minutes = round(topup_minutes, 1)
 
     if margin < 0:
         level = "high"
@@ -448,6 +530,7 @@ def build_tonight_risk(
         "projection_hours": round(duration_hours, 2),
         "projection_start_soc": round(start_soc, 1),
         "projection_basis": basis,
+        "projection_kind": basis_kind,
         "load_w": round(load_w, 1),
         "load_source": source,
         "topup_minutes": topup_minutes,
