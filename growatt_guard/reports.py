@@ -23,6 +23,8 @@ from growatt_guard.dashboard_metrics import (
     summarize_bypass_episodes,
 )
 from growatt_guard.weather import choose_preserve_threshold
+from growatt_guard.solar_cap import CAPPED_FULL_SOC, summarize_capped_day
+from growatt_guard.state import read_forecast_calibration_history
 from growatt_guard.paths import DATA_HOME
 
 
@@ -67,7 +69,8 @@ def command_daily_summary(config: Config) -> int:
 
         tomorrow_kwh_m2 = get_tomorrow_solar_kwh_m2(config)
     summary = build_daily_summary(status, tomorrow_kwh_m2=tomorrow_kwh_m2)
-    summary = f"{summary}\n\n{_bypass_episodes_section(dt.datetime.now(), days=1)}"
+    now = dt.datetime.now()
+    summary = f"{summary}\n\n{_solar_cap_section(now)}\n\n{_bypass_episodes_section(now, days=1)}"
     if config.discord_webhook_url:
         send_discord_embed(config, embed_summary("Daily Summary", summary))
     print(summary)
@@ -125,6 +128,71 @@ def _fmt_minutes(minutes: float) -> str:
     if minutes < 60:
         return f"{minutes:.0f} min"
     return f"{minutes / 60.0:.1f} h"
+
+
+# A day capped for less than this is a brief top-of-charge touch, not a
+# throttled day worth explaining a low total with.
+SOLAR_CAP_NOTABLE_MINUTES = 30
+# Generation under this share of the day-ahead forecast with no cap reads as
+# weather or the array, not throttling.
+SOLAR_BELOW_FORECAST_SHARE = 0.8
+
+
+def _forecast_pv_kwh(day: dt.date) -> float | None:
+    for row in read_forecast_calibration_history():
+        if str(row.get("forecast_date")) != day.isoformat():
+            continue
+        value = row.get("predicted_kwh")
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+            return float(value)
+    return None
+
+
+def _solar_cap_section(now: dt.datetime) -> str:
+    """Read-only line separating a throttled full-battery day from a cloudy one."""
+    if now.tzinfo is not None:
+        now = now.astimezone().replace(tzinfo=None)
+    readings: list[tuple[dt.datetime, dict[str, Any]]] = []
+    generated_kwh: float | None = None
+    for row in read_dashboard_metrics_history(now=now, days=1):
+        try:
+            stamp = dt.datetime.fromisoformat(str(row.get("timestamp")))
+        except ValueError:
+            continue
+        if stamp.tzinfo is not None:
+            stamp = stamp.astimezone().replace(tzinfo=None)
+        if stamp.date() != now.date():
+            continue
+        readings.append((stamp, row))
+        pv_today = row.get("pv_today_kwh")
+        if isinstance(pv_today, (int, float)) and not isinstance(pv_today, bool):
+            generated_kwh = float(pv_today)
+    cap = summarize_capped_day(readings)
+    if cap is None:
+        return "Solar cap: no PV readings today."
+    capped_min = cap["capped_min"]
+    forecast_kwh = _forecast_pv_kwh(now.date())
+    parts = [f"Solar cap: peak PV {cap['peak_pv_w'] / 1000:.1f} kW"]
+    if generated_kwh is not None:
+        generated = f"generated {generated_kwh:.1f} kWh"
+        if forecast_kwh is not None:
+            generated += f" against a {forecast_kwh:.1f} kWh day-ahead forecast"
+        parts.append(generated)
+    if capped_min > 0:
+        parts.append(f"capped {_fmt_minutes(capped_min)} at >={CAPPED_FULL_SOC:g}% with PV pinned to the load")
+    else:
+        parts.append("not capped")
+    if capped_min >= SOLAR_CAP_NOTABLE_MINUTES:
+        verdict = "Generation understates the array: a full battery held PV to the load."
+    elif (
+        generated_kwh is not None
+        and forecast_kwh is not None
+        and generated_kwh < forecast_kwh * SOLAR_BELOW_FORECAST_SHARE
+    ):
+        verdict = "Below forecast without a cap: cloud or the array, not throttling."
+    else:
+        verdict = ""
+    return "; ".join(parts) + "." + (f" {verdict}" if verdict else "")
 
 
 def _fmt_soc_range(soc_min: float | None, soc_max: float | None) -> str:

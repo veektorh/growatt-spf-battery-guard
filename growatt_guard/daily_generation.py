@@ -10,6 +10,7 @@ from typing import Any
 
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.paths import DATA_HOME
+from growatt_guard.solar_cap import summarize_capped_day
 
 
 DAILY_GENERATION_FILE = DATA_HOME / "history" / "daily_generation.jsonl"
@@ -26,6 +27,10 @@ DAILY_ENERGY_FIELDS: tuple[tuple[str, str], ...] = (
     ("charge_wh", "charge_today_kwh"),
     ("discharge_wh", "discharge_today_kwh"),
 )
+# Per-day solar-cap evidence, so a throttled full-battery day reads differently
+# from a cloudy one: minutes with PV pinned to the load at a full battery, and
+# the day's peak PV. Absent on days recorded before the fields existed.
+DAILY_CAP_FIELDS: tuple[str, ...] = ("capped_min", "peak_pv_w")
 
 
 def _parse_timestamp(value: Any, tz: dt.tzinfo | None = None) -> dt.datetime | None:
@@ -74,7 +79,7 @@ def read_daily_generation(path: Path | None = None) -> list[dict[str, Any]]:
             )
         normalized = dict(row)
         normalized["date"] = dt.date.fromisoformat(str(row["date"])).isoformat()
-        for field, _ in DAILY_ENERGY_FIELDS:
+        for field in (*(name for name, _ in DAILY_ENERGY_FIELDS), *DAILY_CAP_FIELDS):
             if field not in row or row[field] is None:
                 continue
             try:
@@ -216,6 +221,7 @@ def finalize_completed_daily_generation(
     )
     values: dict[dt.date, list[tuple[dt.datetime, float]]] = {}
     counters: dict[dt.date, dict[dt.datetime, dict[str, int]]] = {}
+    readings: dict[dt.date, list[tuple[dt.datetime, dict[str, Any]]]] = {}
     for row in metric_rows:
         timestamp = _parse_timestamp(row.get("timestamp"), tz)
         if timestamp is None or timestamp.date() >= local_now.date():
@@ -224,6 +230,7 @@ def finalize_completed_daily_generation(
             continue
         if not existing and timestamp.date() != latest_date:
             continue
+        readings.setdefault(timestamp.date(), []).append((timestamp, row))
         try:
             generated_kwh = float(row["pv_today_kwh"])
         except (KeyError, TypeError, ValueError):
@@ -269,6 +276,9 @@ def finalize_completed_daily_generation(
             continue
         record = {"generated_wh": generated_wh}
         record.update(counters.get(day, {}).get(last_timestamp, {}))
+        cap = summarize_capped_day(readings.get(day, []))
+        if cap is not None:
+            record.update(cap)
         records[day] = record
         observed_through[day] = last_timestamp.isoformat()
         previous_wh = generated_wh

@@ -159,6 +159,37 @@ class DailyEnergyViewTests(unittest.TestCase):
         self.assertEqual(saved[0]["charge_wh"], 6200)
         self.assertEqual(saved[0]["discharge_wh"], 4400)
 
+    def test_records_capped_minutes_and_peak_pv_for_the_day(self):
+        rows = [
+            {"timestamp": "2026-11-20T12:00:00+01:00", "pv_today_kwh": 10.0, "soc": 90, "pv_w": 5185, "load_w": 1500},
+            {"timestamp": "2026-11-20T12:15:00+01:00", "pv_today_kwh": 11.0, "soc": 97, "pv_w": 2413, "load_w": 2322},
+            {"timestamp": "2026-11-20T12:30:00+01:00", "pv_today_kwh": 11.5, "soc": 98, "pv_w": 1268, "load_w": 1202},
+            {"timestamp": "2026-11-20T12:45:00+01:00", "pv_today_kwh": 12.0, "soc": 98, "pv_w": 1360, "load_w": 1284},
+            {"timestamp": "2026-11-20T23:54:00+01:00", "pv_today_kwh": 24.7, "soc": 80, "pv_w": 0, "load_w": 1600},
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ledger = Path(tmpdir) / "daily_generation.jsonl"
+            finalize_completed_daily_generation(
+                rows,
+                now=dt.datetime(2026, 11, 21, 0, 10, tzinfo=dt.timezone(dt.timedelta(hours=1))),
+                path=ledger,
+            )
+            saved = read_daily_generation(ledger)
+
+        self.assertEqual(saved[0]["generated_wh"], 24700)
+        self.assertEqual(saved[0]["capped_min"], 30)
+        self.assertEqual(saved[0]["peak_pv_w"], 5185)
+
+    def test_negative_capped_minutes_in_the_ledger_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ledger = Path(tmpdir) / "daily_generation.jsonl"
+            ledger.write_text(
+                json.dumps({"date": "2026-11-20", "generated_wh": 24700, "capped_min": -5}) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(GrowattGuardError):
+                read_daily_generation(ledger)
+
     def test_month_totals_report_missing_metrics_as_none(self):
         rows = [
             {"date": "2026-09-30", "generated_wh": 28000},
