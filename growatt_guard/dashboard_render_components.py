@@ -406,15 +406,26 @@ def _render_utility_units_panel(report: dict[str, Any] | None) -> str:
         rows.append(("Bought", f"{period['purchased']:g} units"))
         if period.get("inverter_units") is not None:
             days = period.get("inverter_days") or {}
+            pct = f" · {period['inverter_pct']:g}%" if period.get("inverter_pct") is not None else ""
             rows.append(
                 (
                     "Inverter grid",
-                    f"{period['inverter_units']:g} units "
-                    f"({days.get('covered', 0)} of {days.get('expected', 0)} whole days)",
+                    f"{period['inverter_units']:g} units{pct} "
+                    f"({days.get('covered', 0)} of {days.get('expected', 0)} days)",
                 )
             )
         if period.get("outside_units") is not None:
-            rows.append(("Outside inverter", f"{period['outside_units']:g} units"))
+            pct = f" · {period['outside_pct']:g}%" if period.get("outside_pct") is not None else ""
+            rows.append(("Outside inverter", f"{period['outside_units']:g} units{pct}"))
+        mix = period.get("supply_mix")
+        if mix:
+            rows.append(
+                (
+                    "Supply mix",
+                    f"PV {mix['pv_pct']:g}% · grid {mix['grid_pct']:g}% "
+                    f"of {mix['total_kwh']:g} units ({mix['days']} days)",
+                )
+            )
     elif period:
         rows.append(("This period", f"{span}: not measurable yet"))
     previous = report.get("previous")

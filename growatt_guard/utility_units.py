@@ -363,6 +363,9 @@ def _meter_period(
         "topups": 0,
         "inverter_units": None,
         "outside_units": None,
+        "inverter_pct": None,
+        "outside_pct": None,
+        "supply_mix": None,
         "inverter_days": None,
         "complete": False,
         "notes": [],
@@ -426,6 +429,7 @@ def _inverter_split(
     if expected == 0:
         return
     energy_by_day: dict[dt.date, float] = {}
+    pv_by_day: dict[dt.date, float] = {}
     for row in daily_rows:
         try:
             day = dt.date.fromisoformat(str(row.get("date")))
@@ -433,10 +437,11 @@ def _inverter_split(
             continue
         if not opening_day < day < closing_day:
             continue
-        value = row.get("utility_wh")
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            continue
-        energy_by_day[day] = float(value)
+        for source, bucket in (("utility_wh", energy_by_day), ("generated_wh", pv_by_day)):
+            value = row.get(source)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            bucket[day] = float(value)
     covered = len(energy_by_day)
     period["inverter_days"] = {"covered": covered, "expected": expected}
     if covered == 0:
@@ -446,6 +451,25 @@ def _inverter_split(
     period["inverter_units"] = inverter_units
     if period["consumed"] is not None:
         period["outside_units"] = round(period["consumed"] - inverter_units, 1)
+        if period["consumed"] > 0:
+            period["inverter_pct"] = round(100.0 * inverter_units / period["consumed"], 1)
+            period["outside_pct"] = round(100.0 * period["outside_units"] / period["consumed"], 1)
+
+    paired_days = sorted(set(energy_by_day) & set(pv_by_day))
+    if paired_days:
+        pv_kwh = round(sum(pv_by_day[day] for day in paired_days) / 1000.0, 1)
+        grid_kwh = round(sum(energy_by_day[day] for day in paired_days) / 1000.0, 1)
+        total_kwh = round(pv_kwh + grid_kwh, 1)
+        if total_kwh > 0:
+            period["supply_mix"] = {
+                "days": len(paired_days),
+                "expected_days": expected,
+                "pv_kwh": pv_kwh,
+                "grid_kwh": grid_kwh,
+                "total_kwh": total_kwh,
+                "pv_pct": round(100.0 * pv_kwh / total_kwh, 1),
+                "grid_pct": round(100.0 * grid_kwh / total_kwh, 1),
+            }
     if covered < expected:
         period["notes"].append(
             f"Inverter grid energy covers {covered} of {expected} whole days between the readings."
@@ -737,15 +761,26 @@ def format_utility_report(report: dict[str, Any]) -> str:
         lines.append(header + f" · bought {_units(period['purchased'])}")
         split = []
         if period["inverter_units"] is not None:
-            split.append(f"inverter {_units(period['inverter_units'])}")
+            part = f"inverter {_units(period['inverter_units'])}"
+            if period["inverter_pct"] is not None:
+                part += f" ({period['inverter_pct']:g}%)"
+            split.append(part)
             days = period["inverter_days"] or {}
-            split.append(
-                f"{days.get('covered', 0)} of {days.get('expected', 0)} whole days"
-            )
+            split.append(f"{days.get('covered', 0)} of {days.get('expected', 0)} whole days")
         if period["outside_units"] is not None:
-            split.append(f"outside {_units(period['outside_units'])}")
+            part = f"outside {_units(period['outside_units'])}"
+            if period["outside_pct"] is not None:
+                part += f" ({period['outside_pct']:g}%)"
+            split.append(part)
         if split:
             lines.append("          " + " · ".join(split))
+        mix = period.get("supply_mix")
+        if mix:
+            lines.append(
+                f"Mix       PV {_units(mix['pv_kwh'])} ({mix['pv_pct']:g}%) · "
+                f"inverter grid {_units(mix['grid_kwh'])} ({mix['grid_pct']:g}%) · "
+                f"{mix['days']} of {mix['expected_days']} days"
+            )
         if period["opening_at"]:
             lines.append(
                 f"          Opening {_units(period['opening'])} on {_short_moment(period['opening_at'])}"
