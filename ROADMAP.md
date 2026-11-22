@@ -1,6 +1,6 @@
 # Growatt Guard Roadmap
 
-Last reviewed: 2026-11-21
+Last reviewed: 2026-11-22
 
 This is the working backlog for Growatt Guard. Priorities favor inverter safety,
 low Growatt API pressure, trustworthy decisions, and clear operations before
@@ -30,115 +30,9 @@ public-safe: no IDs, serials, domains, or credentials.
   window ran 140 planned minutes from 86%, closed `topup-expired` at 99% at
   20:21 on a 1661 W implied rate against 1879.6 planned (taper at the top),
   and the 20:21:07 `return-sbu` switched to SBU outside any preserve window.
-
-### N11. See a live alert row on the dashboard Now tab
-
-- Status: waiting for a natural occurrence. Read-only.
-- Why: N6 closed on 2026-11-14 with the renderer reading only the
-  `dashboard.json` payload. The Automation tab history chart and decisions table
-  were confirmed against live data on 2026-11-12, but no alert row (top-up
-  running, Tonight Safe, cloud streak, pause, bypass) has been seen on the
-  rebuilt Now tab yet.
-- Done when: one alert row is seen on the live Now tab and its text matches the
-  matching `dashboard.json` field (`automation.*` or `planner.tonight_safe`).
-- Read, 2026-11-21: blocked until today by N21's morning card, which published
-  a false High risk every sunny morning. With N21 shipped the morning card
-  either states the sunset-based projection or says it is estimating later, so
-  the next alert row can be taken at face value.
-
-### N20. Confirm the schedule-aware preserve skip on the next outage morning
-
-- Status: the skip shipped 2026-11-19 with the owner's go-ahead
-  (`PRESERVE_SCHEDULE_AWARE_SKIP_ENABLED`, default on, fail-closed to the
-  current switch-now behaviour on any schedule read error). Read-only: the
-  deferral path is exercised, the last-job hold is not.
-- Why: the 2026-11-19 outage morning met every target but cycled the inverter
-  to get there. The scheduled preserve jobs each switched to Utility and
-  closed within minutes: 06:00 at SOC 45 (hold target 43 already banked, so
-  the completion test fired on the first check), 06:30 at 43 the same way,
-  then 06:40 and 07:00 at 42, charging seven minutes each back to 43. Eight
-  mode writes between 06:00 and 07:07; the 07:55 return-sbu found SBU
-  already; the 08:00 cut started at 43-44% against the 40% threshold. The
-  same rows confirm the N14 fix path, closed 2026-11-19: the
-  projection-triggered 06:40 and 07:00 holds stayed open past their first
-  minute check and closed at the headroom target, and a live-below preserve
-  completed at the threshold on 2026-11-18 (42% to exactly 45%). A reading
-  already at or above threshold-plus-headroom self-completing in one check
-  is correct — nothing is left to charge — but the churn is four Utility
-  round-trips where one window could cover the pre-outage hour.
-- Also read, 2026-11-19: the 18:00 reserve plan quoted `morning_target_soc=35`
-  while the 00:00 plan quoted 40 — the evening weather-window estimate of the
-  next morning's preserve threshold under-shot the actual 40, and only the
-  midnight re-plan raised the target. Harmless that night (the evening plan
-  sized to 93% on a low battery), but a high-SOC evening would leave the
-  raise to the overnight checks alone.
-- Shipped design: a projection-triggered preserve (live at or above the
-  threshold, projection below it at the outage start) defers without writing
-  mode when a later scheduled preserve still fires before the cut
-  (`next_preserve_fire_before_outage`), recording a
-  `deferred-to-later-preserve` audit row; the last job before the cut acts
-  once and sizes its hold to the threshold plus the larger of the flat
-  headroom and the projected drain to the outage start, so the battery
-  arrives at the threshold instead of the last hour's load deciding it.
-  Holding Utility until the 07:55 return was rejected on 2026-11-19: it buys
-  two points of margin the threshold does not need for about 2.5-3 kWh of
-  grid, and a larger flat morning headroom has the same cost. The trade is
-  one acting window instead of one per scheduled job; the earlier jobs still
-  run as live checks and the 08:01 watchdog still alerts.
-- First live deferral row, 2026-11-19 11:05 (afternoon, not a morning): SOC 71%
-  against a 45% threshold with a 40.8% projection at the 15:00 cut recorded
-  `deferred-to-later-preserve`. The 12:05-14:05 jobs then found 83-89% and
-  recorded `no-change`, the 14:55 `return-sbu` found SBU already, and the
-  15:01 `watchdog-sbu` verified — no mode write all afternoon. The deferral
-  path works, but PV recovery meant it never needed the last-job hold.
-- Morning of 2026-11-20, read at 07:54: all four preserve jobs (06:00, 06:30,
-  06:40, 07:00) projected 51-53% at the 08:00 cut against a 40% threshold, so
-  each recorded `no-change` and the deferral path was not exercised.
-- Same morning, after the cut: zero mode writes. The 07:55 `return-sbu` found
-  SBU already and the 08:01 `watchdog-sbu` verified, so the whole morning ran
-  as four live checks and no Utility round-trip. The cut started between
-  07:58-08:01 at 55%, 15 points above the 40% threshold, which is why no job
-  needed to act; the last-job hold stays unexercised until a morning projects
-  below the threshold. First no-churn outage morning, though not the "one
-  switch" shape the steps expected.
-- Morning of 2026-11-21, the deferral's first real exercise: the 06:00 job read
-  48% live against the 40% threshold but projected 36.35% at the 08:00 cut and
-  recorded `deferred-to-later-preserve`, naming the 06:30 job. The 06:30, 06:40
-  and 07:00 jobs then projected 41%, 42% and 41% from live loads of 945, 874
-  and 1319 W and recorded `no-change`, so the morning ran with zero mode
-  writes: the 07:55 `return-sbu` found SBU already and the 08:01
-  `watchdog-sbu` verified.
-- What the deferral saved, measured: had the 06:00 job switched, the hold
-  would have targeted 51.65% (threshold plus the 11.65-point projected drain)
-  and closed at the 07:55 return, about 1.1 kWh of grid. The cut started
-  between 07:55-08:10 at 44% — the drain to the cut was 3 points (47 at 06:10
-  to 44 at 07:55), not 11.65, because PV reached 1913 W by 07:55 and carried
-  the load down to 334 W. The projection is linear on one instantaneous
-  `outPutPower` sample and ignores the PV rising before the cut, so the 06:00
-  sample implied about 1747 W against an hourly-profile median of 1515 W;
-  N24 owns that input question. The deferral still earned the morning: it
-  turned an 11.65-point estimate into a re-decision 30 minutes later, so no
-  Utility write was made at 06:00 for a cut that started at 44%.
-- Still unexercised: the last pre-cut job has never had a projection below the
-  threshold, so the hold sized to threshold plus projected drain has not run.
-  Today it came closest — 06:00 at 36.35% deferred, then 41/42/41% cleared.
-- Third consecutive evening plan quoting a low morning target: the 11-20 18:00
-  row carried `morning_target_soc=35`/`sunrise_target_soc=35` while the morning
-  jobs used 40. Harmless again because the window was clamp-filled to 100
-  (target met at 99), so only a night that is not clamped by full charge will
-  show whether the under-shoot costs anything.
-- Steps: read the next outage morning's preserve rows. Expect
-  `deferred-to-later-preserve` rows for every job but the last, one
-  `switch-to-utility`, and the cut starting at or above the threshold. Keep
-  watching whether the 18:00 morning-target estimate under-shoots the
-  actual threshold.
-- Done when: the next outage morning shows one preserve switch and no churn,
-  and the cut starts at or above the preserve threshold; if the later job
-  fails its cloud write, the 08:01 watchdog alert and the fallback
-  (switch-now) path record why. With the deferral exercised on 2026-11-21,
-  the open half is the hold: a morning whose 07:00 projection lands below the
-  threshold shows one `switch-to-utility`, a hold sized to the threshold plus
-  the projected drain, and a cut start at the threshold.
+- Read, 2026-11-22: still no `topup-complete-deferred` row. The 11-21 18:00
+  window closed `topup-target-reached` at 22:02 at 100%, far outside any
+  preserve window, and its `return-sbu` switched to SBU as planned.
 
 ### N22. End the night-plan horizon at PV takeover, not astronomical sunrise
 
@@ -212,6 +106,40 @@ public-safe: no IDs, serials, domains, or credentials.
   on 11-21 against 54-61 over 06:00-07:55 on 11-20, with the planned load down
   from the band's 2028 W to 1826 W. Two nights only, and both clamp-bound, so
   it is direction, not evidence for a further change.
+- Read, 2026-11-22 (fifth normal cut morning, first weekend night since N17,
+  and the second band-planned night whose completion target stayed under 100%):
+  the 18:00 window asked 244 min from 73% to a 98.5%
+  completion target on a 2124.5 W weekend-band load (`weekend history (last 4
+  of 9 nights)`) at a 1881.7 W learned rate, and closed `topup-target-reached`
+  at 22:02 after 242 min at 100% on a 2009 W implied rate. The morning read 50%
+  at 06:00 and 44% at 07:00, so the arrival sat 15 points above the 35% sunrise
+  target and 12 above the 38% the plan sized to (35 plus 3 headroom).
+  Counterfactual on the night's own numbers: discharge from the 22:02 window
+  end to 06:00 was 50 points in 7h58m, 1882 W, and the same plan run at 1882 W
+  asks 211 min to the same 38% target, completing at 95.0% and arriving at
+  38.1%. So 33 minutes, about 1.0 kWh of grid, were avoidable on this night and
+  the whole gap is the band's 13.4% load overestimate. This is the same shape
+  as 2026-11-20, the other band-planned night that ended under 100% — there
+  the weekday bands planned 2028 W against about 1.6 kW and the arrival landed
+  12 points over its 43-45 target — so the band error is a second sample of a
+  known direction, not a new failure.
+- The replacement basis is already measured: the weekend hour-of-day profile
+  qualified between that plan and this read (four weekend dates inside the
+  8-day window now, two at 18:00 yesterday) and reads 21.0 kWh, 1750 W over
+  12 h from 18:00. The same arithmetic on it asks 191 min, completes at 92.9%,
+  and against the night's actual 1882 W drain would have arrived at 33.8% —
+  six points *below* the 40% threshold. The band's +13.4% and the profile's
+  -7% bracket the night, so this one night justifies no basis change either
+  way; tonight's 18:00 plan is the first weekend night sized by the profile
+  and is the read to judge it on, with N20's last-job hold as the cover if it
+  lands low.
+- Fourth consecutive evening plan quoting `morning_target_soc=35` against the
+  morning's 40. Here the completion target stayed under the ceiling (98.5%),
+  so the gap shows in the window length: sizing to 35 plus headroom asked 244
+  minutes where a 40-based plan asks 263 and ends at 100%. The under-shoot
+  therefore removed 19 minutes of charge in the unsafe direction — this
+  morning the band's overestimate covered it, a tighter night arrives under
+  the threshold.
 - Steps: read the next two normal mornings to confirm the cut-start arithmetic
   (target met, cut starts 40 plus or minus a point). Then read an overcast
   cut-morning: whether SOC drains through the cut with PV below load for hours,
@@ -245,6 +173,7 @@ public-safe: no IDs, serials, domains, or credentials.
   | 2026-11-19 (07:00) | 40 | 42 | 39.0 | 37.4 | 39.6 | 44 |
   | 2026-11-20 (07:00) | 40 | 56 | 52.0 | 51.4 | 51.9 | 55 |
   | 2026-11-21 (07:00) | 40 | 45 | 41.0 | 40.4 | 41.9 | 44 |
+  | 2026-11-22 (07:00) | 40 | 44 | 38.1 | 39.4 | 38.3 | 44 |
 
 - What it says: the three bases never diverge by more than 3.5 points and the
   mean bias at the last job is 4.5 points pessimistic for the sample, 5.0 for
@@ -260,6 +189,17 @@ public-safe: no IDs, serials, domains, or credentials.
   started at 44%. That is about 1 kWh of grid on a morning where four jobs
   switched; the deferral would have sent the 06:00, 06:30 and 06:40 jobs to the
   07:00 re-decision, but the 07:00 sample was pessimistic on its own.
+- Watch read, 2026-11-22: the 07:00 job projected 38.1% against a 40%
+  threshold and switched, and the cut started at 43-44%, which is the surface
+  shape of a second false hold. It is not one: the hold's own 16-minute charge
+  supplied 2 of those points, and the no-hold counterfactual — 44% draining
+  about 1.2 points in the 16 minutes the charge masked, then the measured 4
+  points/h to the cut — arrives at about 40%, on the threshold. The sample was
+  about 2 points pessimistic against that basis, better than the 4.5-point mean
+  above, so the watch condition (second false hold, or an arrival below the
+  threshold after the last job) did not fire and the basis stays as shipped.
+  The fifth row's `Arrival` column carries the hold's 2 points, like the 11-19
+  row; the counterfactual, not that column, is the error measure.
 - Steps: none now. If a second false hold appears at a last pre-cut job, or any
   morning arrives below the threshold after its last job cleared it, read that
   morning against this table before proposing anything — and prefer widening
@@ -275,7 +215,9 @@ The following capabilities are implemented and should be preserved:
   watchdog checks, health reporting, and conditional night auto-topup. A
   projection-triggered preserve defers to the last scheduled job before the
   cut, which sizes its hold to the projected drain so the outage starts at
-  the threshold with one acting window per morning.
+  the threshold with one acting window per morning. Confirmed live on
+  2026-11-22: three deferrals, one 16-minute Utility window, two mode writes,
+  and a cut at 43-44% against the 40% threshold.
 - Sunrise planning using learned weekday/weekend evening and overnight band
   loads (horizon-weighted), observed charge rates, weather calibration,
   minimum topup duration, SOC safety floors, and a sunrise target raised to
@@ -295,7 +237,11 @@ The following capabilities are implemented and should be preserved:
   whole daylight day of load before noon, labels the all-day figure a stress
   estimate, and never sizes a top-up past the battery's headroom (N21, closed
   2026-11-21; the same morning read 9h 44m for 15 kWh on a 44% battery, now
-  under two hours from the sunset estimate).
+  under two hours from the sunset estimate). The Now tab's alert rows render
+  from `dashboard.json` alone and were confirmed against a live one on
+  2026-11-22, a `Top-up running` row reading `Owned Utility hold · returning to
+  SBU at 46% · ETA 45m` for `automation.utility_hold_detail` (N11, closed
+  2026-11-22).
 - One observability refresh path that updates the dashboard and PVOutput from a
   shared Growatt read.
 - PVOutput live uploads, extended-field fallback, complete weekly-history
@@ -373,8 +319,21 @@ closures and add fixtures for any new trustworthy classification signal.
 - Add regression fixtures whenever a production report exposes a new data-shape
   or interpretation bug.
 
-Current concrete steps toward this goal are in Next Up: N20 (the last pre-cut
-hold). The projection-basis question (N24) was answered on 2026-11-21: the
+Current concrete steps toward this goal are in Next Up: none for the hold.
+N20 closed on 2026-11-22 with the last pre-cut hold's first live run. The
+06:00, 06:30 and 06:40 preserve jobs each deferred to the next one, projecting
+39.22, 38.65 and 38.11 against the 40% threshold; the 07:00 job, the last
+before the cut, switched once at 44% on a 38.0% projection and sized its hold
+to 45.86% — the threshold plus the 5.86-point projected drain; the 07:16
+completion check closed it at 46% after 16 minutes and the return-sbu switched
+back to SBU; the 07:55 return-sbu found SBU already at 44% and the 08:01
+watchdog verified at 43%, so the cut started at 43-44%. Two mode writes for the
+morning against the 2026-11-19 baseline's eight, one Utility window instead of
+four, about 0.56 kWh of grid, and a no-hold counterfactual of about 40% — so
+the switch carried the cut three to four points clear of the threshold, and the
+projection was about 2 points pessimistic, better than N24's 4.5-point mean.
+The deferral had already earned 2026-11-21 three re-decisions and zero writes.
+The projection-basis question (N24) was answered on 2026-11-21: the
 sample, the hourly profile and net discharge land within a point of each other
 on four cut mornings, so the input stays as shipped. N2 closed on 2026-11-19
 with the verdict "fewer repeat top-ups": three banded weekday nights each ran
@@ -391,7 +350,11 @@ N17 closed on 2026-11-20 at the owner's direction ("fix the estimate first",
 threshold left at 40): `planning_night_load` prefers the night's hour-of-day
 profile (1827 W at the 18:00 horizon against the band's 2028 W, about 1750 W
 at 00:00 against 1990 W) and falls back to the bands when any hour lacks three
-days, so weekend nights keep the bands until they qualify. The gain is
+days, so weekend nights keep the bands until they qualify. They qualified on
+2026-11-22 — four weekend dates inside the 8-day window where the 18:00 plan
+had two — so tonight's 18:00 plan is the first weekend night sized by the
+hour-of-day profile, and N22 holds the one-night comparison against the band
+it replaces. The gain is
 bounded by the full-charge clamp: an evening window whose completion target is
 already 100% ends at the same SOC, and the saving lands on post-midnight windows
 (86% to 81% on the 11-19 night, about 1.6 kWh of that window's 1.8 kWh). N16
@@ -408,7 +371,8 @@ day so nothing acted on it, and the profile keeps the later end because an
 early estate return costs nothing while a profile ending at 15:45 would stop
 covering the days the estate runs to 18:00. The 11-21 morning window was still
 open at the read. Morning cut starts rose from 39-41% on the N12 mornings to
-44-55% after N19 and N17. The `supply-history` caveat stands: it labels every
+44-55% after N19 and N17, and read 43-44% again on 2026-11-22 with N20's hold
+carrying the pre-cut hour. The `supply-history` caveat stands: it labels every
 past day with the profile active now, so read an old edge against the profile
 of that morning.
 
