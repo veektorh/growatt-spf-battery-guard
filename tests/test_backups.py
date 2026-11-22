@@ -53,7 +53,7 @@ class BackupTests(unittest.TestCase):
             )
             (root / "state").mkdir(exist_ok=True)
             (root / "state" / "utility_tariff.json").write_text(
-                '{"schema_version":1,"rates":[{"from":"2026-11-01","rate":228,"fixed":120000}]}',
+                '{"schema_version":1,"rates":[{"from":"2026-11-01","rate":228,"fixed":100000}]}',
                 encoding="utf-8",
             )
             write_json_state(
@@ -188,7 +188,7 @@ class BackupTests(unittest.TestCase):
                     {"kind": "reading", "at": "2026-07-11T07:00:00+01:00", "balance": 280},
                 ],
                 "utility_tariff": [
-                    {"from": "2026-11-01", "rate": 228, "fixed": 120000}
+                    {"from": "2026-11-01", "rate": 228, "fixed": 100000}
                 ],
             },
         }

@@ -306,11 +306,49 @@ def _utility_units_form() -> str:
         '<button type="submit" name="kind" value="reading" class="pill profile-button">Save reading</button>'
         '<label>Units bought <input name="units" type="number" step="0.1" min="0" '
         'inputmode="decimal" placeholder="100"></label>'
-        '<label>Cost <input name="cost" type="number" step="0.01" min="0" '
+        '<label>Cost ₦ <input name="cost" type="number" step="0.01" min="0" '
         'inputmode="decimal" placeholder="optional"></label>'
         '<button type="submit" name="kind" value="topup" class="pill profile-button">Save top-up</button>'
-        '<span class="muted small" id="utility-units-status" role="status" aria-live="polite"></span>'
         "</form>"
+    )
+
+
+def _utility_tariff_form(report: dict[str, Any]) -> str:
+    tariff = report.get("tariff") or {}
+    next_tariff = report.get("next_tariff") or {}
+    prefill = tariff or next_tariff
+    if tariff:
+        summary = (
+            f"Tariff: {format_energy_rate(tariff['rate'])} · "
+            f"{format_money(tariff['fixed'])}/month from {tariff['from']}"
+        )
+        if next_tariff:
+            summary += f" · next {format_energy_rate(next_tariff['rate'])} from {next_tariff['from']}"
+    elif next_tariff:
+        summary = (
+            f"Tariff: {format_energy_rate(next_tariff['rate'])} · "
+            f"{format_money(next_tariff['fixed'])}/month from {next_tariff['from']} (upcoming)"
+        )
+    else:
+        summary = "Tariff: not configured"
+    rate_value = f"{prefill['rate']:g}" if prefill else ""
+    fixed_value = f"{prefill['fixed']:g}" if prefill else ""
+    today = str(report.get("generated_at") or "")[:10]
+    return (
+        '<details class="units-tariff">'
+        f"<summary>{esc(summary)}</summary>"
+        '<form class="units-form" id="utility-tariff-form" method="post" action="/api/utility-units">'
+        f'<label>Rate ₦/kWh <input name="rate" type="number" step="0.01" min="0" '
+        f'inputmode="decimal" value="{esc(rate_value)}"></label>'
+        f'<label>Fixed ₦/month <input name="fixed" type="number" step="1" min="0" '
+        f'inputmode="decimal" value="{esc(fixed_value)}"></label>'
+        f'<label>From <input name="from" type="date" value="{esc(today)}"></label>'
+        '<label>Note <input name="note" type="text" maxlength="200" placeholder="optional"></label>'
+        '<button type="submit" class="pill profile-button">Save tariff</button>'
+        "</form>"
+        '<p class="muted small">A change applies from its date; earlier periods keep their rate. '
+        "The fixed charge is cash billed and never deducted from meter units.</p>"
+        "</details>"
     )
 
 
@@ -327,6 +365,8 @@ def _render_utility_units_panel(report: dict[str, Any] | None) -> str:
             '<p class="muted small">The prepaid meter is not tracked yet. Record its balance or a '
             "purchase below; one unit is one kWh.</p>"
             + _utility_units_form()
+            + _utility_tariff_form(report)
+            + '<span class="muted small" id="utility-units-status" role="status" aria-live="polite"></span>'
             + "</article>"
         )
 
@@ -413,6 +453,8 @@ def _render_utility_units_panel(report: dict[str, Any] | None) -> str:
         f'<div class="eyebrow"><h2>Utility Units</h2>{_inline_badge(badge_text, badge_class)}</div>'
         f'<dl class="kv">{_kv_rows(rows)}</dl>'
         + _utility_units_form()
+        + _utility_tariff_form(report)
+        + '<span class="muted small" id="utility-units-status" role="status" aria-live="polite"></span>'
         + f'<p class="muted small">{esc(footer)}</p>'
         "</article>"
     )

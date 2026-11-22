@@ -347,8 +347,8 @@ as an effective price per unit. Tariffs are effective-dated, so a price change
 is a new dated row and past months keep their own rate:
 
 ```bash
-.venv/bin/python growatt_power_guard.py utility-units tariff --rate 228 --fixed 120000 --from 2026-11-01
-.venv/bin/python growatt_power_guard.py utility-units tariff --rate 250 --fixed 120000 --from 2026-12-01
+.venv/bin/python growatt_power_guard.py utility-units tariff --rate 200 --fixed 50000 --from 2026-11-01
+.venv/bin/python growatt_power_guard.py utility-units tariff --rate 210 --fixed 50000 --from 2026-12-01
 .venv/bin/python growatt_power_guard.py utility-units tariff --list
 ```
 
@@ -357,6 +357,11 @@ plus one monthly fixed charge for every calendar month the period touches. The
 fixed charge is modelled as cash billed and is not deducted from the meter, so
 it never enters the units, the burn rate or the inverter split. A rate change
 inside a period is disclosed in the report rather than silently split.
+
+The served dashboard carries the same tariff form behind the panel's Tariff
+disclosure, including the effective date. A future-dated row is reported as the
+next tariff until its date arrives, so an announced change can be entered at
+once without altering the current month.
 
 ### Hourly Load Profile
 

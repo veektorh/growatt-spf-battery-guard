@@ -644,7 +644,44 @@
         .catch(function() {});
     })();
     (function() {
-      function bindUtilityUnits() {
+      function showStatus(text) {
+        const el = document.getElementById('utility-units-status');
+        if (el) el.textContent = text;
+      }
+      function bindForms() {
+        bindMeterForm();
+        bindTariffForm();
+      }
+      function submit(body) {
+        const panel = document.getElementById('utility-units');
+        const details = panel ? panel.querySelector('details') : null;
+        const keepOpen = details ? details.open : false;
+        fetch('/api/utility-units', { method: 'POST', body: body })
+          .then(function(response) {
+            return response.json().then(function(data) {
+              return { ok: response.ok, data: data };
+            });
+          })
+          .then(function(result) {
+            if (!result.ok) {
+              showStatus(result.data.message || 'Could not record that.');
+              return;
+            }
+            const holder = document.createElement('div');
+            holder.innerHTML = result.data.html || '';
+            const next = holder.firstElementChild;
+            if (!panel || !next) return;
+            const nextDetails = next.querySelector('details');
+            if (nextDetails) nextDetails.open = keepOpen;
+            panel.replaceWith(next);
+            showStatus(result.data.message || 'Saved.');
+            bindForms();
+          })
+          .catch(function() {
+            showStatus('Recording needs the served dashboard; this page is a file.');
+          });
+      }
+      function bindMeterForm() {
         const form = document.getElementById('utility-units-form');
         if (!form || form.dataset.bound === '1') return;
         form.dataset.bound = '1';
@@ -660,33 +697,23 @@
           } else {
             body.set('balance', form.balance.value);
           }
-          fetch('/api/utility-units', { method: 'POST', body: body })
-            .then(function(response) {
-              return response.json().then(function(data) {
-                return { ok: response.ok, data: data };
-              });
-            })
-            .then(function(result) {
-              if (!result.ok) {
-                const statusEl = document.getElementById('utility-units-status');
-                if (statusEl) statusEl.textContent = result.data.message || 'Could not record that.';
-                return;
-              }
-              const panel = document.getElementById('utility-units');
-              const holder = document.createElement('div');
-              holder.innerHTML = result.data.html || '';
-              const next = holder.firstElementChild;
-              if (!panel || !next) return;
-              panel.replaceWith(next);
-              const statusEl = document.getElementById('utility-units-status');
-              if (statusEl) statusEl.textContent = result.data.message || 'Saved.';
-              bindUtilityUnits();
-            })
-            .catch(function() {
-              const statusEl = document.getElementById('utility-units-status');
-              if (statusEl) statusEl.textContent = 'Recording needs the served dashboard; this page is a file.';
-            });
+          submit(body);
         });
       }
-      bindUtilityUnits();
+      function bindTariffForm() {
+        const form = document.getElementById('utility-tariff-form');
+        if (!form || form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+        form.addEventListener('submit', function(event) {
+          event.preventDefault();
+          const body = new URLSearchParams();
+          body.set('kind', 'tariff');
+          body.set('rate', form.rate.value);
+          body.set('fixed', form.fixed.value);
+          if (form.from.value) body.set('from', form.from.value);
+          if (form.note.value) body.set('note', form.note.value);
+          submit(body);
+        });
+      }
+      bindForms();
     })();

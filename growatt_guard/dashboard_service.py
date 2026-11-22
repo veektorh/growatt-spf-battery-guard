@@ -58,10 +58,13 @@ from growatt_guard.topup_status import collect_topup_status
 from growatt_guard.topup import next_morning_preserve_target_soc
 from growatt_guard.utility_units import (
     build_utility_report,
+    format_energy_rate,
+    format_money,
     read_utility_tariff,
     read_utility_units,
     record_reading,
     record_topup,
+    record_utility_tariff,
 )
 from growatt_guard.weather import (
     choose_preserve_threshold,
@@ -394,8 +397,22 @@ def utility_units_form_result(form: dict[str, list[str]]) -> tuple[int, dict[str
                 cost=_form_number(form, "cost", "cost", optional=True),
             )
             message = f"Recorded top-up: {event['units']:g} units."
+        elif kind == "tariff":
+            rate = _form_number(form, "rate", "tariff rate")
+            fixed = _form_number(form, "fixed", "monthly fixed charge")
+            effective = (form.get("from") or [""])[0].strip() or dt.date.today().isoformat()
+            record_utility_tariff(
+                rate,
+                fixed,
+                from_date=effective,
+                note=(form.get("note") or [""])[0],
+            )
+            message = (
+                f"Recorded tariff from {effective}: {format_energy_rate(rate)} · "
+                f"fixed {format_money(fixed)}/month."
+            )
         else:
-            raise GrowattGuardError("Choose a meter reading or a top-up.")
+            raise GrowattGuardError("Choose a meter reading, a top-up or a tariff.")
     except GrowattGuardError as exc:
         return 400, {"error": "invalid_entry", "message": str(exc)}
     payload = _utility_units_payload()
