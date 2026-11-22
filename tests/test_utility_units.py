@@ -1,6 +1,9 @@
 import datetime as dt
+import http.client
+import http.server
 import json
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -190,10 +193,137 @@ class ReportTests(unittest.TestCase):
         self.assertIn("Outside inverter", html)
         self.assertIn("120 units", html)
         self.assertIn("18.4 days cover", html)
+        self.assertIn('action="/api/utility-units"', html)
+        self.assertIn('name="kind" value="reading"', html)
+        self.assertIn('name="kind" value="topup"', html)
 
         empty = _render_utility_units_panel(None)
         self.assertIn("No readings", empty)
-        self.assertIn("utility-units reading", empty)
+        self.assertIn('action="/api/utility-units"', empty)
+        self.assertIn('name="balance"', empty)
+
+    def test_form_result_records_and_returns_the_refreshed_panel(self):
+        from growatt_guard.dashboard_service import utility_units_form_result
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ledger = Path(tmpdir) / "utility_units.jsonl"
+            with patch("growatt_guard.utility_units.UTILITY_UNITS_FILE", ledger), patch(
+                "growatt_guard.dashboard_service.validate_schedule",
+                return_value={"timezone": "Africa/Lagos"},
+            ), patch("growatt_guard.dashboard_service.read_daily_generation", return_value=[]):
+                status, payload = utility_units_form_result(
+                    {"kind": ["reading"], "balance": ["280"]}
+                )
+                topup_status, topup_payload = utility_units_form_result(
+                    {"kind": ["topup"], "units": ["100"], "cost": ["15000"]}
+                )
+            events = read_utility_units(ledger)
+
+        self.assertEqual((status, topup_status), (200, 200))
+        self.assertIn("Recorded reading: 280 units", payload["message"])
+        self.assertIn("280 units", payload["html"])
+        self.assertIn("Recorded top-up: 100 units", topup_payload["message"])
+        self.assertEqual(sorted(event["kind"] for event in events), ["reading", "topup"])
+
+    def test_form_result_rejects_missing_or_invalid_numbers(self):
+        from growatt_guard.dashboard_service import utility_units_form_result
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ledger = Path(tmpdir) / "utility_units.jsonl"
+            with patch("growatt_guard.utility_units.UTILITY_UNITS_FILE", ledger), patch(
+                "growatt_guard.dashboard_service.validate_schedule",
+                return_value={"timezone": "Africa/Lagos"},
+            ), patch("growatt_guard.dashboard_service.read_daily_generation", return_value=[]):
+                missing_kind = utility_units_form_result({"balance": ["280"]})
+                bad_number = utility_units_form_result({"kind": ["reading"], "balance": ["abc"]})
+                missing_units = utility_units_form_result({"kind": ["topup"]})
+
+        self.assertEqual(missing_kind[0], 400)
+        self.assertEqual(bad_number[0], 400)
+        self.assertEqual(missing_units[0], 400)
+        self.assertIn("Enter a number for the meter balance", bad_number[1]["message"])
+
+
+class DashboardHttpTests(unittest.TestCase):
+    def _serve(self, tmpdir: str):
+        from growatt_guard.dashboard_service import make_dashboard_handler
+
+        output = Path(tmpdir) / "dashboard.html"
+        output.write_text("<html>dashboard</html>", encoding="utf-8")
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), make_dashboard_handler(output))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return server
+
+    def _request(self, server, method: str, path: str, body: str = "", headers=None):
+        connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+        try:
+            connection.request(method, path, body=body, headers=headers or {})
+            response = connection.getresponse()
+            return response.status, response.read()
+        finally:
+            connection.close()
+
+    def test_post_records_a_reading_and_returns_the_panel(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ledger = Path(tmpdir) / "utility_units.jsonl"
+            server = self._serve(tmpdir)
+            with patch("growatt_guard.utility_units.UTILITY_UNITS_FILE", ledger), patch(
+                "growatt_guard.dashboard_service.validate_schedule",
+                return_value={"timezone": "Africa/Lagos"},
+            ), patch("growatt_guard.dashboard_service.read_daily_generation", return_value=[]):
+                status, body = self._request(
+                    server,
+                    "POST",
+                    "/api/utility-units",
+                    body="kind=reading&balance=280",
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+                get_status, get_body = self._request(server, "GET", "/api/utility-units")
+            events = read_utility_units(ledger)
+
+        payload = json.loads(body)
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["message"], "Recorded reading: 280 units.")
+        self.assertIn("280 units", payload["html"])
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["balance"], 280)
+        self.assertEqual(get_status, 200)
+        self.assertIn("html", json.loads(get_body))
+
+    def test_post_rejects_bad_input_and_cross_origin(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ledger = Path(tmpdir) / "utility_units.jsonl"
+            server = self._serve(tmpdir)
+            with patch("growatt_guard.utility_units.UTILITY_UNITS_FILE", ledger), patch(
+                "growatt_guard.dashboard_service.validate_schedule",
+                return_value={"timezone": "Africa/Lagos"},
+            ), patch("growatt_guard.dashboard_service.read_daily_generation", return_value=[]):
+                invalid, invalid_body = self._request(
+                    server,
+                    "POST",
+                    "/api/utility-units",
+                    body="kind=reading&balance=abc",
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+                cross_origin, _ = self._request(
+                    server,
+                    "POST",
+                    "/api/utility-units",
+                    body="kind=reading&balance=280",
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "Origin": "https://not-the-dashboard.example",
+                    },
+                )
+                wrong_path, _ = self._request(server, "POST", "/utility-units", body="x=1")
+
+        self.assertEqual(invalid, 400)
+        self.assertIn("Enter a number", json.loads(invalid_body)["message"])
+        self.assertEqual(cross_origin, 403)
+        self.assertEqual(wrong_path, 404)
 
 
 class DashboardViewTests(unittest.TestCase):

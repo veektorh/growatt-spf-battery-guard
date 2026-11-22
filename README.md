@@ -333,7 +333,9 @@ The report also subtracts the daily ledger's inverter grid energy from the
 meter's total, which splits consumption into inverter use and use outside the
 inverter. That split counts only finalized whole days strictly between the two
 readings, so boundary days are excluded and a partial ledger is labelled rather
-than guessed. The dashboard's Energy tab shows the same panel.
+than guessed. The dashboard's Energy tab shows the same panel, and when the
+dashboard is served (`serve-dashboard`) its form records a reading or a purchase
+directly; the panel refreshes in place without a Growatt call.
 
 The ledger is `history/utility_units.jsonl` under the data directory, included
 in `backup-state` and `restore-state`. It is plain JSONL if an entry needs

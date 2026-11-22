@@ -29,6 +29,8 @@ from growatt_guard.dashboard_assets import (
     DASHBOARD_ICON_SVG,
     DASHBOARD_MANIFEST,
 )
+from growatt_guard.daily_generation import read_daily_generation
+from growatt_guard.dashboard_render_components import _render_utility_units_panel
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.forecast_calibration import apply_weather_adjustment, update_forecast_calibration
 from growatt_guard.growatt_api import load_context, track_device_reporting
@@ -54,6 +56,12 @@ from growatt_guard.state import (
 )
 from growatt_guard.topup_status import collect_topup_status
 from growatt_guard.topup import next_morning_preserve_target_soc
+from growatt_guard.utility_units import (
+    build_utility_report,
+    read_utility_units,
+    record_reading,
+    record_topup,
+)
 from growatt_guard.weather import (
     choose_preserve_threshold,
     get_pv_forecast,
@@ -343,6 +351,54 @@ def dashboard_asset_for_path(output_path: Path, request_path: str) -> tuple[int,
     return None
 
 
+def _utility_units_payload() -> dict[str, Any]:
+    """Current meter panel, re-read from the ledger without a Growatt call."""
+    try:
+        tz = resolve_timezone(validate_schedule().get("timezone"))
+    except (GrowattGuardError, OSError, ValueError):
+        tz = None
+    report = build_utility_report(
+        read_utility_units(), tz=tz, daily_rows=read_daily_generation()
+    )
+    return {"report": report, "html": _render_utility_units_panel(report)}
+
+
+def _form_number(
+    form: dict[str, list[str]], key: str, label: str, *, optional: bool = False
+) -> float | None:
+    raw = (form.get(key) or [""])[0].strip()
+    if not raw:
+        if optional:
+            return None
+        raise GrowattGuardError(f"Enter a number for the {label}.")
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise GrowattGuardError(f"Enter a number for the {label}.") from exc
+
+
+def utility_units_form_result(form: dict[str, list[str]]) -> tuple[int, dict[str, Any]]:
+    """Record one dashboard meter entry and return the refreshed panel."""
+    kind = (form.get("kind") or [""])[0].strip()
+    try:
+        if kind == "reading":
+            event = record_reading(_form_number(form, "balance", "meter balance"))
+            message = f"Recorded reading: {event['balance']:g} units."
+        elif kind == "topup":
+            event = record_topup(
+                _form_number(form, "units", "units bought"),
+                cost=_form_number(form, "cost", "cost", optional=True),
+            )
+            message = f"Recorded top-up: {event['units']:g} units."
+        else:
+            raise GrowattGuardError("Choose a meter reading or a top-up.")
+    except GrowattGuardError as exc:
+        return 400, {"error": "invalid_entry", "message": str(exc)}
+    payload = _utility_units_payload()
+    payload["message"] = message
+    return 200, payload
+
+
 def make_dashboard_handler(output_path: Path):
     class DashboardHandler(http.server.BaseHTTPRequestHandler):
         def _send_json(self, status_code: int, payload: dict[str, Any]) -> None:
@@ -366,6 +422,16 @@ def make_dashboard_handler(output_path: Path):
                         {"error": "profile_unavailable", "message": str(exc)},
                     )
                 return
+            if parsed_path == "/api/utility-units":
+                try:
+                    self._send_json(200, _utility_units_payload())
+                except (GrowattGuardError, OSError, ValueError) as exc:
+                    logging.warning("Dashboard utility units read failed: %s", exc)
+                    self._send_json(
+                        500,
+                        {"error": "utility_units_unavailable", "message": str(exc)},
+                    )
+                return
 
             asset = dashboard_asset_for_path(output_path, self.path)
             if asset is None:
@@ -381,14 +447,14 @@ def make_dashboard_handler(output_path: Path):
 
         def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
             parsed_path = urllib.parse.urlsplit(self.path).path
-            if parsed_path != "/profile":
+            if parsed_path not in {"/profile", "/api/utility-units"}:
                 self.send_error(404)
                 return
 
             origin = self.headers.get("Origin", "")
             host = self.headers.get("Host", "")
             if origin and urllib.parse.urlsplit(origin).netloc != host:
-                self.send_error(403, "Cross-origin profile switch rejected")
+                self.send_error(403, "Cross-origin request rejected")
                 return
 
             try:
@@ -403,6 +469,21 @@ def make_dashboard_handler(output_path: Path):
                 self.rfile.read(length).decode("utf-8", "replace"),
                 keep_blank_values=True,
             )
+            if parsed_path == "/api/utility-units":
+                try:
+                    status_code, payload = utility_units_form_result(form)
+                except (OSError, ValueError) as exc:
+                    logging.warning("Dashboard utility units write failed: %s", exc)
+                    self._send_json(
+                        500,
+                        {"error": "utility_units_write_failed", "message": "Could not record that entry."},
+                    )
+                    return
+                if status_code == 200:
+                    logging.info("Dashboard recorded utility units: %s", payload.get("message"))
+                self._send_json(status_code, payload)
+                return
+
             name = (form.get("name") or [""])[0].strip()
             try:
                 document = load_schedule_document()

@@ -296,6 +296,22 @@ def _short_moment_text(value: Any) -> str:
         return "?"
 
 
+def _utility_units_form() -> str:
+    return (
+        '<form class="units-form" id="utility-units-form" method="post" action="/api/utility-units">'
+        '<label>Meter balance <input name="balance" type="number" step="0.1" min="0" '
+        'inputmode="decimal" placeholder="280"></label>'
+        '<button type="submit" name="kind" value="reading" class="pill profile-button">Save reading</button>'
+        '<label>Units bought <input name="units" type="number" step="0.1" min="0" '
+        'inputmode="decimal" placeholder="100"></label>'
+        '<label>Cost <input name="cost" type="number" step="0.01" min="0" '
+        'inputmode="decimal" placeholder="optional"></label>'
+        '<button type="submit" name="kind" value="topup" class="pill profile-button">Save top-up</button>'
+        '<span class="muted small" id="utility-units-status" role="status" aria-live="polite"></span>'
+        "</form>"
+    )
+
+
 def _render_utility_units_panel(report: dict[str, Any] | None) -> str:
     """Prepaid-meter balance, burn rate and consumption for the Energy tab."""
     report = report or {}
@@ -306,10 +322,10 @@ def _render_utility_units_panel(report: dict[str, Any] | None) -> str:
             '<div class="eyebrow"><h2>Utility Units</h2>'
             + _inline_badge("No readings", "badge-neutral")
             + "</div>"
-            '<p class="muted small">The prepaid meter is not tracked yet. Record its balance with '
-            "<code>utility-units reading &lt;units&gt;</code> and each purchase with "
-            "<code>utility-units topup &lt;units&gt;</code>.</p>"
-            "</article>"
+            '<p class="muted small">The prepaid meter is not tracked yet. Record its balance or a '
+            "purchase below; one unit is one kWh.</p>"
+            + _utility_units_form()
+            + "</article>"
         )
 
     cover = report.get("cover")
@@ -371,7 +387,8 @@ def _render_utility_units_panel(report: dict[str, Any] | None) -> str:
         '<article class="panel" id="utility-units">'
         f'<div class="eyebrow"><h2>Utility Units</h2>{_inline_badge(badge_text, badge_class)}</div>'
         f'<dl class="kv">{_kv_rows(rows)}</dl>'
-        f'<p class="muted small">{esc(footer)}</p>'
+        + _utility_units_form()
+        + f'<p class="muted small">{esc(footer)}</p>'
         "</article>"
     )
 
