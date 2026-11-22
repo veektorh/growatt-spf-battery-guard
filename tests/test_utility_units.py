@@ -75,6 +75,8 @@ class ReportTests(unittest.TestCase):
         # 20 whole days between the readings, 10 kWh of grid each.
         self.assertEqual(report["period"]["inverter_units"], 200)
         self.assertEqual(report["period"]["outside_units"], 120)
+        self.assertEqual(report["period"]["inverter_pct"], 62.5)
+        self.assertEqual(report["period"]["outside_pct"], 37.5)
         self.assertEqual(report["period"]["inverter_days"], {"covered": 20, "expected": 20})
         self.assertEqual(report["burn"]["units_per_day"], 15.2)
         self.assertEqual(report["cover"]["days"], 18.4)
@@ -87,6 +89,32 @@ class ReportTests(unittest.TestCase):
             "first": "2026-11-01T07:00+01:00",
             "last": "2026-11-22T08:00+01:00",
         })
+
+    def test_supply_mix_counts_only_days_with_both_solar_and_grid(self):
+        rows = _daily_rows()
+        for row in rows:
+            row["generated_wh"] = 20000
+        report = build_utility_report(
+            _month_events(), now=NOW, tz=WAT, month="2026-11", daily_rows=rows
+        )
+        mix = report["period"]["supply_mix"]
+        self.assertEqual(mix["days"], 20)
+        self.assertEqual(mix["expected_days"], 20)
+        self.assertEqual(mix["pv_kwh"], 400)
+        self.assertEqual(mix["grid_kwh"], 200)
+        self.assertEqual(mix["pv_pct"], 66.7)
+        self.assertEqual(mix["grid_pct"], 33.3)
+        html = _render_utility_units_panel(report)
+        self.assertIn("Supply mix", html)
+        self.assertIn("PV 66.7% · grid 33.3%", html)
+
+        rows[0].pop("generated_wh")
+        partial = build_utility_report(
+            _month_events(), now=NOW, tz=WAT, month="2026-11", daily_rows=rows
+        )["period"]["supply_mix"]
+        self.assertEqual(partial["days"], 19)
+        self.assertEqual(partial["pv_kwh"], 380)
+        self.assertEqual(partial["grid_kwh"], 190)
 
     def test_boundary_days_and_today_are_not_counted_as_whole_days(self):
         rows = _daily_rows()
@@ -189,8 +217,8 @@ class ReportTests(unittest.TestCase):
         text = format_utility_report(report)
         self.assertIn("Balance   280 units", text)
         self.assertIn("Burn      15.2 units/day", text)
-        self.assertIn("inverter 200 units · 20 of 20 whole days", text)
-        self.assertIn("outside 120 units", text)
+        self.assertIn("inverter 200 units (62.5%) · 20 of 20 whole days", text)
+        self.assertIn("outside 120 units (37.5%)", text)
 
         html = _render_utility_units_panel(report)
         self.assertIn('id="utility-units"', html)
