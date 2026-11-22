@@ -31,6 +31,7 @@ from growatt_guard.schedule_views import command_schedule_calendar
 from growatt_guard.load_profile import command_load_profile
 from growatt_guard.solar_reconcile import command_solar_reconcile
 from growatt_guard.supply_history import DEFAULT_SUPPLY_HISTORY_DAYS, command_supply_history
+from growatt_guard.utility_units import command_utility_units
 from growatt_guard.topup_status import command_topup_status
 
 
@@ -399,6 +400,32 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Days to show, today included (default {DEFAULT_SUPPLY_HISTORY_DAYS}; history keeps about 8).",
     )
     supply_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    utility_parser = subparsers.add_parser(
+        "utility-units",
+        help="Record prepaid meter purchases and balances; report monthly consumption and days of cover.",
+    )
+    utility_sub = utility_parser.add_subparsers(dest="utility_action", required=True)
+    utility_topup = utility_sub.add_parser("topup", help="Record units bought from the meter.")
+    utility_topup.add_argument("units", type=float, help="Units (kWh) bought.")
+    utility_topup.add_argument("--cost", type=float, default=None, help="Optional amount paid.")
+    utility_topup.add_argument("--at", default=None, help="ISO 8601 time of the purchase; defaults to now.")
+    utility_topup.add_argument("--note", default="", help="Optional short note.")
+    utility_reading = utility_sub.add_parser("reading", help="Record the meter's remaining balance.")
+    utility_reading.add_argument("balance", type=float, help="Units (kWh) remaining on the meter.")
+    utility_reading.add_argument("--at", default=None, help="ISO 8601 time of the reading; defaults to now.")
+    utility_reading.add_argument("--note", default="", help="Optional short note.")
+    utility_report = utility_sub.add_parser(
+        "report",
+        help="Show balance, burn rate, days of cover and the period's consumption.",
+    )
+    utility_report.add_argument("--month", default=None, help="Calendar month as YYYY-MM (default: current month).")
+    utility_report.add_argument("--from", dest="from_date", default=None, help="Period start date (YYYY-MM-DD).")
+    utility_report.add_argument("--to", dest="to_date", default=None, help="Period end date (YYYY-MM-DD).")
+    utility_report.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    utility_list = utility_sub.add_parser("list", help="List ledger events with the index delete takes.")
+    utility_list.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    utility_delete = utility_sub.add_parser("delete", help="Remove one ledger event by its list index.")
+    utility_delete.add_argument("index", type=int, help="1-based event index from 'utility-units list'.")
     subparsers.add_parser(
         "runtime-alert",
         help="Send a Discord alert if estimated battery runtime is below RUNTIME_ALERT_MINUTES.",
@@ -573,6 +600,8 @@ def dispatch_command(config: Config, args: argparse.Namespace) -> int:
             return command_load_profile(config, args.json)
         if command == "supply-history":
             return command_supply_history(config, args.days, args.json)
+        if command == "utility-units":
+            return command_utility_units(config, args)
         if command == "runtime-alert":
             return app.command_runtime_alert(config)
         if command == "adopt-utility":

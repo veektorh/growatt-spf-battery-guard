@@ -21,6 +21,7 @@ from growatt_guard.dashboard_metrics import (
 from growatt_guard.load_learning import resolve_timezone
 from growatt_guard.load_profile import build_load_profile_report
 from growatt_guard.supply_history import build_supply_report, supply_on
+from growatt_guard.utility_units import build_utility_report, read_utility_units
 from growatt_guard.dashboard_insights import (
     build_dashboard_daily_insights, build_dashboard_data_quality, build_tonight_risk,
     compute_tonight_safe,
@@ -99,6 +100,20 @@ def _load_profile_view(
         return build_load_profile_report(metric_history, read_discharge_rate_history(), now=now, tz=tz)
     except Exception:  # noqa: BLE001 - a shadow view failure must not break the dashboard
         logging.exception("Could not build the hourly load profile view")
+        return None
+
+
+def _utility_units_view(now: dt.datetime, tz: dt.tzinfo | None) -> dict[str, Any] | None:
+    """Prepaid meter balance, burn and period consumption, plus the inverter split."""
+    try:
+        return build_utility_report(
+            read_utility_units(),
+            now=now,
+            tz=tz,
+            daily_rows=read_daily_generation(),
+        )
+    except Exception:  # noqa: BLE001 - a meter ledger failure must not break the dashboard
+        logging.exception("Could not build the utility units view")
         return None
 
 
@@ -366,6 +381,7 @@ def build_dashboard_data_payload(
             ),
         },
         "supply": _supply_view(metric_history, schedule, now, site_tz),
+        "utility_units": _utility_units_view(now, site_tz),
         "assistant": {
             "status": home_status,
             "summary": assistant_summary,

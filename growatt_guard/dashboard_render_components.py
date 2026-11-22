@@ -282,6 +282,100 @@ def _render_supply_rows(events: list[dict[str, Any]], limit: int = 14) -> str:
     return "\n".join(rows)
 
 
+def _short_date_text(value: Any) -> str:
+    try:
+        return dt.date.fromisoformat(str(value)).strftime("%d %b")
+    except (TypeError, ValueError):
+        return "?"
+
+
+def _short_moment_text(value: Any) -> str:
+    try:
+        return dt.datetime.fromisoformat(str(value)).strftime("%d %b %H:%M")
+    except (TypeError, ValueError):
+        return "?"
+
+
+def _render_utility_units_panel(report: dict[str, Any] | None) -> str:
+    """Prepaid-meter balance, burn rate and consumption for the Energy tab."""
+    report = report or {}
+    current = report.get("current")
+    if not current:
+        return (
+            '<article class="panel" id="utility-units">'
+            '<div class="eyebrow"><h2>Utility Units</h2>'
+            + _inline_badge("No readings", "badge-neutral")
+            + "</div>"
+            '<p class="muted small">The prepaid meter is not tracked yet. Record its balance with '
+            "<code>utility-units reading &lt;units&gt;</code> and each purchase with "
+            "<code>utility-units topup &lt;units&gt;</code>.</p>"
+            "</article>"
+        )
+
+    cover = report.get("cover")
+    badge_text = f"{cover['days']:g} days cover" if cover else "Balance only"
+    badge_class = {
+        "ok": "badge-ok",
+        "watch": "badge-warn",
+    }.get(str(report.get("level") or ""), "badge-neutral")
+    rows: list[tuple[str, str]] = [
+        (
+            "Meter balance",
+            f"{current['balance']:g} units · {_short_moment_text(current['at'])}",
+        )
+    ]
+    burn = report.get("burn")
+    rows.append(
+        (
+            "Burn rate",
+            f"{burn['units_per_day']:g} units/day over {burn['days']:g} days"
+            if burn
+            else "Need a second reading",
+        )
+    )
+    rows.append(
+        (
+            "Days of cover",
+            f"{cover['days']:g} days · runs out {_short_date_text(cover['runs_out'])}"
+            if cover
+            else "Unknown",
+        )
+    )
+    period = report.get("period") or {}
+    span = f"{_short_date_text(period.get('from'))}–{_short_date_text(period.get('to'))}"
+    if period.get("consumed") is not None:
+        rows.append(("This period", f"{span}: {period['consumed']:g} units used"))
+        rows.append(("Bought", f"{period['purchased']:g} units"))
+        if period.get("inverter_units") is not None:
+            days = period.get("inverter_days") or {}
+            rows.append(
+                (
+                    "Inverter grid",
+                    f"{period['inverter_units']:g} units "
+                    f"({days.get('covered', 0)} of {days.get('expected', 0)} whole days)",
+                )
+            )
+        if period.get("outside_units") is not None:
+            rows.append(("Outside inverter", f"{period['outside_units']:g} units"))
+    elif period:
+        rows.append(("This period", f"{span}: not measurable yet"))
+    previous = report.get("previous")
+    if previous:
+        rows.append(("Same days last month", f"{previous['consumed']:g} units used"))
+
+    footer = "One unit is one kWh. Purchases are top-ups, not consumption; a period needs a reading at each end."
+    notes = " ".join(report.get("notes") or [])
+    if notes:
+        footer = f"{footer} {notes}"
+    return (
+        '<article class="panel" id="utility-units">'
+        f'<div class="eyebrow"><h2>Utility Units</h2>{_inline_badge(badge_text, badge_class)}</div>'
+        f'<dl class="kv">{_kv_rows(rows)}</dl>'
+        f'<p class="muted small">{esc(footer)}</p>'
+        "</article>"
+    )
+
+
 def _load_profile_night_text(profile: dict[str, Any] | None) -> str:
     """One line comparing tonight's hourly-profile energy with the band planner."""
     if not profile:

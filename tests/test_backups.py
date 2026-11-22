@@ -27,6 +27,7 @@ class BackupTests(unittest.TestCase):
         stack.enter_context(patch("growatt_guard.audit.MODE_AUDIT_FILE", root / "logs" / "mode_decisions.csv"))
         stack.enter_context(patch("growatt_guard.dashboard_metrics.DASHBOARD_METRICS_FILE", root / "logs" / "dashboard_metrics.jsonl"))
         stack.enter_context(patch("growatt_guard.daily_generation.DAILY_GENERATION_FILE", root / "history" / "daily_generation.jsonl"))
+        stack.enter_context(patch("growatt_guard.utility_units.UTILITY_UNITS_FILE", root / "history" / "utility_units.jsonl"))
         stack.enter_context(patch("growatt_guard.state.FORECAST_CALIBRATION_FILE", root / "state" / "forecast_calibration.json"))
         stack.enter_context(patch("growatt_guard.state.UTILITY_HOLD_FILE", root / "state" / "utility_hold.json"))
         stack.enter_context(patch("growatt_guard.state.TOPUP_STATE_FILE", root / "state" / "topup_active.json"))
@@ -45,6 +46,10 @@ class BackupTests(unittest.TestCase):
                 '{"date":"2026-07-11","generated_wh":18400,"source":"growatt-history"}\n',
                 encoding="utf-8",
             )
+            (root / "history" / "utility_units.jsonl").write_text(
+                '{"kind":"reading","at":"2026-07-11T07:00:00+01:00","balance":280}\n',
+                encoding="utf-8",
+            )
             write_json_state(
                 root / "state" / "utility_hold.json",
                 {
@@ -58,6 +63,7 @@ class BackupTests(unittest.TestCase):
         self.assertIn("schedule_overrides", payload["sections"])
         self.assertIn("dashboard_metrics", payload["sections"])
         self.assertIn("daily_generation", payload["sections"])
+        self.assertEqual(payload["sections"]["utility_units"][0]["balance"], 280)
         self.assertNotIn("utility_hold", payload["sections"])
         self.assertNotIn("session", json.dumps(payload).lower())
 
@@ -165,6 +171,29 @@ class BackupTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertEqual(json.loads(restored)["generated_wh"], 18400)
+
+    def test_restore_validates_and_writes_utility_units(self):
+        payload = {
+            "schema_version": 1,
+            "sections": {
+                "utility_units": [
+                    {"kind": "topup", "at": "2026-07-10T18:00:00+01:00", "units": 100},
+                    {"kind": "reading", "at": "2026-07-11T07:00:00+01:00", "balance": 280},
+                ]
+            },
+        }
+        with TemporaryDirectory() as tmpdir, self._paths(Path(tmpdir)), redirect_stdout(StringIO()):
+            backup = Path(tmpdir) / "units.backup.json"
+            backup.write_text(json.dumps(payload), encoding="utf-8")
+            result = command_restore_state(make_config(), str(backup))
+            restored = [
+                json.loads(line)
+                for line in (Path(tmpdir) / "history" / "utility_units.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+
+        self.assertEqual(result, 0)
+        self.assertEqual([row["kind"] for row in restored], ["topup", "reading"])
+        self.assertEqual(restored[0]["units"], 100)
 
 
 if __name__ == "__main__":

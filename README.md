@@ -307,6 +307,39 @@ Supply) and the last week as the Observed Supply table on the Automation tab:
 .venv/bin/python growatt_power_guard.py supply-history --json
 ```
 
+### Prepaid Utility Units
+
+The inverter reports only the grid energy it draws itself; a prepaid meter also
+counts loads wired straight to the grid. `utility-units` keeps the meter's own
+numbers so the estate's real consumption can be measured instead of estimated.
+One unit is one kWh. Record the balance whenever you check the meter and each
+purchase:
+
+```bash
+.venv/bin/python growatt_power_guard.py utility-units reading 280
+.venv/bin/python growatt_power_guard.py utility-units topup 100 --cost 15000
+.venv/bin/python growatt_power_guard.py utility-units report
+.venv/bin/python growatt_power_guard.py utility-units report --month 2026-11 --json
+.venv/bin/python growatt_power_guard.py utility-units list
+```
+
+Purchases are top-ups, not consumption: a month where you buy 600 and carry 150
+over is not a 600-unit month. Consumption between two readings is
+`opening balance + top-ups - closing balance`, so a period needs a reading at
+each end. The default period is the current month. The burn rate uses the last
+14 days of readings, and days of cover divide the current balance by it.
+
+The report also subtracts the daily ledger's inverter grid energy from the
+meter's total, which splits consumption into inverter use and use outside the
+inverter. That split counts only finalized whole days strictly between the two
+readings, so boundary days are excluded and a partial ledger is labelled rather
+than guessed. The dashboard's Energy tab shows the same panel.
+
+The ledger is `history/utility_units.jsonl` under the data directory, included
+in `backup-state` and `restore-state`. It is plain JSONL if an entry needs
+correcting by hand; `utility-units delete <index>` removes the event shown at
+that index by `utility-units list`.
+
 ### Hourly Load Profile
 
 `load-profile` is a shadow view of the house load by hour of day: for each hour,
@@ -854,7 +887,8 @@ should stay backward-compatible.
 ### Local Backup and Restore
 
 Create a selective local backup of schedule overrides, the mode audit, dashboard
-metric history, and forecast calibration evidence:
+metric history, the daily energy ledger, the prepaid meter ledger, and forecast
+calibration evidence:
 
 ```bash
 .venv/bin/python growatt_power_guard.py backup-state

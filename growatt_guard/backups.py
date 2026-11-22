@@ -15,6 +15,7 @@ import growatt_guard.bypass_history as bypass_history_module
 import growatt_guard.daily_generation as daily_generation_module
 import growatt_guard.schedule_overrides as overrides_module
 import growatt_guard.state as state_module
+import growatt_guard.utility_units as utility_units_module
 from growatt_guard.exceptions import GrowattGuardError
 from growatt_guard.growatt_api import extract_spf_output_source, load_context
 from growatt_guard.schedule import validate_schedule, validate_schedule_overrides
@@ -87,6 +88,8 @@ def build_backup_payload(*, include_active_hold: bool = False) -> dict[str, Any]
         sections["daily_generation"] = _read_jsonl(
             daily_generation_module.DAILY_GENERATION_FILE, "daily generation"
         )
+    if utility_units_module.UTILITY_UNITS_FILE.exists():
+        sections["utility_units"] = utility_units_module.read_utility_units()
     if bypass_history_module.BYPASS_DAILY_FILE.exists():
         sections["bypass_daily"] = _read_jsonl(
             bypass_history_module.BYPASS_DAILY_FILE, "bypass rollup"
@@ -166,14 +169,14 @@ def _validate_restore_sections(sections: Any) -> dict[str, Any]:
         raise GrowattGuardError("Backup sections must be an object.")
     allowed = {
         "schedule_overrides", "mode_audit", "dashboard_metrics", "daily_generation",
-        "bypass_daily", "forecast_calibration", "utility_hold",
+        "utility_units", "bypass_daily", "forecast_calibration", "utility_hold",
     }
     unknown = sorted(set(sections) - allowed)
     if unknown:
         raise GrowattGuardError(f"Backup contains unsupported section(s): {', '.join(unknown)}")
     for name in (
-        "mode_audit", "dashboard_metrics", "daily_generation", "bypass_daily",
-        "forecast_calibration",
+        "mode_audit", "dashboard_metrics", "daily_generation", "utility_units",
+        "bypass_daily", "forecast_calibration",
     ):
         value = sections.get(name)
         if value is not None and (not isinstance(value, list) or not all(isinstance(row, dict) for row in value)):
@@ -226,6 +229,14 @@ def command_restore_state(config: Any, input_path: str, allow_active_hold: bool 
                 raise GrowattGuardError("Daily generation rows must have unique dates and non-negative generated_wh.")
             dates.add(day)
 
+    utility_units = sections.get("utility_units")
+    normalized_utility_units = None
+    if utility_units is not None:
+        normalized_utility_units = [
+            utility_units_module.normalize_event(row, index)
+            for index, row in enumerate(utility_units, start=1)
+        ]
+
     hold = sections.get("utility_hold")
     normalized_hold = None
     if hold is not None:
@@ -256,6 +267,8 @@ def command_restore_state(config: Any, input_path: str, allow_active_hold: bool 
             for row in sorted(daily_generation, key=lambda item: str(item["date"]))
         )
         _atomic_write_text(daily_generation_module.DAILY_GENERATION_FILE, content)
+    if normalized_utility_units is not None:
+        utility_units_module.write_utility_units(normalized_utility_units)
     bypass_daily = sections.get("bypass_daily")
     if bypass_daily is not None:
         dates: set[str] = set()
