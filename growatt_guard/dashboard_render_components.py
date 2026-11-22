@@ -3,6 +3,8 @@ import datetime as dt
 import html
 from typing import Any
 
+from growatt_guard.utility_units import format_energy_rate, format_money
+
 def esc(value: Any) -> str:
     return html.escape(str(value), quote=True)
 
@@ -378,6 +380,29 @@ def _render_utility_units_panel(report: dict[str, Any] | None) -> str:
     previous = report.get("previous")
     if previous:
         rows.append(("Same days last month", f"{previous['consumed']:g} units used"))
+    money = report.get("money") or {}
+    if money.get("paid") is not None:
+        paid = f"{format_money(money['paid'])} for {money['paid_units']:g} units"
+        if money.get("paid_rate") is not None:
+            paid += f" · {format_energy_rate(money['paid_rate'])}"
+        rows.append(("Paid", paid))
+    if money.get("total") is not None:
+        rate = money["tariff"]["rate"]
+        rows.append(
+            ("Units cost", f"{format_money(money['units_cost'])} at {format_energy_rate(rate)}")
+        )
+        months = money["fixed_months"]
+        rows.append(
+            (
+                "Fixed charge",
+                f"{format_money(money['fixed_cost'])} "
+                f"({months} month{'s' if months != 1 else ''})",
+            )
+        )
+        total = format_money(money["total"])
+        if money.get("cost_per_unit") is not None:
+            total += f" · {format_energy_rate(money['cost_per_unit'])} used"
+        rows.append(("Total cost", total))
 
     footer = "One unit is one kWh. Purchases are top-ups, not consumption; a period needs a reading at each end."
     notes = " ".join(report.get("notes") or [])

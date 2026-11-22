@@ -21,7 +21,11 @@ from growatt_guard.dashboard_metrics import (
 from growatt_guard.load_learning import resolve_timezone
 from growatt_guard.load_profile import build_load_profile_report
 from growatt_guard.supply_history import build_supply_report, supply_on
-from growatt_guard.utility_units import build_utility_report, read_utility_units
+from growatt_guard.utility_units import (
+    build_utility_report,
+    read_utility_tariff,
+    read_utility_units,
+)
 from growatt_guard.dashboard_insights import (
     build_dashboard_daily_insights, build_dashboard_data_quality, build_tonight_risk,
     compute_tonight_safe,
@@ -111,6 +115,7 @@ def _utility_units_view(now: dt.datetime, tz: dt.tzinfo | None) -> dict[str, Any
             now=now,
             tz=tz,
             daily_rows=read_daily_generation(),
+            tariff_rates=read_utility_tariff(),
         )
     except Exception:  # noqa: BLE001 - a meter ledger failure must not break the dashboard
         logging.exception("Could not build the utility units view")

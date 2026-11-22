@@ -28,6 +28,7 @@ class BackupTests(unittest.TestCase):
         stack.enter_context(patch("growatt_guard.dashboard_metrics.DASHBOARD_METRICS_FILE", root / "logs" / "dashboard_metrics.jsonl"))
         stack.enter_context(patch("growatt_guard.daily_generation.DAILY_GENERATION_FILE", root / "history" / "daily_generation.jsonl"))
         stack.enter_context(patch("growatt_guard.utility_units.UTILITY_UNITS_FILE", root / "history" / "utility_units.jsonl"))
+        stack.enter_context(patch("growatt_guard.utility_units.UTILITY_TARIFF_FILE", root / "state" / "utility_tariff.json"))
         stack.enter_context(patch("growatt_guard.state.FORECAST_CALIBRATION_FILE", root / "state" / "forecast_calibration.json"))
         stack.enter_context(patch("growatt_guard.state.UTILITY_HOLD_FILE", root / "state" / "utility_hold.json"))
         stack.enter_context(patch("growatt_guard.state.TOPUP_STATE_FILE", root / "state" / "topup_active.json"))
@@ -50,6 +51,11 @@ class BackupTests(unittest.TestCase):
                 '{"kind":"reading","at":"2026-07-11T07:00:00+01:00","balance":280}\n',
                 encoding="utf-8",
             )
+            (root / "state").mkdir(exist_ok=True)
+            (root / "state" / "utility_tariff.json").write_text(
+                '{"schema_version":1,"rates":[{"from":"2026-11-01","rate":228,"fixed":120000}]}',
+                encoding="utf-8",
+            )
             write_json_state(
                 root / "state" / "utility_hold.json",
                 {
@@ -64,6 +70,7 @@ class BackupTests(unittest.TestCase):
         self.assertIn("dashboard_metrics", payload["sections"])
         self.assertIn("daily_generation", payload["sections"])
         self.assertEqual(payload["sections"]["utility_units"][0]["balance"], 280)
+        self.assertEqual(payload["sections"]["utility_tariff"][0]["rate"], 228)
         self.assertNotIn("utility_hold", payload["sections"])
         self.assertNotIn("session", json.dumps(payload).lower())
 
@@ -179,7 +186,10 @@ class BackupTests(unittest.TestCase):
                 "utility_units": [
                     {"kind": "topup", "at": "2026-07-10T18:00:00+01:00", "units": 100},
                     {"kind": "reading", "at": "2026-07-11T07:00:00+01:00", "balance": 280},
-                ]
+                ],
+                "utility_tariff": [
+                    {"from": "2026-11-01", "rate": 228, "fixed": 120000}
+                ],
             },
         }
         with TemporaryDirectory() as tmpdir, self._paths(Path(tmpdir)), redirect_stdout(StringIO()):
@@ -190,10 +200,14 @@ class BackupTests(unittest.TestCase):
                 json.loads(line)
                 for line in (Path(tmpdir) / "history" / "utility_units.jsonl").read_text(encoding="utf-8").splitlines()
             ]
+            restored_tariff = json.loads(
+                (Path(tmpdir) / "state" / "utility_tariff.json").read_text(encoding="utf-8")
+            )
 
         self.assertEqual(result, 0)
         self.assertEqual([row["kind"] for row in restored], ["topup", "reading"])
         self.assertEqual(restored[0]["units"], 100)
+        self.assertEqual(restored_tariff["rates"][0]["rate"], 228)
 
 
 if __name__ == "__main__":

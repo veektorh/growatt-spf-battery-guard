@@ -90,6 +90,9 @@ def build_backup_payload(*, include_active_hold: bool = False) -> dict[str, Any]
         )
     if utility_units_module.UTILITY_UNITS_FILE.exists():
         sections["utility_units"] = utility_units_module.read_utility_units()
+    tariff = utility_units_module.read_utility_tariff()
+    if tariff:
+        sections["utility_tariff"] = tariff
     if bypass_history_module.BYPASS_DAILY_FILE.exists():
         sections["bypass_daily"] = _read_jsonl(
             bypass_history_module.BYPASS_DAILY_FILE, "bypass rollup"
@@ -169,14 +172,15 @@ def _validate_restore_sections(sections: Any) -> dict[str, Any]:
         raise GrowattGuardError("Backup sections must be an object.")
     allowed = {
         "schedule_overrides", "mode_audit", "dashboard_metrics", "daily_generation",
-        "utility_units", "bypass_daily", "forecast_calibration", "utility_hold",
+        "utility_units", "utility_tariff", "bypass_daily", "forecast_calibration",
+        "utility_hold",
     }
     unknown = sorted(set(sections) - allowed)
     if unknown:
         raise GrowattGuardError(f"Backup contains unsupported section(s): {', '.join(unknown)}")
     for name in (
         "mode_audit", "dashboard_metrics", "daily_generation", "utility_units",
-        "bypass_daily", "forecast_calibration",
+        "utility_tariff", "bypass_daily", "forecast_calibration",
     ):
         value = sections.get(name)
         if value is not None and (not isinstance(value, list) or not all(isinstance(row, dict) for row in value)):
@@ -236,6 +240,13 @@ def command_restore_state(config: Any, input_path: str, allow_active_hold: bool 
             utility_units_module.normalize_event(row, index)
             for index, row in enumerate(utility_units, start=1)
         ]
+    tariff = sections.get("utility_tariff")
+    normalized_tariff = None
+    if tariff is not None:
+        normalized_tariff = [
+            utility_units_module.normalize_tariff_row(row, index)
+            for index, row in enumerate(tariff, start=1)
+        ]
 
     hold = sections.get("utility_hold")
     normalized_hold = None
@@ -269,6 +280,8 @@ def command_restore_state(config: Any, input_path: str, allow_active_hold: bool 
         _atomic_write_text(daily_generation_module.DAILY_GENERATION_FILE, content)
     if normalized_utility_units is not None:
         utility_units_module.write_utility_units(normalized_utility_units)
+    if normalized_tariff is not None:
+        utility_units_module.write_utility_tariff(normalized_tariff)
     bypass_daily = sections.get("bypass_daily")
     if bypass_daily is not None:
         dates: set[str] = set()
