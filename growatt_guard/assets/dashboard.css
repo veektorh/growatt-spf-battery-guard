@@ -194,6 +194,12 @@
     .profile-button { cursor: pointer; font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 6px; }
     .profile-button:disabled { opacity: 0.55; cursor: default; }
     .profile-button:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
+    .units-form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 12px; padding-top: 4px; border-top: 1px solid var(--line-soft); }
+    .units-form label { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); }
+    .units-form input { width: 108px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); color: var(--ink); font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; }
+    .units-form input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .units-form .profile-button { margin-bottom: 1px; }
+    .units-form #utility-units-status { flex-basis: 100%; }
     .profile-dialog { width: min(560px, calc(100% - 32px)); padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); }
     .profile-dialog::backdrop { background: rgba(4, 8, 14, 0.62); }
     .profile-detail { margin-top: 14px; }

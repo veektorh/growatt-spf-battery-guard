@@ -643,3 +643,50 @@
         .then(renderProfile)
         .catch(function() {});
     })();
+    (function() {
+      function bindUtilityUnits() {
+        const form = document.getElementById('utility-units-form');
+        if (!form || form.dataset.bound === '1') return;
+        form.dataset.bound = '1';
+        form.addEventListener('submit', function(event) {
+          event.preventDefault();
+          const submitter = event.submitter;
+          const kind = submitter ? submitter.value : 'reading';
+          const body = new URLSearchParams();
+          body.set('kind', kind);
+          if (kind === 'topup') {
+            body.set('units', form.units.value);
+            if (form.cost && form.cost.value) body.set('cost', form.cost.value);
+          } else {
+            body.set('balance', form.balance.value);
+          }
+          fetch('/api/utility-units', { method: 'POST', body: body })
+            .then(function(response) {
+              return response.json().then(function(data) {
+                return { ok: response.ok, data: data };
+              });
+            })
+            .then(function(result) {
+              if (!result.ok) {
+                const statusEl = document.getElementById('utility-units-status');
+                if (statusEl) statusEl.textContent = result.data.message || 'Could not record that.';
+                return;
+              }
+              const panel = document.getElementById('utility-units');
+              const holder = document.createElement('div');
+              holder.innerHTML = result.data.html || '';
+              const next = holder.firstElementChild;
+              if (!panel || !next) return;
+              panel.replaceWith(next);
+              const statusEl = document.getElementById('utility-units-status');
+              if (statusEl) statusEl.textContent = result.data.message || 'Saved.';
+              bindUtilityUnits();
+            })
+            .catch(function() {
+              const statusEl = document.getElementById('utility-units-status');
+              if (statusEl) statusEl.textContent = 'Recording needs the served dashboard; this page is a file.';
+            });
+        });
+      }
+      bindUtilityUnits();
+    })();
