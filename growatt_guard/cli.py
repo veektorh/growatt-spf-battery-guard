@@ -426,6 +426,20 @@ def build_parser() -> argparse.ArgumentParser:
     utility_list.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     utility_delete = utility_sub.add_parser("delete", help="Remove one ledger event by its list index.")
     utility_delete.add_argument("index", type=int, help="1-based event index from 'utility-units list'.")
+    utility_tariff = utility_sub.add_parser(
+        "tariff",
+        help="List effective-dated tariffs or record a rate change from a date.",
+    )
+    utility_tariff.add_argument("--rate", type=float, default=None, help="Naira per kWh.")
+    utility_tariff.add_argument(
+        "--fixed", type=float, default=None, help="Monthly fixed charge in naira, cash billed."
+    )
+    utility_tariff.add_argument(
+        "--from", dest="from_date", default=None, help="Effective date (YYYY-MM-DD); defaults to today."
+    )
+    utility_tariff.add_argument("--note", default="", help="Optional short note.")
+    utility_tariff.add_argument("--list", action="store_true", help="List the effective-dated tariffs.")
+    utility_tariff.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     subparsers.add_parser(
         "runtime-alert",
         help="Send a Discord alert if estimated battery runtime is below RUNTIME_ALERT_MINUTES.",

@@ -58,6 +58,7 @@ from growatt_guard.topup_status import collect_topup_status
 from growatt_guard.topup import next_morning_preserve_target_soc
 from growatt_guard.utility_units import (
     build_utility_report,
+    read_utility_tariff,
     read_utility_units,
     record_reading,
     record_topup,
@@ -358,7 +359,10 @@ def _utility_units_payload() -> dict[str, Any]:
     except (GrowattGuardError, OSError, ValueError):
         tz = None
     report = build_utility_report(
-        read_utility_units(), tz=tz, daily_rows=read_daily_generation()
+        read_utility_units(),
+        tz=tz,
+        daily_rows=read_daily_generation(),
+        tariff_rates=read_utility_tariff(),
     )
     return {"report": report, "html": _render_utility_units_panel(report)}
 

@@ -342,6 +342,22 @@ in `backup-state` and `restore-state`. It is plain JSONL if an entry needs
 correcting by hand; `utility-units delete <index>` removes the event shown at
 that index by `utility-units list`.
 
+`cost` on a top-up is the cash actually paid; the report shows it as paid and
+as an effective price per unit. Tariffs are effective-dated, so a price change
+is a new dated row and past months keep their own rate:
+
+```bash
+.venv/bin/python growatt_power_guard.py utility-units tariff --rate 228 --fixed 120000 --from 2026-11-01
+.venv/bin/python growatt_power_guard.py utility-units tariff --rate 250 --fixed 120000 --from 2026-12-01
+.venv/bin/python growatt_power_guard.py utility-units tariff --list
+```
+
+A period's cost is `units used x the rate effective on its closing reading`,
+plus one monthly fixed charge for every calendar month the period touches. The
+fixed charge is modelled as cash billed and is not deducted from the meter, so
+it never enters the units, the burn rate or the inverter split. A rate change
+inside a period is disclosed in the report rather than silently split.
+
 ### Hourly Load Profile
 
 `load-profile` is a shadow view of the house load by hour of day: for each hour,

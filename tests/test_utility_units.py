@@ -20,10 +20,15 @@ from growatt_guard.utility_units import (
     delete_event,
     format_utility_events,
     format_utility_report,
+    format_utility_tariff,
     normalize_event,
+    read_utility_tariff,
     read_utility_units,
     record_reading,
     record_topup,
+    record_utility_tariff,
+    tariff_at,
+    write_utility_tariff,
     write_utility_units,
 )
 
@@ -324,6 +329,156 @@ class DashboardHttpTests(unittest.TestCase):
         self.assertIn("Enter a number", json.loads(invalid_body)["message"])
         self.assertEqual(cross_origin, 403)
         self.assertEqual(wrong_path, 404)
+
+
+class MoneyTests(unittest.TestCase):
+    TARIFF = [{"from": "2026-11-01", "rate": 228.0, "fixed": 120000.0}]
+
+    def _paid_events(self):
+        return _events(
+            [
+                {"kind": "reading", "at": "2026-11-01T07:00:00+01:00", "balance": 500},
+                {
+                    "kind": "topup",
+                    "at": "2026-11-01T09:00:00+01:00",
+                    "units": 100,
+                    "cost": 22800,
+                },
+                {"kind": "reading", "at": "2026-11-22T08:00:00+01:00", "balance": 280},
+            ]
+        )
+
+    def test_cost_and_tariff_money(self):
+        report = build_utility_report(
+            self._paid_events(),
+            now=NOW,
+            tz=WAT,
+            month="2026-11",
+            daily_rows=_daily_rows(),
+            tariff_rates=self.TARIFF,
+        )
+        money = report["money"]
+
+        self.assertEqual(report["period"]["consumed"], 320)
+        self.assertEqual(money["paid"], 22800)
+        self.assertEqual(money["paid_units"], 100)
+        self.assertEqual(money["paid_rate"], 228)
+        self.assertEqual(money["tariff"]["rate"], 228)
+        self.assertEqual(money["units_cost"], 72960)
+        self.assertEqual(money["fixed_months"], 1)
+        self.assertEqual(money["fixed_cost"], 120000)
+        self.assertEqual(money["total"], 192960)
+        self.assertEqual(money["cost_per_unit"], 603)
+
+    def test_fixed_charge_counts_every_month_the_period_touches(self):
+        events = _events(
+            [
+                {"kind": "reading", "at": "2026-10-15T07:00:00+01:00", "balance": 500},
+                {"kind": "reading", "at": "2026-11-22T08:00:00+01:00", "balance": 280},
+            ]
+        )
+        report = build_utility_report(
+            events, now=NOW, tz=WAT, month="2026-11", tariff_rates=self.TARIFF
+        )
+        self.assertEqual(report["money"]["fixed_months"], 2)
+        self.assertEqual(report["money"]["fixed_cost"], 240000)
+        self.assertEqual(report["money"]["units_cost"], 50160)
+
+    def test_mid_period_rate_change_uses_the_closing_rate_and_says_so(self):
+        rates = [
+            {"from": "2026-11-01", "rate": 228.0, "fixed": 120000.0},
+            {"from": "2026-11-10", "rate": 250.0, "fixed": 120000.0},
+        ]
+        report = build_utility_report(
+            _month_events(), now=NOW, tz=WAT, month="2026-11", tariff_rates=rates
+        )
+        self.assertEqual(report["money"]["tariff"]["rate"], 250)
+        self.assertEqual(report["money"]["units_cost"], 80000)
+        self.assertTrue(any("tariff changed on 2026-11-10" in note for note in report["notes"]))
+
+    def test_no_tariff_still_reports_recorded_payments(self):
+        report = build_utility_report(
+            self._paid_events(), now=NOW, tz=WAT, month="2026-11"
+        )
+        self.assertEqual(report["money"]["paid"], 22800)
+        self.assertIsNone(report["money"]["total"])
+        self.assertIsNone(report["money"]["tariff"])
+
+    def test_report_and_panel_show_money(self):
+        report = build_utility_report(
+            self._paid_events(),
+            now=NOW,
+            tz=WAT,
+            month="2026-11",
+            daily_rows=_daily_rows(),
+            tariff_rates=self.TARIFF,
+        )
+        text = format_utility_report(report)
+        self.assertIn("Paid      ₦22,800 for 100 units · ₦228/kWh", text)
+        self.assertIn("Cost      320 units at ₦228/kWh = ₦72,960", text)
+        self.assertIn("total ₦192,960 (₦603/kWh used)", text)
+
+        html = _render_utility_units_panel(report)
+        self.assertIn("Total cost", html)
+        self.assertIn("₦192,960", html)
+        self.assertIn("Fixed charge", html)
+
+
+class TariffTests(unittest.TestCase):
+    def test_effective_dates_and_same_day_replacement(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "tariff.json"
+            record_utility_tariff(228, 120000, from_date="2026-11-01", path=path)
+            record_utility_tariff(250, 120000, from_date="2026-12-01", path=path)
+            record_utility_tariff(240, 130000, from_date="2026-12-01", path=path)
+            rows = read_utility_tariff(path)
+            rows_text = format_utility_tariff(rows)
+
+        self.assertEqual([row["from"] for row in rows], ["2026-11-01", "2026-12-01"])
+        self.assertEqual(rows[1]["rate"], 240)
+        self.assertEqual(rows[1]["fixed"], 130000)
+        self.assertEqual(tariff_at(rows, dt.date(2026, 10, 31)), None)
+        self.assertEqual(tariff_at(rows, dt.date(2026, 11, 30))["rate"], 228)
+        self.assertEqual(tariff_at(rows, dt.date(2026, 12, 1))["rate"], 240)
+        self.assertIn("₦228/kWh", rows_text)
+
+    def test_bad_tariff_rows_are_rejected(self):
+        for row in (
+            {"from": "not-a-date", "rate": 228, "fixed": 120000},
+            {"from": "2026-11-01", "rate": 0, "fixed": 120000},
+            {"from": "2026-11-01", "rate": 228, "fixed": -1},
+            {"from": "2026-11-01", "rate": 228},
+        ):
+            with self.subTest(row=row), self.assertRaises(GrowattGuardError):
+                write_utility_tariff([row])
+
+    def test_cli_tariff_command_records_and_lists(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tariff_path = Path(tmpdir) / "tariff.json"
+            config = make_config(weather_timezone="Africa/Lagos")
+            with patch("growatt_guard.utility_units.UTILITY_TARIFF_FILE", tariff_path):
+                out = StringIO()
+                with redirect_stdout(out):
+                    command_utility_units(
+                        config,
+                        parse_command_tokens(
+                            [
+                                "utility-units", "tariff", "--rate", "228",
+                                "--fixed", "120000", "--from", "2026-11-01",
+                            ]
+                        ),
+                    )
+                    command_utility_units(
+                        config,
+                        parse_command_tokens(["utility-units", "tariff", "--list", "--json"]),
+                    )
+            printed = out.getvalue()
+            rows = read_utility_tariff(tariff_path)
+
+        self.assertIn("Recorded tariff from 2026-11-01", printed)
+        payload = json.loads(printed[printed.index("{") :])
+        self.assertEqual(payload["rates"][0]["rate"], 228)
+        self.assertEqual(rows[0]["fixed"], 120000)
 
 
 class DashboardViewTests(unittest.TestCase):
