@@ -93,6 +93,7 @@ from growatt_guard.dashboard_render_components import (
     _render_insight_rows,
     _load_profile_night_text,
     _render_supply_rows,
+    _render_utility_units_panel,
     _supply_strip_text,
     _render_recommendations,
     _render_timeline_rows,
@@ -721,6 +722,7 @@ def build_dashboard_html(dashboard_data: dict[str, Any]) -> str:
     load_profile = planner.get("load_profile")
     load_profile_json = _json_for_script(load_profile.get("hours") if isinstance(load_profile, dict) else {})
     load_profile_night = _load_profile_night_text(load_profile if isinstance(load_profile, dict) else None)
+    utility_units_html = _render_utility_units_panel(dashboard_data.get("utility_units"))
 
     # ---- System tab ----------------------------------------------------------
     pvoutput_badge, pvoutput_badge_class, pvoutput_detail = _pvoutput_status(
@@ -882,6 +884,7 @@ def build_dashboard_html(dashboard_data: dict[str, Any]) -> str:
         <div class="chart" id="energy-trend-chart"></div>
         <p class="muted small" data-trend-note>Past days come from the finalized daily ledger; today is live so far.</p>
       </article>
+      {utility_units_html}
       <div class="two">
         <article class="panel">
           <div class="eyebrow"><h2>Today's Balance</h2>{_inline_badge('Data ' + quality_display, quality_badge_class)}</div>
