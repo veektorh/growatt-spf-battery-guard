@@ -212,7 +212,10 @@ class ReportTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             ledger = Path(tmpdir) / "utility_units.jsonl"
+            tariff_path = Path(tmpdir) / "utility_tariff.json"
             with patch("growatt_guard.utility_units.UTILITY_UNITS_FILE", ledger), patch(
+                "growatt_guard.utility_units.UTILITY_TARIFF_FILE", tariff_path
+            ), patch(
                 "growatt_guard.dashboard_service.validate_schedule",
                 return_value={"timezone": "Africa/Lagos"},
             ), patch("growatt_guard.dashboard_service.read_daily_generation", return_value=[]):
@@ -222,30 +225,50 @@ class ReportTests(unittest.TestCase):
                 topup_status, topup_payload = utility_units_form_result(
                     {"kind": ["topup"], "units": ["100"], "cost": ["15000"]}
                 )
+                tariff_status, tariff_payload = utility_units_form_result(
+                    {
+                        "kind": ["tariff"],
+                        "rate": ["240"],
+                        "fixed": ["60000"],
+                        "from": ["2026-12-01"],
+                        "note": ["next rate"],
+                    }
+                )
             events = read_utility_units(ledger)
+            rows = read_utility_tariff(tariff_path)
 
-        self.assertEqual((status, topup_status), (200, 200))
+        self.assertEqual((status, topup_status, tariff_status), (200, 200, 200))
         self.assertIn("Recorded reading: 280 units", payload["message"])
         self.assertIn("280 units", payload["html"])
         self.assertIn("Recorded top-up: 100 units", topup_payload["message"])
         self.assertEqual(sorted(event["kind"] for event in events), ["reading", "topup"])
+        self.assertIn("Recorded tariff from 2026-12-01", tariff_payload["message"])
+        self.assertIn("Tariff: ₦240/kWh", tariff_payload["html"])
+        self.assertEqual(rows[0]["fixed"], 60000)
 
     def test_form_result_rejects_missing_or_invalid_numbers(self):
         from growatt_guard.dashboard_service import utility_units_form_result
 
         with tempfile.TemporaryDirectory() as tmpdir:
             ledger = Path(tmpdir) / "utility_units.jsonl"
+            tariff_path = Path(tmpdir) / "utility_tariff.json"
             with patch("growatt_guard.utility_units.UTILITY_UNITS_FILE", ledger), patch(
+                "growatt_guard.utility_units.UTILITY_TARIFF_FILE", tariff_path
+            ), patch(
                 "growatt_guard.dashboard_service.validate_schedule",
                 return_value={"timezone": "Africa/Lagos"},
             ), patch("growatt_guard.dashboard_service.read_daily_generation", return_value=[]):
                 missing_kind = utility_units_form_result({"balance": ["280"]})
                 bad_number = utility_units_form_result({"kind": ["reading"], "balance": ["abc"]})
                 missing_units = utility_units_form_result({"kind": ["topup"]})
+                bad_date = utility_units_form_result(
+                    {"kind": ["tariff"], "rate": ["240"], "fixed": ["60000"], "from": ["nope"]}
+                )
 
         self.assertEqual(missing_kind[0], 400)
         self.assertEqual(bad_number[0], 400)
         self.assertEqual(missing_units[0], 400)
+        self.assertEqual(bad_date[0], 400)
         self.assertIn("Enter a number for the meter balance", bad_number[1]["message"])
 
 
@@ -274,8 +297,11 @@ class DashboardHttpTests(unittest.TestCase):
     def test_post_records_a_reading_and_returns_the_panel(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             ledger = Path(tmpdir) / "utility_units.jsonl"
+            tariff_path = Path(tmpdir) / "utility_tariff.json"
             server = self._serve(tmpdir)
             with patch("growatt_guard.utility_units.UTILITY_UNITS_FILE", ledger), patch(
+                "growatt_guard.utility_units.UTILITY_TARIFF_FILE", tariff_path
+            ), patch(
                 "growatt_guard.dashboard_service.validate_schedule",
                 return_value={"timezone": "Africa/Lagos"},
             ), patch("growatt_guard.dashboard_service.read_daily_generation", return_value=[]):
@@ -298,11 +324,40 @@ class DashboardHttpTests(unittest.TestCase):
         self.assertEqual(get_status, 200)
         self.assertIn("html", json.loads(get_body))
 
+    def test_post_records_a_tariff(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ledger = Path(tmpdir) / "utility_units.jsonl"
+            tariff_path = Path(tmpdir) / "utility_tariff.json"
+            server = self._serve(tmpdir)
+            with patch("growatt_guard.utility_units.UTILITY_UNITS_FILE", ledger), patch(
+                "growatt_guard.utility_units.UTILITY_TARIFF_FILE", tariff_path
+            ), patch(
+                "growatt_guard.dashboard_service.validate_schedule",
+                return_value={"timezone": "Africa/Lagos"},
+            ), patch("growatt_guard.dashboard_service.read_daily_generation", return_value=[]):
+                status, body = self._request(
+                    server,
+                    "POST",
+                    "/api/utility-units",
+                    body="kind=tariff&rate=240&fixed=60000&from=2026-12-01&note=next+rate",
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+            rows = read_utility_tariff(tariff_path)
+
+        payload = json.loads(body)
+        self.assertEqual(status, 200)
+        self.assertIn("Recorded tariff from 2026-12-01", payload["message"])
+        self.assertEqual(rows[0]["rate"], 240)
+        self.assertEqual(rows[0]["note"], "next rate")
+
     def test_post_rejects_bad_input_and_cross_origin(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             ledger = Path(tmpdir) / "utility_units.jsonl"
+            tariff_path = Path(tmpdir) / "utility_tariff.json"
             server = self._serve(tmpdir)
             with patch("growatt_guard.utility_units.UTILITY_UNITS_FILE", ledger), patch(
+                "growatt_guard.utility_units.UTILITY_TARIFF_FILE", tariff_path
+            ), patch(
                 "growatt_guard.dashboard_service.validate_schedule",
                 return_value={"timezone": "Africa/Lagos"},
             ), patch("growatt_guard.dashboard_service.read_daily_generation", return_value=[]):
@@ -332,7 +387,7 @@ class DashboardHttpTests(unittest.TestCase):
 
 
 class MoneyTests(unittest.TestCase):
-    TARIFF = [{"from": "2026-11-01", "rate": 228.0, "fixed": 120000.0}]
+    TARIFF = [{"from": "2026-11-01", "rate": 228.0, "fixed": 100000.0}]
 
     def _paid_events(self):
         return _events(
@@ -366,9 +421,9 @@ class MoneyTests(unittest.TestCase):
         self.assertEqual(money["tariff"]["rate"], 228)
         self.assertEqual(money["units_cost"], 72960)
         self.assertEqual(money["fixed_months"], 1)
-        self.assertEqual(money["fixed_cost"], 120000)
-        self.assertEqual(money["total"], 192960)
-        self.assertEqual(money["cost_per_unit"], 603)
+        self.assertEqual(money["fixed_cost"], 100000)
+        self.assertEqual(money["total"], 172960)
+        self.assertEqual(money["cost_per_unit"], 540.5)
 
     def test_fixed_charge_counts_every_month_the_period_touches(self):
         events = _events(
@@ -381,13 +436,13 @@ class MoneyTests(unittest.TestCase):
             events, now=NOW, tz=WAT, month="2026-11", tariff_rates=self.TARIFF
         )
         self.assertEqual(report["money"]["fixed_months"], 2)
-        self.assertEqual(report["money"]["fixed_cost"], 240000)
+        self.assertEqual(report["money"]["fixed_cost"], 200000)
         self.assertEqual(report["money"]["units_cost"], 50160)
 
     def test_mid_period_rate_change_uses_the_closing_rate_and_says_so(self):
         rates = [
-            {"from": "2026-11-01", "rate": 228.0, "fixed": 120000.0},
-            {"from": "2026-11-10", "rate": 250.0, "fixed": 120000.0},
+            {"from": "2026-11-01", "rate": 228.0, "fixed": 100000.0},
+            {"from": "2026-11-10", "rate": 250.0, "fixed": 100000.0},
         ]
         report = build_utility_report(
             _month_events(), now=NOW, tz=WAT, month="2026-11", tariff_rates=rates
@@ -416,27 +471,36 @@ class MoneyTests(unittest.TestCase):
         text = format_utility_report(report)
         self.assertIn("Paid      ₦22,800 for 100 units · ₦228/kWh", text)
         self.assertIn("Cost      320 units at ₦228/kWh = ₦72,960", text)
-        self.assertIn("total ₦192,960 (₦603/kWh used)", text)
+        self.assertIn("total ₦172,960 (₦540.5/kWh used)", text)
 
         html = _render_utility_units_panel(report)
         self.assertIn("Total cost", html)
-        self.assertIn("₦192,960", html)
+        self.assertIn("₦172,960", html)
         self.assertIn("Fixed charge", html)
+        self.assertIn('id="utility-tariff-form"', html)
+        self.assertIn("Tariff: ₦228/kWh", html)
+
+    def test_empty_panel_still_shows_the_configured_tariff(self):
+        report = build_utility_report([], now=NOW, tz=WAT, tariff_rates=self.TARIFF)
+        html = _render_utility_units_panel(report)
+        self.assertIn("No readings", html)
+        self.assertIn("Tariff: ₦228/kWh", html)
+        self.assertIn('id="utility-tariff-form"', html)
 
 
 class TariffTests(unittest.TestCase):
     def test_effective_dates_and_same_day_replacement(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "tariff.json"
-            record_utility_tariff(228, 120000, from_date="2026-11-01", path=path)
-            record_utility_tariff(250, 120000, from_date="2026-12-01", path=path)
-            record_utility_tariff(240, 130000, from_date="2026-12-01", path=path)
+            record_utility_tariff(228, 100000, from_date="2026-11-01", path=path)
+            record_utility_tariff(250, 100000, from_date="2026-12-01", path=path)
+            record_utility_tariff(240, 110000, from_date="2026-12-01", path=path)
             rows = read_utility_tariff(path)
             rows_text = format_utility_tariff(rows)
 
         self.assertEqual([row["from"] for row in rows], ["2026-11-01", "2026-12-01"])
         self.assertEqual(rows[1]["rate"], 240)
-        self.assertEqual(rows[1]["fixed"], 130000)
+        self.assertEqual(rows[1]["fixed"], 110000)
         self.assertEqual(tariff_at(rows, dt.date(2026, 10, 31)), None)
         self.assertEqual(tariff_at(rows, dt.date(2026, 11, 30))["rate"], 228)
         self.assertEqual(tariff_at(rows, dt.date(2026, 12, 1))["rate"], 240)
@@ -444,8 +508,8 @@ class TariffTests(unittest.TestCase):
 
     def test_bad_tariff_rows_are_rejected(self):
         for row in (
-            {"from": "not-a-date", "rate": 228, "fixed": 120000},
-            {"from": "2026-11-01", "rate": 0, "fixed": 120000},
+            {"from": "not-a-date", "rate": 228, "fixed": 100000},
+            {"from": "2026-11-01", "rate": 0, "fixed": 100000},
             {"from": "2026-11-01", "rate": 228, "fixed": -1},
             {"from": "2026-11-01", "rate": 228},
         ):
@@ -464,7 +528,7 @@ class TariffTests(unittest.TestCase):
                         parse_command_tokens(
                             [
                                 "utility-units", "tariff", "--rate", "228",
-                                "--fixed", "120000", "--from", "2026-11-01",
+                                "--fixed", "100000", "--from", "2026-11-01",
                             ]
                         ),
                     )
@@ -478,7 +542,7 @@ class TariffTests(unittest.TestCase):
         self.assertIn("Recorded tariff from 2026-11-01", printed)
         payload = json.loads(printed[printed.index("{") :])
         self.assertEqual(payload["rates"][0]["rate"], 228)
-        self.assertEqual(rows[0]["fixed"], 120000)
+        self.assertEqual(rows[0]["fixed"], 100000)
 
 
 class DashboardViewTests(unittest.TestCase):

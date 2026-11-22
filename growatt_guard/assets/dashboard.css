@@ -199,7 +199,13 @@
     .units-form input { width: 108px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); color: var(--ink); font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; }
     .units-form input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
     .units-form .profile-button { margin-bottom: 1px; }
-    .units-form #utility-units-status { flex-basis: 100%; }
+    .units-tariff { border-top: 1px solid var(--line-soft); padding-top: 8px; }
+    .units-tariff summary { cursor: pointer; color: var(--ink-3); font-size: 12.5px; }
+    .units-tariff[open] summary { margin-bottom: 8px; }
+    .units-tariff .units-form { border-top: 0; padding-top: 0; }
+    .units-form input[type="date"] { width: 145px; }
+    .units-tariff input[name="note"] { width: 160px; }
+    #utility-units-status { color: var(--ink-2); font-size: 12px; }
     .profile-dialog { width: min(560px, calc(100% - 32px)); padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); }
     .profile-dialog::backdrop { background: rgba(4, 8, 14, 0.62); }
     .profile-detail { margin-top: 14px; }

@@ -597,6 +597,15 @@ def build_utility_report(
     period = _meter_period(events, start, end, tz)
     _inverter_split(period, daily_rows)
     money, money_notes = _money_view(period, events, tariff_rates or [])
+    current_tariff = tariff_at(tariff_rates or [], local_now.date())
+    next_tariff = next(
+        (
+            row
+            for row in tariff_rates or []
+            if dt.date.fromisoformat(row["from"]) > local_now.date()
+        ),
+        None,
+    )
 
     burn, burn_note = _burn_view(events, latest, burn_window_days)
     notes: list[str] = list(period["notes"]) + money_notes
@@ -655,6 +664,8 @@ def build_utility_report(
         "range": {"from": start.isoformat(), "to": end.isoformat()},
         "period": period,
         "money": money,
+        "tariff": current_tariff,
+        "next_tariff": next_tariff,
         "previous": previous,
         "notes": notes,
     }
@@ -673,7 +684,7 @@ def format_money(value: Any) -> str:
         return "--"
     if float(value).is_integer():
         return f"{CURRENCY_SYMBOL}{value:,.0f}"
-    return f"{CURRENCY_SYMBOL}{value:,.2f}"
+    return f"{CURRENCY_SYMBOL}{value:,.2f}".rstrip("0").rstrip(".")
 
 
 def format_energy_rate(value: Any) -> str:
