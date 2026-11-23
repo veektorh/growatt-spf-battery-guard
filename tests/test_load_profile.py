@@ -9,6 +9,7 @@ from growatt_guard.load_profile import (
     hourly_load_profile,
     percentile,
     planning_night_load,
+    pre_cut_load_basis,
     project_load,
 )
 
@@ -32,6 +33,49 @@ def _days(count: int, hour_watts: dict[int, list[float]], first=dt.date(2026, 11
         for hour, watts in hour_watts.items():
             rows.extend(_readings(day, hour, watts[offset % len(watts)]))
     return rows
+
+
+class PreCutLoadBasisTests(unittest.TestCase):
+    """A transient outPutPower spike must not decide the pre-cut hold (N26)."""
+
+    NOW = dt.datetime(2026, 11, 23, 7, 0, tzinfo=WAT)
+
+    def _rows(self, watts_by_day, hour=7):
+        return _days(len(watts_by_day), {hour: list(watts_by_day)})
+
+    def test_spike_is_replaced_by_the_hour_median(self):
+        rows = self._rows([1400, 1500, 1300, 1500])
+        load_w, note = pre_cut_load_basis(4611, rows, now=self.NOW, tz=WAT)
+        self.assertEqual(load_w, 1450)
+        self.assertIn("07:00 hourly profile median 1450 W", note)
+        self.assertIn("3.1x", note)
+
+    def test_reading_inside_the_band_is_kept(self):
+        rows = self._rows([1400, 1500, 1300, 1500])
+        self.assertEqual(pre_cut_load_basis(1500, rows, now=self.NOW, tz=WAT), (1500, None))
+
+    def test_reading_at_the_ratio_boundary_is_kept(self):
+        rows = self._rows([1400, 1500, 1300, 1500])
+        high_w = hourly_load_profile(rows, tz=WAT)[7]["high_w"]
+        boundary = 1.5 * high_w
+        self.assertEqual(pre_cut_load_basis(boundary, rows, now=self.NOW, tz=WAT), (boundary, None))
+
+    def test_quiet_reading_is_never_raised(self):
+        rows = self._rows([2000, 2100, 2200, 2100])
+        self.assertEqual(pre_cut_load_basis(400, rows, now=self.NOW, tz=WAT), (400, None))
+
+    def test_hour_without_enough_days_keeps_the_sample(self):
+        rows = self._rows([1400, 1500])
+        self.assertEqual(pre_cut_load_basis(4611, rows, now=self.NOW, tz=WAT), (4611, None))
+
+    def test_missing_history_and_empty_sample_pass_through(self):
+        self.assertEqual(pre_cut_load_basis(4611, [], now=self.NOW, tz=WAT), (4611, None))
+        self.assertEqual(pre_cut_load_basis(None, [], now=self.NOW, tz=WAT), (None, None))
+        self.assertEqual(pre_cut_load_basis(0, [], now=self.NOW, tz=WAT), (0, None))
+
+    def test_other_hours_do_not_supply_the_substitute(self):
+        rows = self._rows([1400, 1500, 1300, 1500], hour=9)
+        self.assertEqual(pre_cut_load_basis(4611, rows, now=self.NOW, tz=WAT), (4611, None))
 
 
 class PercentileTests(unittest.TestCase):

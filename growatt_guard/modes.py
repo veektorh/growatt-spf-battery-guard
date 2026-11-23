@@ -54,7 +54,12 @@ from growatt_guard.preservation import (
     build_solar_bridge_decision,
     format_bridge_audit_note,
 )
-from growatt_guard.dashboard_metrics import read_dashboard_metrics_history
+from growatt_guard.dashboard_metrics import (
+    DASHBOARD_METRICS_RETENTION_DAYS,
+    read_dashboard_metrics_history,
+)
+from growatt_guard.load_learning import resolve_timezone
+from growatt_guard.load_profile import pre_cut_load_basis
 from growatt_guard.schedule import (
     find_schedule_job,
     next_scheduled_runs,
@@ -445,6 +450,29 @@ def command_probe(config: Config) -> int:
     return 0
 
 
+def _pre_cut_load_basis(config: Config, load_w: float | None) -> tuple[float | None, str]:
+    """The reading to project the outage-start SOC from, plus an audit suffix.
+
+    A transient ``outPutPower`` spike is replaced by the hour's hourly-profile
+    median (ROADMAP N26). Any failure keeps the live reading and its wording,
+    so an unavailable profile can only ever restore the previous behaviour.
+    """
+    if load_w is None or load_w <= 0:
+        return load_w, ""
+    try:
+        now = dt.datetime.now().astimezone()
+        tz = resolve_timezone(getattr(config, "weather_timezone", ""))
+        rows = read_dashboard_metrics_history(now=now, days=DASHBOARD_METRICS_RETENTION_DAYS)
+        basis_w, note = pre_cut_load_basis(load_w, rows, now=now, tz=tz)
+    except Exception:  # noqa: BLE001 - the live reading stays the default basis
+        logging.exception("Pre-cut load basis unavailable; projecting from the live reading.")
+        return load_w, ""
+    if note is None or basis_w is None:
+        return load_w, ""
+    logging.info("Pre-cut projection basis replaced: %s", note)
+    return basis_w, f"; {note}"
+
+
 def command_preserve_battery(config: Config) -> int:
     if ensure_not_paused(config, "preserve-battery"):
         return 0
@@ -472,6 +500,7 @@ def command_preserve_battery(config: Config) -> int:
         status, ("outPutPower", "outPutPower1", "activePower", "outPower")
     )
     load_w = parse_number(load_metric[0]) if load_metric else None
+    load_w, load_basis_note = _pre_cut_load_basis(config, load_w)
     # The outage starts after this check, so the SOC that matters is the one the
     # load will leave behind, not the reading taken now.
     try:
@@ -488,7 +517,7 @@ def command_preserve_battery(config: Config) -> int:
         outage_windows,
     )
     projected_note = (
-        f"; projected {projected_soc:.0f}% at the next outage start (load {load_w:.0f} W)"
+        f"; projected {projected_soc:.0f}% at the next outage start (load {load_w:.0f} W{load_basis_note})"
         if projected_soc is not None and load_w
         else ""
     )
