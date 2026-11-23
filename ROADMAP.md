@@ -256,8 +256,8 @@ public-safe: no IDs, serials, domains, or credentials.
 
 ### N26. Keep one transient load sample from deciding the pre-cut hold
 
-- Status: open, implemented and waiting for the owner's go-ahead. Option 3 is
-  in review; merging it changes inverter mode timing.
+- Status: shipped 2026-11-23 (PR #138), now a read-only watch for the next two
+  cut mornings. Option 3 was chosen and merged at the owner's direction.
 - Why: the pre-cut projection drains a single `outPutPower` reading to the
   scheduled cut. On 2026-11-23 the 06:40 job projected 45.0% at the 08:00 cut
   from a 1508 W sample and cleared; twenty minutes later the 07:00 job, the
@@ -305,10 +305,21 @@ public-safe: no IDs, serials, domains, or credentials.
   genuinely rising load back towards older, lighter samples, and it makes a
   mode decision depend on the dashboard refresh cadence, so a stale snapshot
   file would project from hours-old readings.
-- Steps: pick one, ship it behind the deferral, then read the next two cut
-  mornings, one quiet and one PV-positive. The two tests added with the option
-  cover the shape: a 4611 W reading leaves SBU and audits the substitution, a
-  1600 W reading still switches.
+- Shipped and verified on deploy, 2026-11-23: replaying the same 07:00 decision
+  against the production snapshot history reads 1368 W and 45.4% at the cut for
+  the 4611 W sample (2.8x that hour's 80th percentile of 1648 W), while 1508 W
+  and 1600 W pass through untouched at 45.0% and 44.7%. The cut that morning
+  would have started near 45% instead of 56%, without the 55-minute hold.
+- The shape is not new to the repo: `_planning_load_w` already refuses to let a
+  live reading raise a night plan above the learned load, so the pre-cut
+  projection was the one consumer of a raw `outPutPower` reading left
+  unbounded. Option 3 follows that precedent — fall back to the learned hour
+  median — rather than inventing a clamp the night plan does not use.
+- Watch: the next two cut mornings, one quiet and one PV-positive. The two
+  tests added with the option cover the shape: a 4611 W reading leaves SBU and
+  audits the substitution, a 1600 W reading still switches. The audit note
+  names the median, the sample and the ratio whenever it fires, so the read
+  needs no extra data.
 - Done when: two cut mornings show the last pre-cut job's projection within
   three points of the arrival, and a morning whose no-hold path starts at or
   above the threshold sees no hold at all.
