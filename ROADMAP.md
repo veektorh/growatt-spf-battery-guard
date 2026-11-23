@@ -413,6 +413,8 @@ The following capabilities are implemented and should be preserved:
 ## Priority Queue
 
 Work from the top unless live operational evidence justifies reordering.
+P2 and P3 were retired on 2026-11-23 as not wanted; their identifiers stay
+unused so older notes that cite them keep pointing at the same work.
 
 ### P1. Top-up Decision Quality And Reporting Trust
 
@@ -496,31 +498,6 @@ carrying the pre-cut hour. The `supply-history` caveat stands: it labels every
 past day with the profile active now, so read an old edge against the profile
 of that morning.
 
-### P2. Notification Quiet Hours And Digest
-
-Goal: keep critical Discord alerts prominent without losing routine evidence.
-
-- Add configurable quiet hours for success and skip notifications.
-- Always allow emergency battery, cloud lock, command failure, and watchdog
-  failure alerts.
-- Add a morning digest for routine overnight topup starts, completions, skips,
-  and recoveries.
-- Add per-event toggles for noisy routine events.
-- Keep health and summary embeds compact enough for mobile.
-
-### P3. Discord Write Audit And Safe Planning
-
-Goal: make every Discord-triggered inverter write attributable and reviewable.
-
-- Record a dedicated audit row with a hashed user ID, command, reason, requested
-  duration or target, result, and final ownership state.
-- Add optional reason text to `/growatt_utility`, `/growatt_sbu`, and
-  `/growatt_topup`.
-- Add a read-only `/growatt_plan` command showing the next automation decision
-  without writing.
-- Require a second confirmation only for unusually long or risky manual Utility
-  holds.
-
 ### P4. Dashboard History And Mobile Polish
 
 Goal: improve investigation and phone use without turning the public dashboard
@@ -570,8 +547,8 @@ Goal: preserve reliability as payloads, dependencies, and integrations evolve.
 - Keep package metadata, lock files, the compatibility shim, and
   `verify_local.sh` aligned.
 - Add a webhook rotation checklist/helper.
-- Introduce a notification-channel abstraction only after Discord quiet hours,
-  digesting, and auditing are stable.
+- Introduce a notification-channel abstraction only when a second channel is
+  actually wanted.
 
 ## Ongoing Guardrails
 
