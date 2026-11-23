@@ -280,6 +280,67 @@ class PreservationScorecardTests(unittest.TestCase):
         self.assertEqual(scorecard.recommendation_status, "keep-current")
 
 
+class PreservePreCutBasisTests(unittest.TestCase):
+    """One spiky outPutPower reading must not command a pre-cut hold (N26)."""
+
+    WAT = dt.timezone(dt.timedelta(hours=1))
+
+    def _rows(self, now):
+        """Every hour of the last four days at 1500 W, so the test is clock-free."""
+        rows = []
+        for days_ago in range(1, 5):
+            day = (now.astimezone(self.WAT) - dt.timedelta(days=days_ago)).date()
+            for hour in range(24):
+                for minute in (5, 35):
+                    rows.append({
+                        "timestamp": dt.datetime.combine(day, dt.time(hour, minute), tzinfo=self.WAT).isoformat(),
+                        "load_w": 1500.0,
+                    })
+        return rows
+
+    def _run(self, out_put_power):
+        from growatt_guard.modes import command_preserve_battery
+
+        now = dt.datetime.now().astimezone()
+        status = {"data": {"soc": 50, "outPutPower": out_put_power, "outputConfig": "0"}}
+        audit_calls = []
+        with (
+            patch("growatt_guard.modes.ensure_not_paused", return_value=False),
+            patch("growatt_guard.modes.ensure_outage_day", return_value=False),
+            patch("growatt_guard.modes.load_context", return_value=(object(), object(), status)),
+            patch(
+                "growatt_guard.modes.choose_preserve_threshold",
+                return_value=ThresholdDecision(45, "rainy", "rainy/cloudy"),
+            ),
+            patch("growatt_guard.modes.validate_schedule", return_value={
+                "outage_windows": [{"start": "06:00", "end": "09:00"}],
+            }),
+            patch("growatt_guard.schedule.minutes_to_next_outage_start", return_value=60),
+            patch("growatt_guard.modes._next_later_preserve_fire", return_value=None),
+            patch("growatt_guard.modes.read_dashboard_metrics_history", return_value=self._rows(now)),
+            patch("growatt_guard.modes.append_mode_audit", side_effect=lambda *a, **kw: audit_calls.append(kw)),
+            patch("growatt_guard.modes.set_mode") as set_mode,
+            redirect_stdout(StringIO()),
+        ):
+            result = command_preserve_battery(make_config(battery_capacity_wh=30000))
+        return result, audit_calls, set_mode
+
+    def test_spike_keeps_sbu_instead_of_holding_for_the_cut(self):
+        result, audit_calls, set_mode = self._run(4611)
+        self.assertEqual(result, 0)
+        set_mode.assert_not_called()
+        self.assertEqual(audit_calls[0]["action"], "no-change")
+        self.assertIn("hourly profile median 1500 W", audit_calls[0]["note"])
+        self.assertIn("3.1x", audit_calls[0]["note"])
+
+    def test_plausible_reading_still_switches(self):
+        result, audit_calls, set_mode = self._run(1600)
+        self.assertEqual(result, 0)
+        set_mode.assert_called_once()
+        self.assertEqual(audit_calls[0]["action"], "switch-to-utility")
+        self.assertNotIn("hourly profile median", audit_calls[0]["note"])
+
+
 class PreserveCommandBridgeTests(unittest.TestCase):
     def test_enabled_eligible_bridge_defers_without_mode_write(self):
         from growatt_guard.modes import command_preserve_battery

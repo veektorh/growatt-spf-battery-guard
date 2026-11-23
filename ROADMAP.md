@@ -256,8 +256,8 @@ public-safe: no IDs, serials, domains, or credentials.
 
 ### N26. Keep one transient load sample from deciding the pre-cut hold
 
-- Status: open, read-only. Any fix changes inverter mode timing: choose the
-  input first, then get the owner's go-ahead before shipping.
+- Status: open, implemented and waiting for the owner's go-ahead. Option 3 is
+  in review; merging it changes inverter mode timing.
 - Why: the pre-cut projection drains a single `outPutPower` reading to the
   scheduled cut. On 2026-11-23 the 06:40 job projected 45.0% at the 08:00 cut
   from a 1508 W sample and cleared; twenty minutes later the 07:00 job, the
@@ -288,8 +288,27 @@ public-safe: no IDs, serials, domains, or credentials.
   3. Fall back to the hourly-profile median only when the sample exceeds the
      hour's 80th percentile by more than 50%. Narrowest: it fires only on the
      shape that misfired.
+- Decision, 2026-11-23: option 3, the narrowest and the only one-sided one.
+  `pre_cut_load_basis` replaces the reading with the current hour's profile
+  median only when the sample exceeds 1.5 times that hour's 80th percentile
+  (2546 W at 07:00); every other case — a quiet reading, an hour without three
+  days, a missing band, a reading inside the ratio, or any read failure —
+  keeps today's behaviour exactly. It adds no call and no new failure mode to
+  the decision: the rows are the local snapshot file the top-up planner already
+  reads, and the substitution is written into the audit note beside the
+  projection. Against this morning it projects 45.6% at 07:00 instead of 34.6,
+  clears, and the cut starts at about 45 rather than 56.
+  Option 1 was rejected as broader without being sufficient: clamping at the
+  80th percentile still projects 44.3% at 07:00, so it would have held today
+  anyway while also touching every ordinary high-load morning. Option 2 was
+  rejected as two-sided and coupled: a median of three readings filters a
+  genuinely rising load back towards older, lighter samples, and it makes a
+  mode decision depend on the dashboard refresh cadence, so a stale snapshot
+  file would project from hours-old readings.
 - Steps: pick one, ship it behind the deferral, then read the next two cut
-  mornings, one quiet and one PV-positive.
+  mornings, one quiet and one PV-positive. The two tests added with the option
+  cover the shape: a 4611 W reading leaves SBU and audits the substitution, a
+  1600 W reading still switches.
 - Done when: two cut mornings show the last pre-cut job's projection within
   three points of the arrival, and a morning whose no-hold path starts at or
   above the threshold sees no hold at all.

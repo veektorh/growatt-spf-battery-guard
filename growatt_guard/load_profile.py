@@ -6,9 +6,10 @@ and the 20th to 80th percentile the likely range. An hour needs readings on
 ``MIN_PROFILE_DAYS`` days before it counts.
 
 This is a read-only comparison against the banded night planner in
-``load_learning.py``. Nothing here feeds a top-up decision: wiring it into the
-planner changes inverter mode timing and needs the owner's go-ahead (ROADMAP
-N17).
+``load_learning.py``, with one exception: ``pre_cut_load_basis`` lets the
+morning preserve job reject a transient ``outPutPower`` spike before it sizes a
+Utility hold from it (ROADMAP N26). Wiring the profile into the night planner
+changes inverter mode timing and still needs the owner's go-ahead (ROADMAP N17).
 """
 
 from __future__ import annotations
@@ -40,6 +41,10 @@ MIN_PROFILE_DAYS = 3
 MIN_HOUR_READINGS = 2
 LOW_PERCENTILE = 20
 HIGH_PERCENTILE = 80
+# How far above the current hour's 80th percentile a single reading may sit
+# before the pre-cut projection stops trusting it. The spike that opened N26 was
+# 2.7 times that percentile; a genuinely hard hour stays under this ratio.
+PRE_CUT_SPIKE_RATIO = 1.5
 
 
 def percentile(values: list[float], pct: float) -> float:
@@ -134,6 +139,51 @@ def project_load(
         "high_wh": round(totals["high_w"]),
         "rate_w": round(totals["median_w"] / hours),
     }
+
+
+def pre_cut_load_basis(
+    sample_w: float | None,
+    rows: list[dict[str, Any]],
+    *,
+    now: dt.datetime | None = None,
+    tz: dt.tzinfo | None = None,
+) -> tuple[float | None, str | None]:
+    """Load to project the outage-start SOC from, and why it was substituted.
+
+    The projection drains one ``outPutPower`` reading across the whole time to
+    the cut, so a transient spike decides the hold. When the sample is more than
+    ``PRE_CUT_SPIKE_RATIO`` times the current hour's 80th percentile, the hour's
+    profile median is used instead and a note explains the substitution for the
+    audit row.
+
+    Every other case keeps the sample: an hour without enough days, a missing
+    band, a quiet reading, and a sample within the ratio. The guard must keep
+    failing towards a hold, so the substitution is one-sided — it can only make
+    the projection less pessimistic, and only for a reading no hour has
+    supported. The band is built from every day, not one night's day type,
+    because a plausibility limit wants the widest support.
+    """
+    if not isinstance(sample_w, (int, float)) or isinstance(sample_w, bool) or sample_w <= 0:
+        return sample_w, None
+    local_now = now or dt.datetime.now().astimezone()
+    if local_now.tzinfo is None:
+        local_now = local_now.astimezone()
+    local_hour = local_now.astimezone(tz).hour if tz is not None else local_now.hour
+    entry = hourly_load_profile(rows, tz=tz).get(local_hour) or {}
+    if not entry.get("ready"):
+        return sample_w, None
+    high_w = entry.get("high_w")
+    median_w = entry.get("median_w")
+    if not isinstance(high_w, (int, float)) or not isinstance(median_w, (int, float)) or high_w <= 0:
+        return sample_w, None
+    if sample_w <= PRE_CUT_SPIKE_RATIO * high_w:
+        return sample_w, None
+    note = (
+        f"projecting from the {local_hour:02d}:00 hourly profile median {median_w:.0f} W "
+        f"because the live {sample_w:.0f} W reading is {sample_w / high_w:.1f}x the hour's "
+        f"80th percentile {high_w:.0f} W"
+    )
+    return float(median_w), note
 
 
 def planning_night_load(
