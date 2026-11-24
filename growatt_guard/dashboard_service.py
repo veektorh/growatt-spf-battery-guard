@@ -32,7 +32,11 @@ from growatt_guard.dashboard_assets import (
 from growatt_guard.daily_generation import read_daily_generation
 from growatt_guard.dashboard_render_components import _render_utility_units_panel
 from growatt_guard.exceptions import GrowattGuardError
-from growatt_guard.forecast_calibration import apply_weather_adjustment, update_forecast_calibration
+from growatt_guard.forecast_calibration import (
+    apply_weather_adjustment,
+    summarize_pv_remaining_fraction,
+    update_forecast_calibration,
+)
 from growatt_guard.growatt_api import load_context, track_device_reporting
 from growatt_guard.notifications import (
     notify_failure,
@@ -126,7 +130,13 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
         tz=resolve_timezone(config.weather_timezone),
     )
     metrics_history = read_dashboard_metrics_history()
-    pv_forecast = get_pv_forecast(config)
+    remaining_shape = summarize_pv_remaining_fraction(metrics_history)
+    pv_forecast = get_pv_forecast(
+        config,
+        remaining_fraction=(
+            remaining_shape["remaining_fraction"] if remaining_shape else None
+        ),
+    )
     topup_status = collect_topup_status(config, status=status)
     calibration = update_forecast_calibration(
         pv_forecast,

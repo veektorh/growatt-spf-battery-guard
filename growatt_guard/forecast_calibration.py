@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import statistics
 from typing import Any
 
 from growatt_guard.state import (
@@ -10,6 +11,13 @@ from growatt_guard.state import (
 
 FORECAST_CALIBRATION_RETENTION_DAYS = 45
 FORECAST_CALIBRATION_MIN_SAMPLES = 5
+# The remaining-PV split needs a late final sample and a snapshot near the
+# requested clock time, or a gap in the metric history reads as zero generation.
+PV_REMAINING_MIN_DAYS = 3
+PV_REMAINING_MAX_DAYS = 14
+PV_REMAINING_MIN_DAY_KWH = 5.0
+PV_REMAINING_MAX_SAMPLE_GAP_MINUTES = 90
+PV_REMAINING_COMPLETE_HOUR = 17
 # The factor is a planning input, so it follows the most recent completed rainy
 # days instead of the whole retained history: a six-week pooled window lagged the
 # dry-season drop (0.83 pooled against 0.70 in the last eleven days) by weeks.
@@ -44,6 +52,72 @@ def _actual_pv_by_date(
         key = row_date.isoformat()
         actual[key] = max(actual.get(key, 0.0), value)
     return actual
+
+
+def summarize_pv_remaining_fraction(
+    metrics_history: list[dict[str, Any]],
+    now: dt.datetime | None = None,
+    *,
+    min_days: int = PV_REMAINING_MIN_DAYS,
+    max_days: int = PV_REMAINING_MAX_DAYS,
+) -> dict[str, Any] | None:
+    """Median share of a completed day's PV still to come at this clock time.
+
+    The irradiance forecast converts the remainder of the day at the same
+    average ratio as the morning, but this array's output collapses after about
+    14:00, so that share overstates the afternoon. The observed share of recent
+    completed days gives the missing shape without touching full-day totals.
+
+    Returns None until `min_days` completed days carry a late final sample and a
+    snapshot within the gap allowance of the requested time.
+    """
+    local_now = now or dt.datetime.now().astimezone()
+    if local_now.tzinfo is not None:
+        # History rows and `now` are written from the same host clock, so their
+        # wall-clock time is the shared basis; the offset just labels it.
+        local_now = local_now.replace(tzinfo=None)
+    today = local_now.date()
+
+    samples_by_day: dict[dt.date, list[tuple[dt.datetime, float]]] = {}
+    for row in metrics_history:
+        timestamp = row.get("timestamp")
+        value = _number(row.get("pv_today_kwh"))
+        if not timestamp or value is None or value < 0:
+            continue
+        try:
+            parsed = dt.datetime.fromisoformat(str(timestamp))
+        except ValueError:
+            continue
+        if parsed.tzinfo is not None:
+            parsed = parsed.replace(tzinfo=None)
+        if parsed.date() >= today:
+            continue
+        samples_by_day.setdefault(parsed.date(), []).append((parsed, value))
+
+    fractions: list[float] = []
+    for day in sorted(samples_by_day)[-max_days:]:
+        samples = sorted(samples_by_day[day])
+        total = samples[-1][1]
+        if total < PV_REMAINING_MIN_DAY_KWH:
+            continue
+        if samples[-1][0].hour < PV_REMAINING_COMPLETE_HOUR:
+            continue
+        cutoff = dt.datetime.combine(day, local_now.time())
+        before = [ts for ts, _ in samples if ts <= cutoff]
+        if not before:
+            continue
+        if (cutoff - before[-1]).total_seconds() > PV_REMAINING_MAX_SAMPLE_GAP_MINUTES * 60:
+            continue
+        generated_before = next(value for ts, value in reversed(samples) if ts <= cutoff)
+        fractions.append(min(1.0, max(0.0, (total - generated_before) / total)))
+
+    if len(fractions) < min_days:
+        return None
+    return {
+        "remaining_fraction": round(statistics.median(fractions), 3),
+        "sample_days": len(fractions),
+        "source": "observed daily shape",
+    }
 
 
 def _summarize(
