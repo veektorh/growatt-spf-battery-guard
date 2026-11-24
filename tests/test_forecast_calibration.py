@@ -7,6 +7,7 @@ from unittest.mock import patch
 from growatt_guard.forecast_calibration import (
     apply_weather_adjustment,
     summarize_forecast_calibration,
+    summarize_pv_remaining_fraction,
     update_forecast_calibration,
 )
 from growatt_guard.state import write_forecast_calibration_history
@@ -142,6 +143,67 @@ class ForecastCalibrationTests(unittest.TestCase):
             )
 
         self.assertEqual(summary["sample_count"], 0)
+
+
+class PvRemainingFractionTests(unittest.TestCase):
+    def _day(self, day: str, total: float, at_14: float) -> list[dict]:
+        return [
+            {"timestamp": f"{day}T09:00:00+01:00", "pv_today_kwh": total * 0.5},
+            {"timestamp": f"{day}T14:00:00+01:00", "pv_today_kwh": at_14},
+            {"timestamp": f"{day}T18:30:00+01:00", "pv_today_kwh": total},
+            {"timestamp": f"{day}T23:50:00+01:00", "pv_today_kwh": total},
+        ]
+
+    def test_uses_the_observed_share_after_the_clock_time(self):
+        rows: list[dict] = []
+        for day in ("2026-11-17", "2026-11-18", "2026-11-19", "2026-11-20"):
+            rows += self._day(day, 30.0, 24.0)
+
+        result = summarize_pv_remaining_fraction(
+            rows, now=dt.datetime(2026, 11, 21, 14, 10)
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["sample_days"], 4)
+        self.assertEqual(result["remaining_fraction"], 0.2)
+
+    def test_ignores_todays_partial_rows(self):
+        rows = self._day("2026-11-17", 30.0, 24.0) + self._day("2026-11-18", 30.0, 24.0)
+        rows += self._day("2026-11-19", 30.0, 24.0)
+        rows.append({"timestamp": "2026-11-20T14:00:00+01:00", "pv_today_kwh": 24.2})
+
+        result = summarize_pv_remaining_fraction(
+            rows, now=dt.datetime(2026, 11, 20, 14, 10)
+        )
+
+        self.assertEqual(result["sample_days"], 3)
+
+    def test_skips_days_with_a_gap_or_an_early_final_sample(self):
+        rows = self._day("2026-11-17", 30.0, 24.0) + self._day("2026-11-18", 30.0, 24.0)
+        rows += self._day("2026-11-19", 30.0, 24.0)
+        rows += [
+            {"timestamp": "2026-11-14T09:00:00+01:00", "pv_today_kwh": 10.0},
+            {"timestamp": "2026-11-14T23:50:00+01:00", "pv_today_kwh": 30.0},
+        ]
+        rows += [
+            {"timestamp": "2026-11-15T14:00:00+01:00", "pv_today_kwh": 20.0},
+            {"timestamp": "2026-11-15T15:00:00+01:00", "pv_today_kwh": 21.0},
+        ]
+
+        result = summarize_pv_remaining_fraction(
+            rows, now=dt.datetime(2026, 11, 20, 14, 10)
+        )
+
+        self.assertEqual(result["sample_days"], 3)
+
+    def test_returns_none_below_the_minimum_day_count(self):
+        rows = self._day("2026-11-18", 30.0, 24.0) + self._day("2026-11-19", 30.0, 24.0)
+
+        result = summarize_pv_remaining_fraction(
+            rows, now=dt.datetime(2026, 11, 20, 14, 10)
+        )
+
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":

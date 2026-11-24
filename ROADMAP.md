@@ -614,6 +614,19 @@ horizon input changed. The morning read from here is acceptance monitoring:
 N24 and N26 keep their watches under Standing Watches, and N5 stays the only
 queue item.
 
+N27 closed on 2026-11-24. "Today Remaining" now multiplies today's full-day
+Open-Meteo estimate by the median share of a completed day's PV still to come
+at the same clock time (last 14 days, at least three valid days with a late
+final sample and a snapshot within 90 minutes), instead of splitting the
+remaining irradiance at the flat performance ratio; the current irradiance
+hour is prorated and the figure reads 0 after sunset. The evidence that forced
+it: at 13:50 the linear split showed 13.3 kWh while 24.2 kWh was already
+generated and the previous 12 days produced 4.4–6.6 kWh after 14:00 (median
+5.3), and the old sum stepped by a whole bucket at each hour boundary. Replayed
+against the 2026-11-22/23 snapshots and that day's cached forecast, the shaped
+figure reads 7.0 kWh at 14:10 instead of 12.6. Full-day totals are unchanged;
+the change is dashboard presentation only, not mode timing.
+
 ### P4. Dashboard History And Mobile Polish
 
 Goal: improve investigation and phone use without turning the public dashboard

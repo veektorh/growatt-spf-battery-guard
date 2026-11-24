@@ -253,6 +253,43 @@ def fetch_weather_forecast(config: Any) -> dict[str, Any]:
             logging.warning("Open-Meteo forecast unavailable; using stale weather cache (age %d min).", stale_age_min)
             return stale_cached
         raise weather_error("Open-Meteo forecast unavailable and no cached weather data is available.")
+def _solar_kwh_m2_for_date(
+    times: list[Any],
+    radiation: list[Any],
+    target_date: dt.date,
+    *,
+    since: dt.datetime | None = None,
+) -> float | None:
+    """Sum one date's hourly irradiance, prorating the bucket `since` falls in.
+
+    Open-Meteo values are average watts per square metre for the hour starting at
+    the timestamp, so a bucket already in progress contributes only its unexpired
+    remainder. Returns None when the forecast holds no bucket for the date and
+    zero when the date's buckets are all in the past.
+    """
+    total_wh_m2 = 0.0
+    saw_date = False
+    for index, time_value in enumerate(times):
+        if index >= len(radiation) or radiation[index] is None:
+            continue
+        try:
+            forecast_time = parse_forecast_time(str(time_value))
+        except ValueError:
+            continue
+        if forecast_time.date() != target_date:
+            continue
+        saw_date = True
+        weight = 1.0
+        if since is not None:
+            bucket_end = forecast_time + dt.timedelta(hours=1)
+            if bucket_end <= since:
+                continue
+            if forecast_time < since:
+                weight = (bucket_end - since).total_seconds() / 3600.0
+        total_wh_m2 += float(radiation[index]) * weight
+    return total_wh_m2 / 1000.0 if saw_date else None
+
+
 def get_tomorrow_solar_kwh_m2(
     config: Any,
     now: dt.datetime | None = None,
@@ -281,18 +318,33 @@ def get_tomorrow_solar_kwh_m2(
 
     _now = now or dt.datetime.now()
     tomorrow = (_now + dt.timedelta(days=1)).date()
+    return _solar_kwh_m2_for_date(times, radiation, tomorrow)
 
-    total_wh_m2 = 0.0
-    found = False
-    for index, time_value in enumerate(times):
-        if index >= len(radiation) or radiation[index] is None:
-            continue
-        forecast_time = parse_forecast_time(str(time_value))
-        if forecast_time.date() == tomorrow:
-            total_wh_m2 += float(radiation[index])
-            found = True
 
-    return total_wh_m2 / 1000.0 if found else None
+def get_today_solar_kwh_m2(
+    config: Any,
+    now: dt.datetime | None = None,
+    *,
+    forecast: dict[str, Any] | None = None,
+) -> float | None:
+    """Return forecasted total solar irradiance (kWh/m²) for today's date."""
+    if not config.weather_lat or not config.weather_lon:
+        return None
+    if forecast is None:
+        try:
+            forecast = fetch_weather_forecast(config)
+        except Exception as exc:  # noqa: BLE001
+            logging.debug("Solar forecast unavailable: %s", exc)
+            return None
+
+    hourly = forecast.get("hourly", {})
+    times = hourly.get("time", [])
+    radiation = hourly.get("shortwave_radiation", [])
+    if not times or not radiation:
+        return None
+
+    _now = now or dt.datetime.now()
+    return _solar_kwh_m2_for_date(times, radiation, _now.date())
 
 
 def get_today_remaining_solar_kwh_m2(
@@ -303,8 +355,9 @@ def get_today_remaining_solar_kwh_m2(
 ) -> float | None:
     """Return forecasted remaining solar irradiance (kWh/m²) for the rest of today.
 
-    Sums hourly shortwave_radiation values from Open-Meteo for today's date,
-    from the current hour onward. Returns None if unavailable.
+    Sums hourly shortwave_radiation values from Open-Meteo for today's date with
+    the current hour prorated, so the figure decays through the hour instead of
+    stepping at the boundary. Returns None if unavailable and zero after sunset.
     """
     if not config.weather_lat or not config.weather_lon:
         return None
@@ -322,19 +375,7 @@ def get_today_remaining_solar_kwh_m2(
         return None
 
     _now = now or dt.datetime.now()
-    today = _now.date()
-
-    total_wh_m2 = 0.0
-    found = False
-    for index, time_value in enumerate(times):
-        if index >= len(radiation) or radiation[index] is None:
-            continue
-        forecast_time = parse_forecast_time(str(time_value))
-        if forecast_time.date() == today and forecast_time >= _now:
-            total_wh_m2 += float(radiation[index])
-            found = True
-
-    return total_wh_m2 / 1000.0 if found else None
+    return _solar_kwh_m2_for_date(times, radiation, _now.date(), since=_now)
 
 
 def summarize_forecast_day_weather(
@@ -383,11 +424,22 @@ def summarize_forecast_day_weather(
     }
 
 
-def get_pv_forecast(config: Any, now: dt.datetime | None = None) -> dict[str, Any] | None:
+def get_pv_forecast(
+    config: Any,
+    now: dt.datetime | None = None,
+    *,
+    remaining_fraction: float | None = None,
+) -> dict[str, Any] | None:
     """Return a PV generation forecast dict using Open-Meteo irradiance + panel config.
 
     Returns None if panel_kwp is not configured or weather coordinates are missing.
-    Keys: tomorrow_kwh (float), today_remaining_kwh (float | None), panel_kwp (float).
+    `remaining_fraction` is the observed share of a completed day's PV still to
+    come at this clock time (see `summarize_pv_remaining_fraction`). When given,
+    it replaces the flat-performance-ratio split of the remaining irradiance:
+    this array's output collapses after about 14:00, so the irradiance share of
+    the day overstates what the afternoon can still deliver.
+    Keys: tomorrow_kwh (float), today_kwh (float | None),
+    today_remaining_kwh (float | None), panel_kwp (float).
     """
     panel_kwp = config.panel_kwp or 0.0
     if panel_kwp <= 0:
@@ -408,6 +460,7 @@ def get_pv_forecast(config: Any, now: dt.datetime | None = None) -> dict[str, An
     if ghi_tomorrow is None:
         return None
 
+    ghi_today = get_today_solar_kwh_m2(config, now=_now, forecast=forecast)
     ghi_today_remaining = get_today_remaining_solar_kwh_m2(
         config,
         now=_now,
@@ -424,12 +477,28 @@ def get_pv_forecast(config: Any, now: dt.datetime | None = None) -> dict[str, An
         logging.debug("Tomorrow weather regime unavailable: %s", exc)
 
     tomorrow_kwh = round(ghi_tomorrow * panel_kwp * pr, 1)
-    today_remaining_kwh = round(ghi_today_remaining * panel_kwp * pr, 1) if ghi_today_remaining is not None else None
+    today_kwh = round(ghi_today * panel_kwp * pr, 1) if ghi_today is not None else None
+    if today_kwh is not None and remaining_fraction is not None:
+        share = min(1.0, max(0.0, float(remaining_fraction)))
+        today_remaining_kwh = round(today_kwh * share, 1)
+    else:
+        today_remaining_kwh = (
+            round(ghi_today_remaining * panel_kwp * pr, 1)
+            if ghi_today_remaining is not None
+            else None
+        )
 
     return {
         "tomorrow_kwh": tomorrow_kwh,
+        "today_kwh": today_kwh,
         "today_remaining_kwh": today_remaining_kwh,
+        "today_remaining_fraction": (
+            round(min(1.0, max(0.0, float(remaining_fraction))), 3)
+            if remaining_fraction is not None
+            else None
+        ),
         "tomorrow_irradiance_kwh_m2": round(ghi_tomorrow, 2),
+        "today_irradiance_kwh_m2": round(ghi_today, 2) if ghi_today is not None else None,
         "panel_kwp": panel_kwp,
         "performance_ratio": pr,
         "tomorrow_weather_category": tomorrow_weather.get("weather_category"),

@@ -253,6 +253,71 @@ class LoadAdjustmentTests(unittest.TestCase):
         self.assertIsNone(result.cloud_cover)
 
 
+class GetTodayRemainingSolarKwhM2Tests(unittest.TestCase):
+    def _forecast(self, day: dt.date, radiation_values: list) -> dict:
+        return {
+            "hourly": {
+                "time": [f"{day.isoformat()}T{h:02d}:00" for h in range(len(radiation_values))],
+                "shortwave_radiation": radiation_values,
+            }
+        }
+
+    def test_prorates_the_current_hour(self):
+        from growatt_guard.weather import get_today_remaining_solar_kwh_m2
+        cfg = make_config(weather_lat=6.5, weather_lon=3.4)
+        day = dt.date(2026, 6, 20)
+        forecast = self._forecast(day, [1000.0] * 24)
+        with patch("growatt_guard.weather.fetch_weather_forecast", return_value=forecast):
+            # Half of the 13:00 bucket plus the ten hours from 14:00 on.
+            result = get_today_remaining_solar_kwh_m2(
+                cfg, now=dt.datetime(2026, 6, 20, 13, 30)
+            )
+        self.assertAlmostEqual(result, 10.5)
+
+    def test_returns_zero_after_sunset(self):
+        from growatt_guard.weather import get_today_remaining_solar_kwh_m2
+        cfg = make_config(weather_lat=6.5, weather_lon=3.4)
+        day = dt.date(2026, 6, 20)
+        forecast = self._forecast(day, [1000.0] * 12 + [0.0] * 12)
+        with patch("growatt_guard.weather.fetch_weather_forecast", return_value=forecast):
+            result = get_today_remaining_solar_kwh_m2(
+                cfg, now=dt.datetime(2026, 6, 20, 20, 30)
+            )
+        self.assertEqual(result, 0.0)
+
+    def test_empirical_fraction_drives_today_remaining(self):
+        from growatt_guard.weather import get_pv_forecast
+        cfg = make_config(
+            weather_lat=6.5,
+            weather_lon=3.4,
+            panel_kwp=8.0,
+            panel_performance_ratio=0.75,
+        )
+        today = dt.date(2026, 6, 20)
+        tomorrow = dt.date(2026, 6, 21)
+        radiation = [250.0] * 24
+        forecast = {
+            "hourly": {
+                "time": (
+                    [f"{today.isoformat()}T{h:02d}:00" for h in range(24)]
+                    + [f"{tomorrow.isoformat()}T{h:02d}:00" for h in range(24)]
+                ),
+                "shortwave_radiation": radiation + radiation,
+            }
+        }
+        with patch("growatt_guard.weather.fetch_weather_forecast", return_value=forecast):
+            corrected = get_pv_forecast(
+                cfg, now=dt.datetime(2026, 6, 20, 13, 30), remaining_fraction=0.2
+            )
+            linear = get_pv_forecast(cfg, now=dt.datetime(2026, 6, 20, 13, 30))
+
+        # 6.0 kWh/m² × 8 kWp × 0.75 = 36 kWh today; 20% left is 7.2 kWh.
+        self.assertEqual(corrected["today_kwh"], 36.0)
+        self.assertEqual(corrected["today_remaining_kwh"], 7.2)
+        self.assertEqual(corrected["today_remaining_fraction"], 0.2)
+        self.assertGreater(linear["today_remaining_kwh"], 14.0)
+
+
 class GetTomorrowSolarKwhM2Tests(unittest.TestCase):
     def _make_forecast(self, tomorrow_date: dt.date, radiation_values: list) -> dict:
         """Build a minimal Open-Meteo-style forecast with shortwave_radiation for tomorrow."""
