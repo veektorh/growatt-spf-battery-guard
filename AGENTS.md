@@ -8,9 +8,9 @@ This project automates battery-preservation mode switching for a Growatt SPF inv
 
 ## Picking Up Work
 
-- Open tasks live in the `Next Up` section at the top of `ROADMAP.md`. Read it at the start of a session; if the user has not named a task, offer the first one whose status is ready.
+- Open tasks live in the `Next Up` section at the top of `ROADMAP.md`. Read it at the start of a session; if the user has not named a task, offer the first one whose status is ready. Answered questions sit in `Settled Decisions` and shipped acceptance conditions in `Standing Watches`; both are records, not work, and a watch only becomes work when its stated condition fires.
 - Each task states its evidence, steps, and what done means, so it can be picked up without the conversation that created it. Statuses marked read-only need no approval to investigate; anything that changes inverter mode timing still needs the owner's go-ahead before merging.
-- When you finish a task, remove it from `Next Up` in the same pull request. When you find or defer something, add it there in the same format rather than leaving it in chat.
+- When you finish a task, remove it from `Next Up` in the same pull request: record the closure in `P1`, and move an answered question or a shipped watch to its own section with the verdict and the measurements that produced it. When you find or defer something, add it to `Next Up` in the same format rather than leaving it in chat.
 - Keep entries public-safe, like every other file here.
 
 ## Development Workflow
