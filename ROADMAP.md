@@ -1,6 +1,6 @@
 # Growatt Guard Roadmap
 
-Last reviewed: 2026-11-23
+Last reviewed: 2026-11-24
 
 This is the working backlog for Growatt Guard. Priorities favor inverter safety,
 low Growatt API pressure, trustworthy decisions, and clear operations before
@@ -39,6 +39,17 @@ public-safe: no IDs, serials, domains, or credentials.
   so the deferral condition never applied. The 07:55:03 `return-sbu` was
   `lock-skip`ped against the completion check and the 07:55:10 one switched to
   SBU as planned.
+- Read, 2026-11-24: still no `topup-complete-deferred` row, and this morning is
+  the closest the condition has come. The 06:30 job switched with the live SOC
+  at 36% already under the 40% threshold, so the hold took the bare threshold
+  as its target (`soc >= threshold` is the branch that adds the headroom),
+  completed `topup-target-reached` at 40% at 07:06 inside the preserve window,
+  and `_defer_completion_to_scheduled_return` returned SBU because 40 >= 40.
+  The 54 minutes on battery to the cut took the 08:00 start to 38%. Deferring
+  to the 07:55 return-sbu instead would hold Utility about 49 minutes for
+  roughly 1.1 kWh of grid to keep 0.6 kWh (2 points), and PV was 2000 W against
+  1003 W of load two minutes into the cut, so the two points cost nothing. The
+  guard stays as shipped.
 
 ### N22. End the night-plan horizon at PV takeover, not astronomical sunrise
 
@@ -182,6 +193,40 @@ public-safe: no IDs, serials, domains, or credentials.
   with 55 minutes avoidable) against the band's 2026-11-22 (+12 points, 33
   minutes), so the three-comparable-outcome gate stands at 2/3 and no basis
   change is proposed.
+- Read, 2026-11-24 (seventh cut-morning read, third night sized by the hour-of-day
+  profile, normal category at a 40% threshold — the first cut morning since N19
+  to start under its threshold with the sunrise target missed): the 18:00 plan
+  asked 170 min from 85% to a 100% completion target on a 1698 W load
+  (`hourly profile median (weekday, 12.63h)`) at a 1950 W learned rate and
+  quoted `sunrise_target_soc=45`; its own arithmetic wanted 103.4% at window
+  end, so it clamped. It closed `topup-expired` at 20:51 after 171 min at 99%,
+  one point short on a 1474 W implied rate against 1950 planned (24% taper).
+  The night then drained at a mean 1948 W — 98% at 21:00 to 41% at 05:47 is 57
+  points in 8.78 h, and the sampled `discharge_w` mean 1996 W, median 1950 W —
+  against the 1698 W planned, so sunrise read about 36% against the 43.5 the
+  same window should have produced and the 48 target it sized to. The plan was
+  12.8% low on load (1948 W measured against 1698 W), which cost 7.5 of the
+  twelve missing points. Counterfactual on the night's own
+  numbers: the same plan at 1948 W asks 208 min (window to 21:28) and still
+  clamps at 100%, because a 48% arrival needs 107.5% at window end, and arrives
+  40.5% at 06:37 — so a correct estimate closes about four and a half points and
+  the remaining 7.5 are the 100% ceiling, not the horizon. Arriving at 48 from
+  an 18:00 start on a 1948 W night would need the window held to about 22:38
+  (278 min, about 4 kWh more grid than the 171-minute run) to keep 3.6 kWh of
+  battery the outage did not need; not proposed.
+- This morning says nothing about the horizon itself: the cut started at 38%
+  after the 06:30 hold completed on the bare threshold (N5 read), and PV was
+  already 2000 W against 1003 W of load at 08:02, charging 911 W, so the two
+  missing points cost nothing measurable. The night was capacity-bound, not
+  horizon-bound: 12.63 h at 1.95 kW is 24.6 kWh against a 30 kWh pack entered
+  at 85%.
+- Gate count, 2026-11-24: three comparable hour-of-day-profile outcomes now
+  bracket in both directions — the 2026-11-20 night at 1826 W planned against
+  about 1568 W measured (+16.4%), the 2026-11-22 night at 1866 W against
+  1602 W (+16.5%), and tonight at 1698 W against 1948 W (-12.8%) — while the
+  band night of 2026-11-22 read +13.4%. No direction is stable, so no estimate,
+  threshold or horizon change is proposed and the gate stays at 3/3 with no
+  consistent sign.
 - Steps: read the next two normal mornings to confirm the cut-start arithmetic
   (target met, cut starts 40 plus or minus a point). Then read an overcast
   cut-morning: whether SOC drains through the cut with PV below load for hours,
@@ -247,6 +292,16 @@ public-safe: no IDs, serials, domains, or credentials.
   started at 56%. The three bases diverge by ten points on that morning rather
   than one, so the input question is open again; it is now N26. The table above
   still answers the PV-positive case with a plausible sample.
+- Watch read, 2026-11-24: neither watch condition fired — no second false hold
+  and no arrival below the threshold after a last job that cleared — so the
+  basis stays. The 06:30 job, the last that decided, sampled 1958 W against the
+  06:00 hour's 80th percentile of 1835 W and projected 26.1% at the 08:00 cut
+  from a live 36%: 1958 W for the 90 minutes to the cut is 9.8 points, so the
+  projection matched the no-hold arithmetic and the hold it started is what put
+  the cut at 38% (N5 read). The profile basis (1545 W at
+  06:00 → 28.3%) and net discharge (about 2000 W → 26.0%) also cleared the
+  threshold, so all three agreed in the switch direction — the first such
+  morning after the four where the three bases agreed in the clear direction.
 - Steps: none now. If a second false hold appears at a last pre-cut job, or any
   morning arrives below the threshold after its last job cleared it, read that
   morning against this table before proposing anything — and prefer widening
@@ -320,6 +375,13 @@ public-safe: no IDs, serials, domains, or credentials.
   audits the substitution, a 1600 W reading still switches. The audit note
   names the median, the sample and the ratio whenever it fires, so the read
   needs no extra data.
+- Watch read, 2026-11-24: first of the two cut mornings, and the clamp was not
+  exercised. The 06:30 job, the only one before the cut that decided (06:40 was
+  `lock-skip`ped, and the 07:00 one found Utility already), sampled 1958 W
+  against the 06:00 hour's 80th percentile of 1835 W — ratio 1.07 against the
+  1.5 threshold — so `pre_cut_load_basis` kept the reading and the audit note
+  carries no substitution. It switched once and its 36-minute hold completed
+  `topup-target-reached` at 40%, 4 points above the 36% it started from.
 - Done when: two cut mornings show the last pre-cut job's projection within
   three points of the arrival, and a morning whose no-hold path starts at or
   above the threshold sees no hold at all.
@@ -337,9 +399,14 @@ The following capabilities are implemented and should be preserved:
   and a cut at 43-44% against the 40% threshold. Repeated on 2026-11-23
   (rainy/cloudy, 45% threshold): deferrals at 06:00 and 06:30, a clear at 06:40
   projecting exactly 45.0, then a 55-minute hold started at 07:00 by a 4611 W
-  transient sample that took the cut start to 56% (N26).
-- Sunrise planning using learned weekday/weekend evening and overnight band
-  loads (horizon-weighted), observed charge rates, weather calibration,
+  transient sample that took the cut start to 56% (N26). A switch taken on the
+  live reading when it is already under the threshold holds to the bare
+  threshold instead, so the drain between completion and the cut can take the
+  start a point or two below: on 2026-11-24 the 06:30 job switched at 36%,
+  completed at 40% at 07:06 and the 08:00 cut started at 38% (N5 read).
+- Sunrise planning using a learned hour-of-day night load, falling back to the
+  weekday/weekend evening and overnight bands when an hour lacks three days,
+  observed charge rates, weather calibration,
   minimum topup duration, SOC safety floors, and a sunrise target raised to
   the next outage morning's preserve threshold.
 - Guard-owned Utility holds with restart-safe completion, orphan recovery,
