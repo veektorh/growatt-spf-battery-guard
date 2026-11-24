@@ -11,8 +11,10 @@ convenience or larger product ideas.
 This is the handoff queue: concrete tasks any agent can pick up without the
 conversation that produced them. `AGENTS.md` explains how to use it. Each task
 carries its evidence, the steps, and what "done" means. Remove a task when it
-is finished and record anything it uncovered as a new task. Keep entries
-public-safe: no IDs, serials, domains, or credentials.
+is finished and record anything it uncovered as a new task, an entry under
+Settled Decisions (answered questions) or one under Standing Watches (shipped
+acceptance conditions). Keep entries public-safe: no IDs, serials, domains, or
+credentials.
 
 ### N5. Confirm the preserve-window deferral in production
 
@@ -51,11 +53,36 @@ public-safe: no IDs, serials, domains, or credentials.
   1003 W of load two minutes into the cut, so the two points cost nothing. The
   guard stays as shipped.
 
+## Settled Decisions
+
+Answered questions, with the measurements that answered them. Nothing here is
+queue work: read one only if its stated reopen condition fires, or if a new
+observation contradicts it. Closed items keep their N-numbers so older notes
+still resolve.
+
 ### N22. End the night-plan horizon at PV takeover, not astronomical sunrise
 
-- Status: open, read-only. The flat "+60 minutes to 48%" option was rejected on
-  2026-11-20 as an over-correction; what remains is whether a cloudy cut-day
-  needs a horizon offset at all.
+- Status: **closed 2026-11-24, verdict "no horizon offset"**. Reopen only if a
+  cut morning drains through the cut with PV below load for hours, or if a
+  normal cut starts more than three points below the threshold with the plan
+  target met at sunrise.
+- Why the verdict supersedes the original done condition: that condition asked
+  for a normal cut-morning inside a point of the threshold with the target met,
+  then an overcast cut-morning read. The first half happened twice (2026-11-21
+  and 2026-11-22 both started at 44 against a 40% threshold and a 43% morning
+  target); the second never happened and now looks unobservable — all seven
+  cut mornings read so far were
+  PV-positive through the cut, on 2026-11-23 by 2200 W at 08:09 under a 100%
+  cloud forecast. The first morning since N19 to start under the threshold
+  (2026-11-24 at 38%) missed its target because the pack was full at window
+  end and the night load ran 1948 W against 1698 W planned, not because the
+  horizon ended too early: at that drain the 48% target needed 107.5% at window
+  end. A horizon offset therefore has no case to answer, and the evidence
+  below stands as the record.
+- Read, 2026-11-24 verdict read (seventh cut morning): the sunrise target was
+  unreachable, the cut started 2 points under, and PV covered it within two
+  minutes — the fifth consecutive PV-positive cut and the strongest evidence
+  that the carry hour, not the horizon, is the right place to spend margin.
 - Why: the reserve plan targets SOC at sunrise, but the battery keeps carrying
   the house until PV covers the load. On 2026-11-20 (sunrise 06:36, normal,
   dry-season threshold 40) PV rose 6 W at 06:28 to 1160 W at 07:28 against
@@ -227,21 +254,24 @@ public-safe: no IDs, serials, domains, or credentials.
   band night of 2026-11-22 read +13.4%. No direction is stable, so no estimate,
   threshold or horizon change is proposed and the gate stays at 3/3 with no
   consistent sign.
-- Steps: read the next two normal mornings to confirm the cut-start arithmetic
-  (target met, cut starts 40 plus or minus a point). Then read an overcast
-  cut-morning: whether SOC drains through the cut with PV below load for hours,
-  and whether the last pre-cut hold covered that. Only then choose between a
+- Original steps, closed unfinished: confirm the cut-start arithmetic on two
+  more normal mornings, then read an overcast cut-morning and choose between a
   category-scaled horizon (rainy/cloudy +90), a lower normal threshold, or
-  leaving both alone.
-- Done when: a normal cut-morning is confirmed within a point of the threshold
-  with the target met, a cloudy cut-morning is read, and the owner decides
-  whether any horizon offset is needed.
+  leaving both alone. The overcast read never arrived; the answer is "leave
+  both alone", and N5 stays the cover for the one morning that started low.
+
+## Standing Watches
+
+Shipped or answered work whose acceptance condition is a live observation, not
+a code change. These stay here instead of Next Up because they carry no task
+until their watch fires; a firing watch becomes a new N-item with the read that
+fired it. Keep the N-numbers so older notes still resolve.
 
 ### N24. The pre-cut projection basis: read all three, keep the sample
 
-- Status: answered, read-only watch. No basis change is justified on the
-  evidence below, so nothing here moves mode timing; reopen only if a second
-  false hold or any missed hold appears.
+- Status: answered 2026-11-22, watch standing. No basis change is justified on
+  the evidence below, so nothing here moves mode timing; reopen only if a
+  second false hold or any missed hold appears — which is what N26 owns.
 - Why it was opened: `projected_soc_at_outage_start` drains linearly from the
   single `outPutPower` reading and the minutes to the cut. On 2026-11-21 the
   same formula produced 36.35% at 06:00 (48% live, implying about 1747 W over
@@ -311,8 +341,9 @@ public-safe: no IDs, serials, domains, or credentials.
 
 ### N26. Keep one transient load sample from deciding the pre-cut hold
 
-- Status: shipped 2026-11-23 (PR #138), now a read-only watch for the next two
-  cut mornings. Option 3 was chosen and merged at the owner's direction.
+- Status: shipped 2026-11-23 (PR #138), watch standing for one more cut
+  morning. Option 3 was chosen and merged at the owner's direction; the first
+  of the two mornings was read on 2026-11-24 with the clamp not exercised.
 - Why: the pre-cut projection drains a single `outPutPower` reading to the
   scheduled cut. On 2026-11-23 the 06:40 job projected 45.0% at the 08:00 cut
   from a 1508 W sample and cleared; twenty minutes later the 07:00 job, the
@@ -564,6 +595,24 @@ open at the read. Morning cut starts rose from 39-41% on the N12 mornings to
 carrying the pre-cut hour. The `supply-history` caveat stands: it labels every
 past day with the profile active now, so read an old edge against the profile
 of that morning.
+
+N22 closed on 2026-11-24 with the verdict "no horizon offset", superseding its
+own done condition rather than meeting it. Seven cut mornings were read after
+N19 and N17: six started at 43-56% against their thresholds, two of them
+(2026-11-21 and 2026-11-22) inside a point with the target met, and every one
+of the seven was PV-positive through the cut, so the overcast cut that the
+condition waited for never arrived and the drain it feared could not be
+observed. The exception is 2026-11-24, the first morning since N19 to start
+under the threshold at 38% against 40%, and it was not a horizon miss: the
+plan asked 170 min from 85% to a 100% completion target whose own arithmetic
+wanted 103.4% at window end, closed `topup-expired` one point short on a 24%
+taper, and the night then drained 1948 W against 1698 W planned, so a 48%
+arrival needed 107.5% at window end. The estimate gate it fed reached 3/3 with
+no consistent sign (+16.4%, +16.5%, -12.8% against measured load), which is a
+variance floor rather than a tuning signal, so no estimate, threshold or
+horizon input changed. The morning read from here is acceptance monitoring:
+N24 and N26 keep their watches under Standing Watches, and N5 stays the only
+queue item.
 
 ### P4. Dashboard History And Mobile Polish
 
