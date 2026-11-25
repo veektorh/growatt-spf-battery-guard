@@ -58,34 +58,6 @@ credentials.
   after 11 min, `07:06` after 6 min), and returned SBU because `40 >= 40`. The
   repeat short-cycling between those two jobs is tracked as N29.
 
-### N29. Stop repeat morning short-cycling when live SOC enters a preserve job under the threshold
-
-- Status: ready, needs owner go-ahead (alters inverter mode timing; sequence
-  after N28, one mode-timing change per PR).
-- Why / Evidence: when `preserve-battery` sees live `soc < threshold`, both N20
-  guards bypass it: `growatt_guard/modes.py` skips deferral (`if soc >= threshold`)
-  and `_record_preserve_utility_hold` sets bare `target_soc = threshold` with no
-  headroom or projected drain. On 2026-11-25 (normal, `40%` threshold), `06:00`
-  (`43%`, proj `32.7%`) and `06:30` (`40%`, proj `32.1%`) deferred as designed,
-  then `06:40` read live `39%` (proj `31%`, load `1824 W`), switched to Utility
-  targeting bare `40%`, completed at `06:51` (`11 min`, `40%`, `1639 W`) and
-  returned SBU; nine minutes later `07:00` read `39%` again (proj `34%`, load
-  `1641 W`), switched to Utility a second time targeting bare `40%`, completed
-  at `07:06` (`6 min`, `40%`, `3046 W`) and returned SBU again. Four mode writes
-  in 26 minutes for `+1%` twice, and SOC still drained to `38%` by
-  `07:55`/`08:01` (same 2-point post-hold dip as 2026-11-24).
-- Options (owner picks one):
-  1. Size `_record_preserve_utility_hold` with `max(headroom_soc, drain_soc)`
-     whenever `projected_soc is not None` (including when `soc < threshold`), so
-     one hold covers the remaining drain to the cut instead of exiting on bare
-     `threshold` and re-triggering at the next job.
-  2. Add at least `auto_topup_headroom_soc` (3 points) when `soc < threshold` so
-     an early hold cannot bounce back below the threshold before the next
-     scheduled preserve job.
-- Done when: a morning entering a preserve job under the threshold runs at most
-  one Utility hold before the cut (two mode writes, not four) and arrives at or
-  above the threshold at the scheduled cut time.
-
 ## Settled Decisions
 
 Answered questions, with the measurements that answered them. Nothing here is
@@ -496,6 +468,30 @@ fired it. Keep the N-numbers so older notes still resolve.
   `morning_target_soc` matching the following morning's weather category
   (outside genuine overnight forecast shifts).
 
+### N29. Stop repeat morning short-cycling when live SOC enters a preserve job under the threshold
+
+- Status: shipped 2026-11-25 at the owner's direction, watch standing for the
+  next cut morning that enters a preserve job under its threshold.
+- Why: on 2026-11-25 (normal, `40%` threshold), `06:40` read live `39%`,
+  switched to Utility targeting bare `40%`, completed at `06:51` (`11 min`) and
+  returned SBU; nine minutes later `07:00` read `39%` again, switched to Utility
+  a second time targeting bare `40%`, completed at `07:06` (`6 min`) and
+  returned SBU again — four mode writes in 26 minutes for `+1%` twice, still
+  draining to `38%` by `07:55`/`08:01`.
+- Choice (Option 2 over Option 1): `_record_preserve_utility_hold`
+  (`growatt_guard/modes.py`) now always adds `auto_topup_headroom_soc` (`+3`
+  points -> `43%` on a `40%` threshold) even when `soc < threshold`, while
+  keeping `drain_soc` gated on `soc >= threshold` (N20's deferred last-job
+  branch). Simulating both options on the `2026-11-24` (`06:30`, `36%`,
+  `drain=9.8%`) and `2026-11-25` (`06:40`, `39%`, `drain=8.1%`) mornings showed
+  Option 1 (`threshold + drain_soc`) would hold Utility all the way to `07:55`
+  and over-charge to `48–50%`, whereas Option 2 (`43%`) finishes around `07:13`
+  to `07:33` (past the `07:00` job, one hold / two mode writes) and arrives at
+  `~41–42%` at `08:00`.
+- Done when: a morning entering a preserve job under the threshold runs at most
+  one Utility hold before the cut (two mode writes, not four) and arrives at or
+  above the threshold at the scheduled cut time.
+
 ## Current Baseline
 
 The following capabilities are implemented and should be preserved:
@@ -712,6 +708,13 @@ and `analyze_weather_window` now accept `window_start`, and
 `weather_timezone`, failing closed to `unavailable` if the forecast omits the
 window) instead of evaluating the evening's 18:00–22:00 sky. Watch stands under
 Standing Watches for the next three evening plans.
+
+N29 shipped on 2026-11-25 at the owner's direction (Option 2):
+`_record_preserve_utility_hold` now always adds `auto_topup_headroom_soc`
+(`+3` points) even when `soc < threshold`, while keeping `drain_soc` on the
+deferred `soc >= threshold` branch so early under-threshold holds stop
+short-cycling bare `39% -> 40%` without over-charging to `48–50%`. Watch stands
+under Standing Watches for the next under-threshold preserve morning.
 
 ### P4. Dashboard History And Mobile Polish
 
