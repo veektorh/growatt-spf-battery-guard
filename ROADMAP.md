@@ -58,51 +58,6 @@ credentials.
   after 11 min, `07:06` after 6 min), and returned SBU because `40 >= 40`. The
   repeat short-cycling between those two jobs is tracked as N29.
 
-### N28. Evaluate tomorrow morning's weather window in `next_morning_preserve_target_soc`
-
-- Status: ready, needs owner go-ahead (alters inverter mode timing).
-- Why / Evidence: `next_morning_preserve_target_soc` (`growatt_guard/topup.py`)
-  calls `choose_preserve_threshold(config, today=morning.date())`, but
-  `choose_preserve_threshold` (`growatt_guard/weather.py`) forwards `today` only
-  to `current_season(today)` and calls `analyze_weather_window` against
-  `dt.datetime.now()`. An 18:00 night plan therefore reads that evening's
-  lookahead window (18:00–22:00 at the 4-hour default) instead of tomorrow
-  morning's preserve window. That explains five evening plans quoting
-  `morning_target_soc=35` (clear evening sky -> sunny 35%) ahead of a normal 40%
-  morning (2026-11-19 through 11-22 and 2026-11-24), and the reverse on
-  2026-11-23 evening (cloudy evening -> 45% ahead of a normal 40% morning).
-- Measurement, 2026-11-25 morning read: the 2026-11-24 18:00 plan was not
-  clamp-bound (`155 min`, `80%` to `96.72%`, `planned_load_w=1753` from
-  `hourly profile median (weekday, 12.63h)`, `planned_charge_rate_w=1950`) and
-  was spot-on against reality: it closed `topup-target-reached` at `20:36`
-  (`156 min`, `97%`, `1962 W` implied rate, `+0.6%`), and the night drained
-  `1728 W` SOC-implied (`97%` at 20:36 to `39%` at 06:40 over `10.07 h`; sampled
-  `discharge_w` mean `1763 W`, median `1709 W`) — within `1.4%` of plan (fourth
-  hourly-profile outcome: `+16.4%`, `+16.5%`, `-12.8%`, `+1.4%`, confirming no
-  load-estimate retune is needed). Because the plan quoted
-  `morning_target_soc=35`, it sized to a `38%` sunrise target (`35 + 3`) and
-  landed at `39–40%` at sunrise (`06:38`), one point under the morning's actual
-  `40%` normal threshold, which forced two morning Utility holds (`06:40` and
-  `07:00`). Counterfactual on the night's own numbers: sizing the same 18:00
-  plan to `morning_target_soc=40` (`43%` sunrise target) asks `179 min`
-  (`+24 min`, `99.38%` end SOC — still under the 100% clamp, ~`0.8 kWh` battery)
-  and against the actual `1728 W` drain arrives at `43.8%` at sunrise, clearing
-  the `40%` threshold with zero morning holds.
-- Steps:
-  1. Add an optional `window_start: dt.datetime | None = None` parameter to
-     `choose_preserve_threshold` and `analyze_weather_window` so
-     `next_morning_preserve_target_soc` evaluates the forecast starting at
-     `morning` (in `weather_timezone`) rather than `dt.datetime.now()`, leaving
-     live morning callers unchanged.
-  2. Add offline unit tests covering clear-evening / normal-morning,
-     clear-evening / rainy-morning, and cloudy-evening / normal-morning cases
-     plus timezone alignment with Open-Meteo `hourly.time`.
-  3. Run local verification and check the next three evening `auto-topup-check`
-     audit rows against their following mornings after deploy.
-- Done when: `next_morning_preserve_target_soc` reads tomorrow morning's forecast
-  window, tests pass offline, and three post-deploy evening plans match the next
-  morning's weather category (outside genuine overnight forecast shifts).
-
 ### N29. Stop repeat morning short-cycling when live SOC enters a preserve job under the threshold
 
 - Status: ready, needs owner go-ahead (alters inverter mode timing; sequence
@@ -515,6 +470,32 @@ fired it. Keep the N-numbers so older notes still resolve.
   three points of the arrival, and a morning whose no-hold path starts at or
   above the threshold sees no hold at all.
 
+### N28. Evaluate tomorrow morning's weather window in `next_morning_preserve_target_soc`
+
+- Status: shipped 2026-11-25 at the owner's direction, watch standing for the
+  next three evening plans.
+- Why: `next_morning_preserve_target_soc` (`growatt_guard/topup.py`) called
+  `choose_preserve_threshold(config, today=morning.date())`, which forwarded
+  `today` only to `current_season` and ran `analyze_weather_window` against
+  `dt.datetime.now()` (18:00–22:00 evening sky at the 4-hour default) instead
+  of tomorrow morning's preserve window. Five evening plans quoted
+  `morning_target_soc=35` ahead of a normal `40%` morning (2026-11-19 through
+  11-22 and 2026-11-24), and 2026-11-23 evening quoted `45%` ahead of a normal
+  `40%` morning. On 2026-11-24 18:00 the plan was not clamp-bound (`155 min`,
+  `80%` to `96.72%`, `1753 W` planned vs `1728 W` SOC-implied, `1950 W` vs
+  `1962 W` implied rate) and hit its `38%` target (`39–40%` at sunrise), landing
+  one point under the morning's `40%` threshold and forcing two morning holds;
+  sizing to `40` (`43%` target) asks `179 min` (`99.38%` end SOC) and arrives
+  at `43.8%` with zero morning holds.
+- Shipped: `analyze_weather_window` and `choose_preserve_threshold` accept an
+  optional `window_start: dt.datetime | None = None` (normalized to
+  `weather_timezone` and failing closed to `unavailable` if the forecast omits
+  that window), and `next_morning_preserve_target_soc` passes
+  `window_start=morning`. Live morning callers keep `window_start=None`.
+- Done when: three post-deploy evening `auto-topup-check` plans quote a
+  `morning_target_soc` matching the following morning's weather category
+  (outside genuine overnight forecast shifts).
+
 ## Current Baseline
 
 The following capabilities are implemented and should be preserved:
@@ -724,6 +705,13 @@ generated and the previous 12 days produced 4.4–6.6 kWh after 14:00 (median
 against the 2026-11-22/23 snapshots and that day's cached forecast, the shaped
 figure reads 7.0 kWh at 14:10 instead of 12.6. Full-day totals are unchanged;
 the change is dashboard presentation only, not mode timing.
+
+N28 shipped on 2026-11-25 at the owner's direction: `choose_preserve_threshold`
+and `analyze_weather_window` now accept `window_start`, and
+`next_morning_preserve_target_soc` passes `window_start=morning` (normalized to
+`weather_timezone`, failing closed to `unavailable` if the forecast omits the
+window) instead of evaluating the evening's 18:00–22:00 sky. Watch stands under
+Standing Watches for the next three evening plans.
 
 ### P4. Dashboard History And Mobile Polish
 

@@ -421,5 +421,90 @@ class GetTomorrowSolarKwhM2Tests(unittest.TestCase):
         self.assertEqual(result["tomorrow_precipitation_mm"], 6.0)
 
 
+class WeatherWindowStartTests(unittest.TestCase):
+    @staticmethod
+    def _two_day_forecast(evening_cloud: float, morning_cloud: float, morning_rain: float = 0.0) -> dict:
+        times: list[str] = []
+        clouds: list[float] = []
+        rain: list[float] = []
+        base = dt.datetime(2026, 11, 24, 0, 0)
+        for hour_offset in range(48):
+            ts = base + dt.timedelta(hours=hour_offset)
+            times.append(ts.isoformat(timespec="minutes"))
+            if ts.date() == dt.date(2026, 11, 24) and 18 <= ts.hour <= 22:
+                clouds.append(evening_cloud)
+                rain.append(0.0)
+            elif ts.date() == dt.date(2026, 11, 25) and 6 <= ts.hour <= 11:
+                clouds.append(morning_cloud)
+                rain.append(morning_rain if ts.hour == 8 else 0.0)
+            else:
+                clouds.append(10.0)
+                rain.append(0.0)
+        return {"hourly": {"time": times, "cloud_cover": clouds, "precipitation": rain}}
+
+    def test_clear_evening_normal_morning_uses_morning_window(self):
+        forecast = self._two_day_forecast(evening_cloud=5.0, morning_cloud=45.0)
+        cfg = make_config(weather_enabled=True, season_profiles_enabled=True, weather_timezone="Africa/Lagos")
+        morning = dt.datetime(2026, 11, 25, 6, 38, tzinfo=dt.timezone(dt.timedelta(hours=1)))
+
+        with patch("growatt_guard.weather.fetch_weather_forecast", return_value=forecast):
+            decision = choose_preserve_threshold(cfg, today=morning.date(), window_start=morning)
+
+        self.assertEqual(decision.weather_category, "normal")
+        self.assertEqual(decision.threshold, 40.0)
+
+    def test_clear_evening_rainy_morning_uses_morning_window(self):
+        forecast = self._two_day_forecast(evening_cloud=0.0, morning_cloud=85.0, morning_rain=1.5)
+        cfg = make_config(weather_enabled=True, season_profiles_enabled=True, weather_timezone="Africa/Lagos")
+        morning = dt.datetime(2026, 11, 25, 6, 38, tzinfo=dt.timezone(dt.timedelta(hours=1)))
+
+        with patch("growatt_guard.weather.fetch_weather_forecast", return_value=forecast):
+            decision = choose_preserve_threshold(cfg, today=morning.date(), window_start=morning)
+
+        self.assertEqual(decision.weather_category, "rainy/cloudy")
+        self.assertEqual(decision.threshold, 45.0)
+
+    def test_cloudy_evening_sunny_morning_uses_morning_window(self):
+        forecast = self._two_day_forecast(evening_cloud=95.0, morning_cloud=15.0)
+        cfg = make_config(weather_enabled=True, season_profiles_enabled=True, weather_timezone="Africa/Lagos")
+        morning = dt.datetime(2026, 11, 25, 6, 38, tzinfo=dt.timezone(dt.timedelta(hours=1)))
+
+        with patch("growatt_guard.weather.fetch_weather_forecast", return_value=forecast):
+            decision = choose_preserve_threshold(cfg, today=morning.date(), window_start=morning)
+
+        self.assertEqual(decision.weather_category, "sunny")
+        self.assertEqual(decision.threshold, 35.0)
+
+    def test_utc_aware_window_start_converts_to_weather_timezone(self):
+        # 06:00 Lagos is 05:00 UTC. Put clouds ONLY at 10:00 Lagos (09:00 UTC) so
+        # a UTC-unadjusted 05:38..09:38 window misses it, while Lagos 06:38..10:38 includes 10:00.
+        base = dt.datetime(2026, 11, 25, 0, 0)
+        times = [(base + dt.timedelta(hours=h)).isoformat(timespec="minutes") for h in range(24)]
+        clouds = [50.0 if h == 10 else 5.0 for h in range(24)]
+        rain = [0.0] * 24
+        forecast = {"hourly": {"time": times, "cloud_cover": clouds, "precipitation": rain}}
+        cfg = make_config(weather_enabled=True, weather_lookahead_hours=4, weather_timezone="Africa/Lagos")
+        utc_start = dt.datetime(2026, 11, 25, 5, 38, tzinfo=dt.timezone.utc)
+
+        decision = analyze_weather_window(cfg, forecast, window_start=utc_start)
+
+        self.assertEqual(decision.weather_category, "normal")
+        self.assertEqual(decision.cloud_cover, 50.0)
+
+    def test_explicit_window_outside_forecast_fails_closed(self):
+        forecast = self._two_day_forecast(evening_cloud=0.0, morning_cloud=0.0)
+        cfg = make_config(weather_enabled=True, season_profiles_enabled=True, weather_timezone="Africa/Lagos")
+        far_future = dt.datetime(2026, 11, 28, 6, 38, tzinfo=dt.timezone(dt.timedelta(hours=1)))
+
+        with self.assertRaises(GrowattGuardError):
+            analyze_weather_window(cfg, forecast, window_start=far_future)
+
+        with patch("growatt_guard.weather.fetch_weather_forecast", return_value=forecast):
+            decision = choose_preserve_threshold(cfg, window_start=far_future)
+
+        self.assertEqual(decision.weather_category, "unavailable")
+        self.assertEqual(decision.threshold, 45.0)
+
+
 if __name__ == "__main__":
     unittest.main()

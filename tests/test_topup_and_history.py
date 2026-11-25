@@ -1249,6 +1249,11 @@ class MorningPreserveTargetTests(unittest.TestCase):
                 raised = self._plan(tmp, "a")
 
         choose_mock.assert_called_once()
+        self.assertIsNotNone(choose_mock.call_args.kwargs.get("window_start"))
+        self.assertEqual(
+            choose_mock.call_args.kwargs["today"],
+            choose_mock.call_args.kwargs["window_start"].date(),
+        )
         self.assertIn("morning_target_soc=55", raised["note"])
         self.assertIn("target 55% SOC at sunrise", raised["reason"])
 
@@ -1279,3 +1284,38 @@ class MorningPreserveTargetTests(unittest.TestCase):
 
         self.assertIsNone(next_morning_preserve_target_soc(make_config(), None))
         self.assertIsNone(next_morning_preserve_target_soc(make_config(), 0.0))
+
+    def test_evening_call_uses_tomorrow_morning_weather_window(self):
+        from zoneinfo import ZoneInfo
+        from growatt_guard.topup import next_morning_preserve_target_soc
+
+        lagos = ZoneInfo("Africa/Lagos")
+        evening_now = dt.datetime(2026, 11, 24, 18, 0, tzinfo=lagos)
+        base = dt.datetime(2026, 11, 24, 0, 0)
+        times = [(base + dt.timedelta(hours=h)).isoformat(timespec="minutes") for h in range(48)]
+        # Clear evening (18:00-22:00 on 11-24 -> sunny 35%), normal next morning (06:00-11:00 on 11-25 -> normal 40%).
+        clouds = [
+            45.0 if (base + dt.timedelta(hours=h)).date() == dt.date(2026, 11, 25)
+            and 6 <= (base + dt.timedelta(hours=h)).hour <= 11
+            else 5.0
+            for h in range(48)
+        ]
+        forecast = {"hourly": {"time": times, "cloud_cover": clouds, "precipitation": [0.0] * 48}}
+        cfg = make_config(
+            weather_enabled=True,
+            season_profiles_enabled=True,
+            weather_timezone="Africa/Lagos",
+            auto_topup_morning_target_enabled=True,
+        )
+
+        class _FixedDateTime(dt.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return evening_now if tz is not None else evening_now.replace(tzinfo=None)
+
+        with patch("growatt_guard.topup.dt.datetime", _FixedDateTime), patch(
+            "growatt_guard.outage_days.today_is_outage_day", return_value=True
+        ), patch("growatt_guard.weather.fetch_weather_forecast", return_value=forecast):
+            target = next_morning_preserve_target_soc(cfg, 12.63)
+
+        self.assertEqual(target, 40.0)

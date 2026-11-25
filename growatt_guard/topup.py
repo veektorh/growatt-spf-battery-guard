@@ -213,7 +213,13 @@ def next_morning_preserve_target_soc(config: Config, hrs: float | None) -> float
         morning = dt.datetime.now(tz=night_tz) + dt.timedelta(hours=hrs)
         if not today_is_outage_day(now=morning):
             return None
-        return float(choose_preserve_threshold(config, today=morning.date()).threshold)
+        return float(
+            choose_preserve_threshold(
+                config,
+                today=morning.date(),
+                window_start=morning,
+            ).threshold
+        )
     except Exception as exc:  # noqa: BLE001 - the flat target must keep the night safe
         logging.warning("Morning preserve target unavailable, using flat sunrise target: %s", exc)
         return None
