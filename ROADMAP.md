@@ -58,6 +58,33 @@ credentials.
   after 11 min, `07:06` after 6 min), and returned SBU because `40 >= 40`. The
   repeat short-cycling between those two jobs is tracked as N29.
 
+### N30. Evaluate lowering dry-season `normal` preserve threshold from 40% to 35%
+
+- Status: waiting on N28's three-evening watch (ready after ~2026-11-28). Needs
+  owner go-ahead before merging (alters inverter mode timing).
+- Why / Evidence: owner preference (2026-11-25) is comfortable arriving around
+  `35–38%` at 08:00 on normal dry-season mornings to buy less overnight grid
+  (~`1.5 kWh`/night on unclamped nights) rather than paying for extra morning
+  margin, because morning sun routinely takes over by ~08:00. Eight consecutive
+  measured cut mornings through 2026-11-25 (including a 100% cloud forecast on
+  2026-11-23) were PV-positive at or right after 08:00. With N28 now reading
+  tomorrow morning's weather window directly, `DRY_SEASON_THRESHOLDS["normal"]`
+  (`40%`) actually governs unclamped evening plans instead of clear-evening
+  `35%` noise; wait until N28's three-evening watch settles so the baseline is
+  clean before changing a threshold.
+- Steps:
+  1. During the morning reads over N28's three-evening watch, record sunrise
+     SOC, 08:00 SOC, morning hold count (N29), and PV crossover time.
+  2. Once N28 has three clean reads, present the counterfactual (expected 08:00
+     arrival and grid saved if `DRY_SEASON_THRESHOLDS["normal"]` moves from
+     `40.0` to `35.0`, keeping `rainy/cloudy` at `45.0`) and ask the owner for
+     go-ahead.
+  3. On go-ahead, change `DRY_SEASON_THRESHOLDS["normal"]` in
+     `growatt_guard/weather.py` in a single PR with updated unit tests.
+- Done when: either `DRY_SEASON_THRESHOLDS["normal"]` is lowered to `35%` and
+  verified over three post-deploy mornings, or the owner decides to keep `40%`
+  and records the verdict in `Settled Decisions`.
+
 ## Settled Decisions
 
 Answered questions, with the measurements that answered them. Nothing here is
