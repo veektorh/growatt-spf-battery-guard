@@ -270,20 +270,19 @@ def _record_preserve_utility_hold(
     if config.dry_run:
         return
     max_expiry = _preserve_hold_expiry()
-    # A preserve switch can be decided on the projected outage-start SOC while the
-    # live reading already sits at the threshold. A hold targeting the threshold
-    # would then satisfy its own completion test on the next minute check and hand
-    # the inverter back to SBU before the outage starts, so size that window with
-    # the headroom the nightly windows already use — and, when this is the last
-    # preserve before the cut, with the drain the projection still expects by the
-    # outage start, so the battery arrives at the threshold instead of the last
-    # hour's load deciding it.
-    target_soc = threshold
-    if soc >= threshold:
-        headroom_soc = max(0.0, float(config.auto_topup_headroom_soc))
-        if drain_soc is not None:
-            headroom_soc = max(headroom_soc, float(drain_soc))
-        target_soc = min(threshold + headroom_soc, 100.0)
+    # A preserve hold targeting the bare threshold returns to SBU as soon as
+    # SOC touches the threshold, which lets load drop it back below the line
+    # before the next preserve job (short-cycling Utility twice in 26 minutes
+    # on 2026-11-25). Always add the configured headroom so one hold clears the
+    # threshold cleanly. When live SOC is already at or above the threshold
+    # (N20's last-job projection-triggered switch), also cover the projected
+    # drain to the outage start; when live SOC is already below the threshold,
+    # earlier jobs do not defer so adding the full un-deferred drain would
+    # over-charge by 8-10 points.
+    headroom_soc = max(0.0, float(config.auto_topup_headroom_soc))
+    if soc >= threshold and drain_soc is not None:
+        headroom_soc = max(headroom_soc, float(drain_soc))
+    target_soc = min(threshold + headroom_soc, 100.0)
     write_utility_hold_state(
         "owned",
         target_soc,

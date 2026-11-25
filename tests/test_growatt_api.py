@@ -283,7 +283,7 @@ class IdempotencyTests(unittest.TestCase):
         self.assertEqual(hold["start_soc"], 40.0)
         self.assertEqual(hold["target_soc"], 45.0)
 
-    def test_live_below_threshold_preserve_hold_targets_the_threshold(self):
+    def test_live_below_threshold_preserve_hold_adds_headroom_without_full_drain(self):
         from tempfile import TemporaryDirectory
 
         config = make_config(
@@ -291,6 +291,26 @@ class IdempotencyTests(unittest.TestCase):
             battery_capacity_wh=30000,
             dry_run=False,
             auto_topup_headroom_soc=3,
+        )
+        status = {
+            "device": {"capacity": "38 %"},
+            "storage_params": {"storageBean": {"outputConfig": "0", "outPutPower": 1900}},
+        }
+        with TemporaryDirectory() as tmpdir:
+            result, hold = self._run_preserve_with_hold(status, config, tmpdir, 30.0)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(hold["start_soc"], 38.0)
+        self.assertEqual(hold["target_soc"], 43.0)
+
+    def test_live_below_threshold_preserve_hold_targets_bare_threshold_when_headroom_zero(self):
+        from tempfile import TemporaryDirectory
+
+        config = make_config(
+            low_battery_soc=40,
+            battery_capacity_wh=30000,
+            dry_run=False,
+            auto_topup_headroom_soc=0,
         )
         status = {
             "device": {"capacity": "38 %"},
