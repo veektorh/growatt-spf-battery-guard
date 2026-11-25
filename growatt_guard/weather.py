@@ -10,6 +10,7 @@ from typing import Any
 import requests
 
 from growatt_guard.exceptions import GrowattGuardError
+from growatt_guard.load_learning import resolve_timezone
 
 from growatt_guard.state import STATE_DIR
 
@@ -507,7 +508,22 @@ def get_pv_forecast(
     }
 
 
-def analyze_weather_window(config: Any, forecast: dict[str, Any]) -> ThresholdDecision:
+def _normalize_window_start(config: Any, window_start: dt.datetime | None) -> dt.datetime:
+    if window_start is None:
+        return dt.datetime.now()
+    if window_start.tzinfo is not None:
+        tz = resolve_timezone(getattr(config, "weather_timezone", ""))
+        if tz is not None:
+            return window_start.astimezone(tz).replace(tzinfo=None)
+        return window_start.astimezone().replace(tzinfo=None)
+    return window_start
+
+
+def analyze_weather_window(
+    config: Any,
+    forecast: dict[str, Any],
+    window_start: dt.datetime | None = None,
+) -> ThresholdDecision:
     hourly = forecast.get("hourly", {})
     times = hourly.get("time", [])
     cloud_cover = hourly.get("cloud_cover", [])
@@ -515,20 +531,22 @@ def analyze_weather_window(config: Any, forecast: dict[str, Any]) -> ThresholdDe
     if not times or not cloud_cover or not precipitation:
         raise weather_error("Weather response did not include hourly time, cloud_cover and precipitation.")
 
-    now = dt.datetime.now()
-    window_end = now + dt.timedelta(hours=config.weather_lookahead_hours)
+    start = _normalize_window_start(config, window_start)
+    window_end = start + dt.timedelta(hours=config.weather_lookahead_hours)
     clouds: list[float] = []
     rain: list[float] = []
 
     for index, time_value in enumerate(times):
         forecast_time = parse_forecast_time(str(time_value))
-        if now <= forecast_time <= window_end:
+        if start <= forecast_time <= window_end:
             if index < len(cloud_cover) and cloud_cover[index] is not None:
                 clouds.append(float(cloud_cover[index]))
             if index < len(precipitation) and precipitation[index] is not None:
                 rain.append(float(precipitation[index]))
 
     if not clouds and not rain:
+        if window_start is not None:
+            raise weather_error("Weather forecast did not cover the requested lookahead window.")
         # If the forecast starts at the next hour boundary, still use the first few available points.
         lookahead = max(1, config.weather_lookahead_hours)
         clouds = [float(value) for value in cloud_cover[:lookahead] if value is not None]
@@ -573,7 +591,11 @@ def analyze_weather_window(config: Any, forecast: dict[str, Any]) -> ThresholdDe
     )
 
 
-def choose_preserve_threshold(config: Any, today: dt.date | None = None) -> ThresholdDecision:
+def choose_preserve_threshold(
+    config: Any,
+    today: dt.date | None = None,
+    window_start: dt.datetime | None = None,
+) -> ThresholdDecision:
     if not config.weather_enabled:
         decision = ThresholdDecision(
             threshold=config.low_battery_soc,
@@ -581,7 +603,11 @@ def choose_preserve_threshold(config: Any, today: dt.date | None = None) -> Thre
         )
     else:
         try:
-            decision = analyze_weather_window(config, fetch_weather_forecast(config))
+            decision = analyze_weather_window(
+                config,
+                fetch_weather_forecast(config),
+                window_start=window_start,
+            )
         except Exception as exc:  # noqa: BLE001 - preserve automation if weather is unavailable
             logging.warning("Weather threshold unavailable, using fixed threshold: %s", exc)
             decision = ThresholdDecision(
@@ -591,7 +617,10 @@ def choose_preserve_threshold(config: Any, today: dt.date | None = None) -> Thre
             )
 
     if config.season_profiles_enabled:
-        season = current_season(today)
+        season_date = today
+        if season_date is None and window_start is not None:
+            season_date = _normalize_window_start(config, window_start).date()
+        season = current_season(season_date)
         decision = apply_season_adjustment(decision, season)
         logging.debug("Season: %s; threshold after season adjustment: %g%%", season, decision.threshold)
 
