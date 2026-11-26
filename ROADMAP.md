@@ -566,6 +566,28 @@ fired it. Keep the N-numbers so older notes still resolve.
   `max(3, drain 4.66)` as headroom (target `44.66%`). It was still one hold and
   two mode writes, arriving at `45%`.
 
+### N31. Count trace forecast rain under a clear sky as sunny
+
+- Status: shipped 2026-11-26 at the owner's direction, watch standing for the
+  next three clear mornings with trace rain in the forecast.
+- Why: `analyze_weather_window` called a window sunny only on `total_rain == 0`.
+  On 2026-11-26 the 06:00-10:00 forecast was 5-27% cloud with `0.1 mm` at 06:00
+  and 08:00, so 0.2 mm made it `normal` (`40%`) instead of sunny (dry-season
+  `35%`). By 08:10 the window had moved past the rain hours and read sunny. At
+  `35%` the `07:00` job's `36%` projection clears: no hold (about `2 kWh` of
+  grid), and the cut starts near the `38.6%` no-hold counterfactual instead of
+  `45%`.
+- Shipped: `WEATHER_SUNNY_MAX_RAIN_MM` (default `0.5`) is the total forecast
+  rain over the lookahead that still counts as sunny. The cloud limit
+  (`WEATHER_SUNNY_THRESHOLD`) and the rainy/cloudy branch (`1 mm` or `70%`) are
+  unchanged, and `0` restores the strict rule. Because the evening plan reads
+  the same function for tomorrow's window (N28), trace-rain clear mornings now
+  also plan to the sunny target (`35 + 3`) rather than `40 + 3`.
+- Done when: three cut mornings whose forecast carried `0 < rain <= 0.5 mm` under
+  the sunny cloud limit used the sunny threshold in their preserve rows and
+  started the cut at or above it, or one such morning starts the cut below the
+  sunny threshold with PV below load. That second case reopens this and N30.
+
 ## Current Baseline
 
 The following capabilities are implemented and should be preserved:
@@ -789,6 +811,12 @@ N29 shipped on 2026-11-25 at the owner's direction (Option 2):
 deferred `soc >= threshold` branch so early under-threshold holds stop
 short-cycling bare `39% -> 40%` without over-charging to `48–50%`. Watch stands
 under Standing Watches for the next under-threshold preserve morning.
+
+N31 shipped on 2026-11-26 at the owner's direction: the sunny weather category
+now tolerates up to `WEATHER_SUNNY_MAX_RAIN_MM` (`0.5 mm`) of total forecast
+rain over the lookahead instead of requiring exactly zero, so a clear morning
+with a drizzle trace uses the sunny threshold. Watch stands under Standing
+Watches.
 
 ### P4. Dashboard History And Mobile Polish
 

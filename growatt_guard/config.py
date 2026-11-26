@@ -62,6 +62,7 @@ class Config:
     weather_cloudy_threshold: float = 70
     weather_sunny_threshold: float = 35
     weather_rain_threshold_mm: float = 1
+    weather_sunny_max_rain_mm: float = 0.5
     low_battery_soc_normal: float = 45
     low_battery_soc_sunny: float = 40
     season_profiles_enabled: bool = False
@@ -303,6 +304,7 @@ def load_config() -> Config:
         weather_cloudy_threshold=float(env("WEATHER_CLOUDY_THRESHOLD", "70")),
         weather_sunny_threshold=float(env("WEATHER_SUNNY_THRESHOLD", "35")),
         weather_rain_threshold_mm=float(env("WEATHER_RAIN_THRESHOLD_MM", "1")),
+        weather_sunny_max_rain_mm=float(env("WEATHER_SUNNY_MAX_RAIN_MM", "0.5")),
         low_battery_soc_normal=float(env("LOW_BATTERY_SOC_NORMAL", "45")),
         low_battery_soc_sunny=float(env("LOW_BATTERY_SOC_SUNNY", "40")),
         season_profiles_enabled=str_to_bool(env("SEASON_PROFILES_ENABLED"), default=False),
