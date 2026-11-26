@@ -31,6 +31,7 @@ def make_config(**overrides):
         "weather_cloudy_threshold": 70,
         "weather_sunny_threshold": 35,
         "weather_rain_threshold_mm": 1,
+        "weather_sunny_max_rain_mm": 0.5,
         "low_battery_soc_normal": 45,
         "low_battery_soc_sunny": 40,
         "season_profiles_enabled": False,

@@ -567,7 +567,10 @@ def analyze_weather_window(
             precipitation_mm=total_rain,
         )
 
-    if total_rain == 0 and max_cloud <= config.weather_sunny_threshold:
+    # A trace of forecast drizzle under a clear sky (0.1 mm hours at 5-27% cloud
+    # on 2026-11-26) does not dim the morning PV; only measurable rain does.
+    sunny_max_rain_mm = max(0.0, float(getattr(config, "weather_sunny_max_rain_mm", 0.0)))
+    if round(total_rain, 3) <= sunny_max_rain_mm and max_cloud <= config.weather_sunny_threshold:
         return ThresholdDecision(
             threshold=config.low_battery_soc_sunny,
             reason=(

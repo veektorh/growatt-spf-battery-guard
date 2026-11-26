@@ -71,6 +71,60 @@ class WeatherTests(unittest.TestCase):
         self.assertEqual(decision.threshold, 40)
         self.assertEqual(decision.weather_category, "sunny")
 
+    TRACE_WINDOW_START = dt.datetime(2026, 11, 26, 6, 0)
+
+    def _clear_sky_forecast(self, precipitation, cloud_cover=None):
+        # Five hourly points, 06:00-10:00, all inside a 4-hour window from 06:00.
+        clouds = cloud_cover or [5, 27, 18, 8, 4]
+        return {
+            "hourly": {
+                "time": [
+                    (self.TRACE_WINDOW_START + dt.timedelta(hours=i)).isoformat(timespec="minutes")
+                    for i in range(len(clouds))
+                ],
+                "cloud_cover": clouds,
+                "precipitation": precipitation,
+            }
+        }
+
+    def test_analyze_weather_window_treats_trace_rain_under_clear_sky_as_sunny(self):
+        # The 2026-11-26 06:00-10:00 forecast: 0.2 mm total at 5-27% cloud.
+        forecast = self._clear_sky_forecast([0.1, 0.0, 0.1, 0.0, 0.0])
+
+        decision = analyze_weather_window(make_config(), forecast, window_start=self.TRACE_WINDOW_START)
+
+        self.assertEqual(decision.threshold, 40)
+        self.assertEqual(decision.weather_category, "sunny")
+
+    def test_analyze_weather_window_accepts_rain_at_the_trace_limit(self):
+        forecast = self._clear_sky_forecast([0.2, 0.1, 0.1, 0.1, 0.0])
+
+        decision = analyze_weather_window(make_config(), forecast, window_start=self.TRACE_WINDOW_START)
+
+        self.assertEqual(decision.weather_category, "sunny")
+
+    def test_analyze_weather_window_keeps_normal_above_trace_rain(self):
+        forecast = self._clear_sky_forecast([0.3, 0.0, 0.3, 0.0, 0.0])
+
+        decision = analyze_weather_window(make_config(), forecast, window_start=self.TRACE_WINDOW_START)
+
+        self.assertEqual(decision.threshold, 45)
+        self.assertEqual(decision.weather_category, "normal")
+
+    def test_analyze_weather_window_trace_rain_does_not_lift_cloud_limit(self):
+        forecast = self._clear_sky_forecast([0.0] * 5, cloud_cover=[5, 40, 18, 8, 4])
+
+        decision = analyze_weather_window(make_config(), forecast, window_start=self.TRACE_WINDOW_START)
+
+        self.assertEqual(decision.weather_category, "normal")
+
+    def test_analyze_weather_window_zero_trace_limit_restores_strict_rule(self):
+        forecast = self._clear_sky_forecast([0.1, 0.0, 0.1, 0.0, 0.0])
+
+        decision = analyze_weather_window(make_config(weather_sunny_max_rain_mm=0), forecast, window_start=self.TRACE_WINDOW_START)
+
+        self.assertEqual(decision.weather_category, "normal")
+
     def test_fetch_weather_forecast_uses_cache_when_fresh(self):
         from growatt_guard.weather import fetch_weather_forecast
         forecast = {"hourly": {"time": [], "cloud_cover": [], "precipitation": []}}
