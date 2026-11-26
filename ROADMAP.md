@@ -94,6 +94,22 @@ credentials.
   morning a `35%` normal threshold would have cleared the `07:00` job and saved
   the hold (about `2 kWh` of grid) as well as roughly `1.5 kWh` of evening
   charge.
+- Rescoped, 2026-11-26, after N31: the trace-rain fix already moves the clear
+  mornings to the sunny `35%`, so N30 now covers only the part-cloud mornings
+  that stay `normal` (cloud `36–69%`). The forecasts at the last pre-cut job
+  (`07:00`): 11-17 `34%`/`0.4 mm`, 11-19 `41%`/`0.7`, 11-20 `37%`/`0.5`,
+  11-21 `30%`/`0.2`, 11-22 `32%`/`0.3`, 11-23 `100%`/`1.3`, 11-24 `47%`/`0.3`,
+  11-25 `45%`/`0.5`, 11-26 `18%`/`0.1`. Under the strict rule none was sunny;
+  under N31, 11-17, 21, 22 and 26 are. The ones left are 11-19, 20, 24 and 25,
+  and all four were PV-positive by about 08:00. N30's evidence should now
+  count only part-cloud mornings, and on those the step-1 record should add
+  the max cloud at `07:00` and the PV-crossover time.
+- Not taken, 2026-11-26: sizing the N20 pre-cut hold's drain headroom to the
+  time left after the hold instead of the full hour to the cut. On 11-26 it
+  over-charged by about 3-4 points (target `44.66`, about `41` needed), but
+  under N31 that morning has no hold at all, and the saving elsewhere is about
+  `0.5 kWh` on the rarer mornings that still hold. Reopen if two post-N31
+  mornings hold and the cut starts four or more points above the threshold.
 - Done when: either `DRY_SEASON_THRESHOLDS["normal"]` is lowered to `35%` and
   verified over three post-deploy mornings, or the owner decides to keep `40%`
   and records the verdict in `Settled Decisions`.
