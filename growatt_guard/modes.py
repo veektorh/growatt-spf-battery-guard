@@ -54,12 +54,9 @@ from growatt_guard.preservation import (
     build_solar_bridge_decision,
     format_bridge_audit_note,
 )
-from growatt_guard.dashboard_metrics import (
-    DASHBOARD_METRICS_RETENTION_DAYS,
-    read_dashboard_metrics_history,
-)
+from growatt_guard.dashboard_metrics import read_dashboard_metrics_history
 from growatt_guard.load_learning import resolve_timezone
-from growatt_guard.load_profile import pre_cut_load_basis
+from growatt_guard.load_profile import LOAD_PROFILE_HISTORY_DAYS, pre_cut_load_basis
 from growatt_guard.schedule import (
     find_schedule_job,
     next_scheduled_runs,
@@ -461,7 +458,7 @@ def _pre_cut_load_basis(config: Config, load_w: float | None) -> tuple[float | N
     try:
         now = dt.datetime.now().astimezone()
         tz = resolve_timezone(getattr(config, "weather_timezone", ""))
-        rows = read_dashboard_metrics_history(now=now, days=DASHBOARD_METRICS_RETENTION_DAYS)
+        rows = read_dashboard_metrics_history(now=now, days=LOAD_PROFILE_HISTORY_DAYS)
         basis_w, note = pre_cut_load_basis(load_w, rows, now=now, tz=tz)
     except Exception:  # noqa: BLE001 - the live reading stays the default basis
         logging.exception("Pre-cut load basis unavailable; projecting from the live reading.")

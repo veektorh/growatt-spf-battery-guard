@@ -26,12 +26,9 @@ from growatt_guard.schedule import (
     validate_schedule,
     validate_schedule_overrides,
 )
-from growatt_guard.dashboard_metrics import (
-    DASHBOARD_METRICS_RETENTION_DAYS,
-    read_dashboard_metrics_history,
-)
+from growatt_guard.dashboard_metrics import read_dashboard_metrics_history
 from growatt_guard.load_learning import resolve_timezone
-from growatt_guard.load_profile import planning_night_load
+from growatt_guard.load_profile import LOAD_PROFILE_HISTORY_DAYS, planning_night_load
 from growatt_guard.notifications import (
     embed_auto_topup_started,
     embed_topup_below_target,
@@ -298,7 +295,7 @@ def command_auto_topup_check(config: Config) -> int:
     history = read_discharge_rate_history()
     planned_at = dt.datetime.now().astimezone()
     learned_load_w, learned_source = planning_night_load(
-        read_dashboard_metrics_history(now=planned_at, days=DASHBOARD_METRICS_RETENTION_DAYS),
+        read_dashboard_metrics_history(now=planned_at, days=LOAD_PROFILE_HISTORY_DAYS),
         history,
         now=planned_at,
         hours=hrs,
