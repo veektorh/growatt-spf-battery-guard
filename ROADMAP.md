@@ -1,6 +1,6 @@
 # Growatt Guard Roadmap
 
-Last reviewed: 2026-11-26
+Last reviewed: 2026-11-27
 
 This is the working backlog for Growatt Guard. Priorities favor inverter safety,
 low Growatt API pressure, trustworthy decisions, and clear operations before
@@ -62,6 +62,10 @@ credentials.
   `07:32` at `45%`, inside the preserve window but above its `40%` threshold,
   so the deferral condition never applied; the `07:32:09` `return-sbu`
   switched to SBU and the `07:55` one found SBU already.
+- Read, 2026-11-27: still no `topup-complete-deferred` row. Zero morning holds
+  ran (`06:00`, `06:40`, and `07:00` cleared at `35%` sunny; `06:30` deferred),
+  and last night's `18:00` top-up closed `topup-target-reached` at `23:43` at
+  `83%`, outside any preserve window.
 
 ### N30. Evaluate lowering dry-season `normal` preserve threshold from 40% to 35%
 
@@ -94,6 +98,12 @@ credentials.
   morning a `35%` normal threshold would have cleared the `07:00` job and saved
   the hold (about `2 kWh` of grid) as well as roughly `1.5 kWh` of evening
   charge.
+- Step 1 record, 2026-11-27 (not counted — sunny `35%` under N31): sunrise
+  (`06:39`) SOC `45%` at `06:36`; `08:00` SOC `40%` with `0` morning holds; max
+  cloud at `07:00` was `31%` (`0.2 mm` rain), so N31 classified the morning as
+  `sunny`, not part-cloud `normal`. Clouds thickened after the cut (`08:28`
+  health check read `normal` at `60%` max cloud, `0.3 mm`), holding PV at
+  `534–651 W` below `731–1095 W` load through `08:28` (`39%` SOC).
 - Rescoped, 2026-11-26, after N31: the trace-rain fix already moves the clear
   mornings to the sunny `35%`, so N30 now covers only the part-cloud mornings
   that stay `normal` (cloud `36–69%`). The forecasts at the last pre-cut job
@@ -324,6 +334,16 @@ still resolve.
   3% high and the arrival landed one point over the plan's 43. This is the
   closest arrival on record and adds a fourth hourly-profile outcome inside the
   existing ±17% spread; no change proposed.
+- Read, 2026-11-27 (reopen conditions not fired): the 18:00 plan asked 342 min
+  from 47% to an unclamped `83.97%` completion target on a `1769 W` load
+  (`hourly profile median (weekday, 12.65h)`), sizing to `43%` at sunrise (`40`
+  plus 3 headroom), and closed `topup-target-reached` at 23:43 (`343 min`,
+  `83%`, `1890 W` implied rate against `1950` planned). Overnight drain from
+  23:43 (`83%`) to sunrise 06:39 (`45%` at 06:36) was 38 points in 6.93 h, about
+  `1644 W`, so the estimate was `+7.6%` high and sunrise landed `+2` points over
+  the `43%` target (counterfactual at `1644 W`: `81.0%` end SOC, ~28 min / ~1.0
+  kWh grid). Fifth hourly-profile outcome inside the existing ±17% spread; no
+  change proposed.
 - Original steps, closed unfinished: confirm the cut-start arithmetic on two
   more normal mornings, then read an overcast cut-morning and choose between a
   category-scaled horizon (rainy/cloudy +90), a lower normal threshold, or
@@ -419,9 +439,9 @@ fired it. Keep the N-numbers so older notes still resolve.
 
 ### N26. Keep one transient load sample from deciding the pre-cut hold
 
-- Status: shipped 2026-11-23 (PR #138), watch standing. Option 3 was chosen and
-  merged at the owner's direction; the first two cut mornings (2026-11-24 and
-  2026-11-25) both started under the threshold with the clamp not exercised.
+- Status: shipped 2026-11-23 (PR #138), **watch satisfied and closed 2026-11-27**.
+  Option 3 was chosen and merged at the owner's direction; both clauses of the
+  done condition are now met.
 - Why: the pre-cut projection drains a single `outPutPower` reading to the
   scheduled cut. On 2026-11-23 the 06:40 job projected 45.0% at the 08:00 cut
   from a 1508 W sample and cleared; twenty minutes later the 07:00 job, the
@@ -518,6 +538,14 @@ fired it. Keep the N-numbers so older notes still resolve.
   morning inside three points (`3.0` on 11-25). The hold took `41%` to `45%` in
   32 minutes. Clause 1 of the done condition is met; clause 2 (no hold when the
   no-hold path clears the threshold) is still unobserved, so the watch stays.
+- Watch read, 2026-11-27 (watch satisfied): the `1.5x` clamp was not exercised
+  (`06:30` sampled `2173 W` against `1835 W` 80th percentile, ratio `1.18`,
+  deferred by N20; `07:00` last pre-cut job sampled `770 W` against `1614 W`,
+  ratio `0.48`). `07:00` projected `41%` against `40%` actual cut start (`1.0`
+  point error — third consecutive cut morning inside three points after `3.0` on
+  11-25 and `2.6` on 11-26), and the morning's no-hold path cleared the `35%`
+  sunny threshold (and even `40%` normal) with zero holds. Both clauses of the
+  done condition are now met; watch closed.
 - Done when: two cut mornings show the last pre-cut job's projection within
   three points of the arrival, and a morning whose no-hold path starts at or
   above the threshold sees no hold at all.
@@ -553,6 +581,14 @@ fired it. Keep the N-numbers so older notes still resolve.
   `08:10` health check reads sunny, max cloud 11%, dry-season `35%`), which is
   the 2026-11-20 shape; read the morning's category from its audit rows, not a
   later dashboard.
+- Watch read, 2026-11-27 (overnight boundary shift; still 1 of 3 clean matches):
+  the `2026-11-26 18:00` plan (running post-N31, deployed `08:32`) quoted
+  `morning_target_soc=40` (`normal`), while `06:00`–`07:00` preserve rows read
+  `sunny` (`35%`, max cloud `31–34%`, rain `0.1–0.2 mm`) and `08:28` flipped
+  back to `normal` (`40%`, max cloud `60%`, rain `0.3 mm`). Because N31 was
+  already live at `18:00`, this was a genuine overnight forecast shift right on
+  the `35%` cloud boundary rather than a window-start mismatch; wait for two
+  more clean matching evenings.
 
 ### N29. Stop repeat morning short-cycling when live SOC enters a preserve job under the threshold
 
@@ -581,6 +617,8 @@ fired it. Keep the N-numbers so older notes still resolve.
   above `40%` (48, 45, 44, 41), so the `07:00` hold took the N20 branch with
   `max(3, drain 4.66)` as headroom (target `44.66%`). It was still one hold and
   two mode writes, arriving at `45%`.
+- Watch read, 2026-11-27: not exercised. Every pre-cut job read live SOC well
+  above `35%` (`48`, `45`, `45`, `44`) and zero holds ran.
 
 ### N31. Count trace forecast rain under a clear sky as sunny
 
@@ -603,6 +641,15 @@ fired it. Keep the N-numbers so older notes still resolve.
   the sunny cloud limit used the sunny threshold in their preserve rows and
   started the cut at or above it, or one such morning starts the cut below the
   sunny threshold with PV below load. That second case reopens this and N30.
+- Watch read 1 of 3, 2026-11-27: first live fire. All four pre-cut jobs
+  (`06:00`–`07:00`) carried trace rain under the `35%` cloud limit (`max cloud
+  34%, rain 0.1 mm` at `06:00`–`06:40`; `31%, 0.2 mm` at `07:00`), used the
+  `35%` sunny threshold, ran zero holds (`06:30` deferred cleanly on a `2173 W`
+  reading), and started the `08:00` cut at `40%` (`5` points above `35%`).
+  Clouds thickened after the cut (`08:28` read `normal`, `60%` max cloud,
+  `0.3 mm`), holding PV at `534–651 W` below `731–1095 W` load through `08:28`
+  (`39%` SOC), still four points above `35%`, so the reopen condition did not
+  fire.
 
 ## Current Baseline
 
@@ -813,6 +860,11 @@ generated and the previous 12 days produced 4.4–6.6 kWh after 14:00 (median
 against the 2026-11-22/23 snapshots and that day's cached forecast, the shaped
 figure reads 7.0 kWh at 14:10 instead of 12.6. Full-day totals are unchanged;
 the change is dashboard presentation only, not mode timing.
+
+N26 watch closed on 2026-11-27 (shipped 2026-11-23, PR #138): three
+consecutive cut mornings landed within three points of the `07:00` projection
+(`3.0` on 11-25, `2.6` on 11-26 with the clamp firing once on a `3316 W`
+spike, `1.0` on 11-27), and 2026-11-27 cleared the threshold with zero holds.
 
 N28 shipped on 2026-11-25 at the owner's direction: `choose_preserve_threshold`
 and `analyze_weather_window` now accept `window_start`, and
