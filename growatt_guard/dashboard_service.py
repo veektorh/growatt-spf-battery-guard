@@ -38,6 +38,7 @@ from growatt_guard.forecast_calibration import (
     update_forecast_calibration,
 )
 from growatt_guard.growatt_api import load_context, track_device_reporting
+from growatt_guard.load_profile import LOAD_PROFILE_HISTORY_DAYS
 from growatt_guard.notifications import (
     notify_failure,
     record_pvoutput_failure,
@@ -130,6 +131,7 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
         tz=resolve_timezone(config.weather_timezone),
     )
     metrics_history = read_dashboard_metrics_history()
+    load_profile_history = read_dashboard_metrics_history(days=LOAD_PROFILE_HISTORY_DAYS)
     remaining_shape = summarize_pv_remaining_fraction(metrics_history)
     pv_forecast = get_pv_forecast(
         config,
@@ -162,6 +164,7 @@ def write_dashboard_from_status(config: Any, status: dict[str, Any], output: str
         auto_topup_min_minutes=config.auto_topup_min_minutes,
         tonight_floor_soc=config.auto_topup_sunrise_floor_soc,
         tonight_comfortable_soc=45.0,
+        load_profile_history=load_profile_history,
     )
     html_content = build_dashboard_html(json_payload)
     # Atomic write: temp file in same directory then rename to avoid serving

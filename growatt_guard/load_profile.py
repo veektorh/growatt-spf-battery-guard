@@ -20,7 +20,7 @@ import statistics
 from typing import Any
 
 from growatt_guard.config import Config
-from growatt_guard.dashboard_metrics import DASHBOARD_METRICS_RETENTION_DAYS, read_dashboard_metrics_history
+from growatt_guard.dashboard_metrics import read_dashboard_metrics_history
 from growatt_guard.load_learning import (
     EVENING_START_HOUR,
     OVERNIGHT_END_HOUR,
@@ -36,6 +36,12 @@ from growatt_guard.schedule import validate_schedule
 from growatt_guard.state import read_discharge_rate_history
 
 MIN_PROFILE_DAYS = 3
+# Snapshot window for the hourly load profile. Two full weeks guarantees four
+# weekend nights (buffer of one above MIN_PROFILE_DAYS) so both Saturday and
+# Sunday qualify instead of Saturday falling back to the band planner under
+# the 8-day dashboard chart window, while still clearing seasonal load shifts
+# within two weeks.
+LOAD_PROFILE_HISTORY_DAYS = 14
 # Readings an hour of one day needs before its mean stands for that hour. The
 # dashboard refreshes about four times an hour, so two readings is half an hour.
 MIN_HOUR_READINGS = 2
@@ -331,7 +337,7 @@ def command_load_profile(config: Config, json_output: bool = False) -> int:
     tz = resolve_timezone(schedule.get("timezone")) or resolve_timezone(config.weather_timezone)
     now = dt.datetime.now().astimezone()
     report = build_load_profile_report(
-        read_dashboard_metrics_history(now=now, days=DASHBOARD_METRICS_RETENTION_DAYS),
+        read_dashboard_metrics_history(now=now, days=LOAD_PROFILE_HISTORY_DAYS),
         read_discharge_rate_history(),
         now=now,
         tz=tz,

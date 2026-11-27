@@ -235,11 +235,17 @@ def build_dashboard_data_payload(
     auto_topup_min_minutes: float = 0.0,
     tonight_floor_soc: float = 35.0,
     tonight_comfortable_soc: float = 45.0,
+    load_profile_history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     now = now or dt.datetime.now().astimezone()
     site_tz = resolve_timezone(schedule.get("timezone"))
     live_metrics = extract_dashboard_metrics(status, now=now)
     metric_history = _history_with_live(metrics_history or [], live_metrics)
+    profile_history = (
+        _history_with_live(load_profile_history, live_metrics)
+        if load_profile_history is not None
+        else metric_history
+    )
     today_override = today_schedule_override(overrides, now.date())
     today_jobs = _today_job_rows(schedule, today_override, now.date())
     schedule_timeline = build_dashboard_schedule_timeline(schedule, today_override, now=now)
@@ -286,7 +292,7 @@ def build_dashboard_data_payload(
         auto_topup_headroom_soc,
         hours_to_sunset=hours_to_sunset,
         pv_remaining_kwh=pv_remaining_kwh,
-        metric_rows=metric_history,
+        metric_rows=profile_history,
         now=now,
         tz=resolve_timezone(schedule.get("timezone")),
     )
@@ -374,7 +380,7 @@ def build_dashboard_data_payload(
             "battery_charge_rate_w": battery_charge_rate_w,
             "reserve_floor_soc": battery_bms_cutoff_soc,
             "auto_topup_min_minutes": auto_topup_min_minutes,
-            "load_profile": _load_profile_view(metric_history, now, site_tz),
+            "load_profile": _load_profile_view(profile_history, now, site_tz),
             "solar_capped": (
                 {
                     "since": solar_capped["since"].isoformat(timespec="minutes"),

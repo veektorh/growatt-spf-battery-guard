@@ -1,10 +1,13 @@
 import datetime as dt
 import unittest
+from unittest.mock import patch
 
 from growatt_guard.cli import build_parser
 from growatt_guard.load_profile import (
+    LOAD_PROFILE_HISTORY_DAYS,
     band_planner_night,
     build_load_profile_report,
+    command_load_profile,
     format_load_profile_report,
     hourly_load_profile,
     percentile,
@@ -196,6 +199,48 @@ class PlanningNightLoadTests(unittest.TestCase):
         )
         self.assertEqual(rate, 1400.0)
         self.assertNotIn("hourly", source)
+
+    def test_saturday_evening_qualifies_within_load_profile_history_window(self):
+        # 2026-11-28 is a Saturday. An 8-day window only sees two prior weekend
+        # nights (11-21 and 11-22) and falls back to the band planner, while the
+        # 14-day window sees four (11-14, 11-15, 11-21, 11-22) and qualifies.
+        saturday = dt.datetime(2026, 11, 28, 18, 0, tzinfo=WAT)
+        rows = []
+        for offset in range(1, LOAD_PROFILE_HISTORY_DAYS + 1):
+            evening = saturday.date() - dt.timedelta(days=offset)
+            morning = evening + dt.timedelta(days=1)
+            for hour in range(18, 24):
+                rows.extend(_readings(evening, hour, 1900))
+            for hour in range(0, 7):
+                rows.extend(_readings(morning, hour, 1700))
+
+        history = [
+            {"day_type": "weekend", "rate_w": 2050, "bands": {
+                "evening": {"rate_w": 2200, "sample_count": 10},
+                "overnight": {"rate_w": 2000, "sample_count": 20},
+            }}
+            for _ in range(4)
+        ]
+
+        cutoff_8d = saturday - dt.timedelta(days=8)
+        rows_8d = [r for r in rows if dt.datetime.fromisoformat(r["timestamp"]) >= cutoff_8d]
+        _, source_8d = planning_night_load(rows_8d, history, now=saturday, hours=12.5, tz=WAT)
+        self.assertNotIn("hourly", source_8d)
+
+        rate_14d, source_14d = planning_night_load(rows, history, now=saturday, hours=12.5, tz=WAT)
+        self.assertIn("hourly profile median (weekend", source_14d)
+        self.assertLess(rate_14d, 1900.0)
+        self.assertGreater(rate_14d, 1700.0)
+
+    def test_command_load_profile_reads_load_profile_history_days(self):
+        with patch("growatt_guard.load_profile.validate_schedule", return_value={"timezone": "Africa/Lagos"}), \
+             patch("growatt_guard.load_profile.read_dashboard_metrics_history", return_value=[]) as mock_read, \
+             patch("growatt_guard.load_profile.read_discharge_rate_history", return_value=[]), \
+             patch("builtins.print"):
+            rc = command_load_profile(type("Cfg", (), {"weather_timezone": "Africa/Lagos"})(), json_output=True)
+        self.assertEqual(rc, 0)
+        self.assertEqual(mock_read.call_args.kwargs["days"], LOAD_PROFILE_HISTORY_DAYS)
+        self.assertEqual(LOAD_PROFILE_HISTORY_DAYS, 14)
 
 
 class ReportTests(unittest.TestCase):

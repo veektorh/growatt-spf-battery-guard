@@ -651,6 +651,27 @@ fired it. Keep the N-numbers so older notes still resolve.
   (`39%` SOC), still four points above `35%`, so the reopen condition did not
   fire.
 
+### N32. Read 14 days of snapshot history for the hourly load profile so Saturdays qualify
+
+- Status: shipped 2026-11-27 at the owner's direction, watch standing for the
+  next Saturday evening plan (`2026-11-28 18:00`).
+- Why: `planning_night_load` requires `MIN_PROFILE_DAYS = 3` nights per hour,
+  and `weekend` is Saturday–Sunday (2 nights/week). Readers were passing
+  `DASHBOARD_METRICS_RETENTION_DAYS = 8` (the dashboard chart's display window)
+  even though `DASHBOARD_METRICS_KEEP_DAYS = 90` retains 90 days on disk. In an
+  8-day window, Saturday `18:00` can only ever see 2 prior weekend nights, so
+  every Saturday night fell back to the band planner (~`2033 W`), while Sunday
+  `18:00` barely qualified by catching 3 nights. On live production snapshots on
+  2026-11-27, widening to 14 days gives 4 weekend nights (`1816 W` vs ~`2033 W`
+  band) while moving weekdays by `+1.2%` (`1787 W` vs `1766 W`, 10 days).
+- Shipped: `LOAD_PROFILE_HISTORY_DAYS = 14` in `growatt_guard/load_profile.py`,
+  used by `topup.py`, `load_profile.py`, `modes.py`, and `dashboard_service.py`
+  / `dashboard_viewmodel.py` (keeping the dashboard's 8-day chart window intact).
+- Done when: the next Saturday `18:00` `auto-topup-check` audit row records
+  `planned_load_source=hourly profile median (weekend, ...)` instead of falling
+  back to the band planner, and `load-profile` shows both weekday and weekend
+  hourly totals midweek.
+
 ## Current Baseline
 
 The following capabilities are implemented and should be preserved:
@@ -865,6 +886,13 @@ N26 watch closed on 2026-11-27 (shipped 2026-11-23, PR #138): three
 consecutive cut mornings landed within three points of the `07:00` projection
 (`3.0` on 11-25, `2.6` on 11-26 with the clamp firing once on a `3316 W`
 spike, `1.0` on 11-27), and 2026-11-27 cleared the threshold with zero holds.
+
+N32 shipped on 2026-11-27 at the owner's direction: `LOAD_PROFILE_HISTORY_DAYS`
+(`14` days from the 90 days kept on disk) replaces the 8-day chart window for
+hourly-profile readers (`topup.py`, `load_profile.py`, `modes.py`, and the
+dashboard Tonight/load-profile views), so Saturday nights see four weekend
+nights and qualify instead of falling back to the band planner. Watch stands
+under Standing Watches for the `2026-11-28` Saturday `18:00` plan.
 
 N28 shipped on 2026-11-25 at the owner's direction: `choose_preserve_threshold`
 and `analyze_weather_window` now accept `window_start`, and
